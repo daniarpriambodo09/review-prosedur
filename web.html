@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Review Prosedur</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: #f5f7fa;
+        }
+        
+        .header {
+            background-color: #fff;
+            padding: 15px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 600;
+            color: #2563eb;
+        }
+        
+        .logo svg {
+            width: 24px;
+            height: 24px;
+        }
+        
+        .nav {
+            display: flex;
+            gap: 30px;
+        }
+        
+        .nav a {
+            color: #64748b;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        
+        .nav a:hover {
+            color: #2563eb;
+        }
+        
+        .breadcrumb {
+            padding: 20px 30px;
+            font-size: 14px;
+            color: #64748b;
+        }
+        
+        .breadcrumb a {
+            color: #2563eb;
+            text-decoration: none;
+        }
+        
+        .container {
+            padding: 0 30px 30px;
+        }
+        
+        .page-title {
+            font-size: 28px;
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 8px;
+        }
+        
+        .page-subtitle {
+            color: #64748b;
+            font-size: 14px;
+            margin-bottom: 30px;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+        
+        .search-box {
+            position: relative;
+            flex: 1;
+            max-width: 300px;
+        }
+        
+        .search-box input {
+            width: 100%;
+            padding: 10px 15px 10px 40px;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        
+        .search-box svg {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 18px;
+            height: 18px;
+            color: #94a3b8;
+        }
+        
+        .filter-select {
+            padding: 10px 35px 10px 15px;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 14px;
+            background-color: #fff;
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M6 8L2 4h8z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+        }
+        
+        .btn-primary {
+            background-color: #2563eb;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .btn-primary:hover {
+            background-color: #1d4ed8;
+        }
+        
+        .card {
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .card-header {
+            padding: 20px;
+            border-bottom: 1px solid #e2e8f0;
+            font-weight: 600;
+            font-size: 16px;
+            color: #1e293b;
+        }
+        
+        .table-container {
+            overflow-x: auto;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th {
+            background-color: #f8fafc;
+            padding: 12px 20px;
+            text-align: left;
+            font-size: 13px;
+            font-weight: 600;
+            color: #475569;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        td {
+            padding: 16px 20px;
+            font-size: 14px;
+            color: #334155;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        
+        tr:hover {
+            background-color: #f8fafc;
+        }
+        
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        
+        .status-revisi {
+            background-color: #fef3c7;
+            color: #92400e;
+        }
+        
+        .status-relevan {
+            background-color: #d1fae5;
+            color: #065f46;
+        }
+        
+        .status-obsolete {
+            background-color: #fee2e2;
+            color: #991b1b;
+        }
+        
+        .pagination {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+            border-top: 1px solid #e2e8f0;
+        }
+        
+        .pagination-info {
+            font-size: 14px;
+            color: #64748b;
+        }
+        
+        .pagination-controls {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .page-btn {
+            width: 32px;
+            height: 32px;
+            border: 1px solid #e2e8f0;
+            background-color: #fff;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 500;
+            color: #475569;
+        }
+        
+        .page-btn:hover:not(:disabled) {
+            background-color: #f1f5f9;
+        }
+        
+        .page-btn.active {
+            background-color: #2563eb;
+            color: white;
+            border-color: #2563eb;
+        }
+        
+        .page-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            Review Prosedur
+        </div>
+        <div class="nav">
+            <a href="#">Dashboard Admin</a>
+            <a href="#">Panduan</a>
+            <a href="#">Kelola User</a>
+            <a href="#">Admin</a>
+        </div>
+    </div>
+    
+    <div class="breadcrumb">
+        <a href="#">Dashboard Admin</a> / <span>Status Prosedur</span>
+    </div>
+    
+    <div class="container">
+        <h1 class="page-title">Status Prosedur</h1>
+        <p class="page-subtitle">Kelola status evaluasi prosedur yang Ada, kirim lainkan.</p>
+        
+        <div class="controls">
+            <div class="search-box">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"/>
+                    <path d="m21 21-4.35-4.35"/>
+                </svg>
+                <input type="text" id="searchInput" placeholder="Cari prosedur...">
+            </div>
+            <select class="filter-select" id="filterStatus">
+                <option value="">Filter Status</option>
+                <option value="Revisi">Revisi</option>
+                <option value="Relevan">Relevan</option>
+                <option value="Obsolete">Obsolete</option>
+            </select>
+            <button class="btn-primary">
+                <span>+</span> Tambah Prosedur
+            </button>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">Bank Dokumen</div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Nama Prosedur / Nama Dokumen</th>
+                            <th>Level Dokumen</th>
+                            <th>Tanggal Selesai Approval</th>
+                            <th>Revisi</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody">
+                    </tbody>
+                </table>
+            </div>
+            <div class="pagination">
+                <div class="pagination-info" id="paginationInfo"></div>
+                <div class="pagination-controls">
+                    <button class="page-btn" id="prevBtn">‹</button>
+                    <button class="page-btn active" id="pageNum">1</button>
+                    <button class="page-btn" id="nextBtn">›</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script>
+        let allData = [];
+        let filteredData = [];
+        let currentPage = 1;
+        const rowsPerPage = 10;
+
+        // Read Excel file
+        async function loadExcelData() {
+            try {
+                const response = await window.fs.readFile('datareviewprosedur.xlsx');
+                const workbook = XLSX.read(response, { type: 'array' });
+                const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+                
+                allData = jsonData.map(row => ({
+                    nama: row['Nama Prosedur / Nama Dokumen'] || '',
+                    level: row['Level Dokumen'] || '',
+                    tanggal: row['Tanggal Selesai Approval'] || '',
+                    revisi: row['Revisi'] || '',
+                    status: row['Status'] || ''
+                }));
+                
+                filteredData = [...allData];
+                renderTable();
+            } catch (error) {
+                console.error('Error loading Excel:', error);
+            }
+        }
+
+        function renderTable() {
+            const startIndex = (currentPage - 1) * rowsPerPage;
+            const endIndex = startIndex + rowsPerPage;
+            const pageData = filteredData.slice(startIndex, endIndex);
+            
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+            
+            pageData.forEach(row => {
+                const tr = document.createElement('tr');
+                
+                let statusClass = '';
+                let statusIcon = '';
+                if (row.status === 'Revisi') {
+                    statusClass = 'status-revisi';
+                    statusIcon = '⟳';
+                } else if (row.status === 'Relevan') {
+                    statusClass = 'status-relevan';
+                    statusIcon = '✓';
+                } else if (row.status === 'Obsolete') {
+                    statusClass = 'status-obsolete';
+                    statusIcon = '⊘';
+                }
+                
+                // Format tanggal
+                let tanggalFormatted = row.tanggal;
+                if (typeof row.tanggal === 'number') {
+                    const date = XLSX.SSF.parse_date_code(row.tanggal);
+                    tanggalFormatted = `${date.y}-${String(date.m).padStart(2, '0')}-${String(date.d).padStart(2, '0')}`;
+                }
+                
+                tr.innerHTML = `
+                    <td>${row.nama}</td>
+                    <td>${row.level}</td>
+                    <td>${tanggalFormatted}</td>
+                    <td>${row.revisi}</td>
+                    <td><span class="status-badge ${statusClass}">${statusIcon} ${row.status}</span></td>
+                `;
+                tbody.appendChild(tr);
+            });
+            
+            updatePaginationInfo();
+        }
+
+        function updatePaginationInfo() {
+            const startIndex = (currentPage - 1) * rowsPerPage + 1;
+            const endIndex = Math.min(currentPage * rowsPerPage, filteredData.length);
+            const totalPages = Math.ceil(filteredData.length / rowsPerPage);
+            
+            document.getElementById('paginationInfo').textContent = 
+                `Menampilkan ${startIndex} sampai ${endIndex} dari ${filteredData.length} entri`;
+            
+            document.getElementById('pageNum').textContent = currentPage;
+            document.getElementById('prevBtn').disabled = currentPage === 1;
+            document.getElementById('nextBtn').disabled = currentPage >= totalPages;
+        }
+
+        // Event listeners
+        document.getElementById('prevBtn').addEventListener('click', () => {
+            if (currentPage > 1) {
+                currentPage--;
+                renderTable();
+            }
+        });
+
+        document.getElementById('nextBtn').addEventListener('click', () => {
+            const totalPages = Math.ceil(filteredData.length / rowsPerPage);
+            if (currentPage < totalPages) {
+                currentPage++;
+                renderTable();
+            }
+        });
+
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            const searchTerm = e.target.value.toLowerCase();
+            filteredData = allData.filter(row => 
+                row.nama.toLowerCase().includes(searchTerm)
+            );
+            currentPage = 1;
+            renderTable();
+        });
+
+        document.getElementById('filterStatus').addEventListener('change', (e) => {
+            const filterValue = e.target.value;
+            if (filterValue === '') {
+                filteredData = [...allData];
+            } else {
+                filteredData = allData.filter(row => row.status === filterValue);
+            }
+            currentPage = 1;
+            renderTable();
+        });
+
+        // Load data on page load
+        loadExcelData();
+    </script>
+</body>
+</html>

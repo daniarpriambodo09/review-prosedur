@@ -1,0 +1,1959 @@
+// app/api/activities/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/lib/db';
+
+// GET - Ambil activity logs terbaru
+export async function GET(request: NextRequest) {
+  const client = await pool.connect();
+  try {
+    const { searchParams } = new URL(request.url);
+    const limit = parseInt(searchParams.get('limit') || '10');
+
+    const query = `
+      SELECT 
+        id,
+        user_id,
+        username,
+        activity_type,
+        activity_description,
+        target_type,
+        target_id,
+        created_at
+      FROM activity_logs
+      ORDER BY created_at DESC
+      LIMIT $1
+    `;
+
+    const result = await client.query(query, [limit]);
+
+    const activities = result.rows.map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      username: row.username,
+      activityType: row.activity_type,
+      activityDescription: row.activity_description,
+      targetType: row.target_type,
+      targetId: row.target_id,
+      createdAt: row.created_at,
+    }));
+
+    return NextResponse.json(activities);
+  } catch (error) {
+    console.error('Error fetching activities:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch activities' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+// POST - Log activity baru
+export async function POST(request: NextRequest) {
+  const client = await pool.connect();
+  try {
+    const body = await request.json();
+    const {
+      userId,
+      username,
+      activityType,
+      activityDescription,
+      targetType,
+      targetId,
+      ipAddress,
+      userAgent,
+    } = body;
+
+    if (!username || !activityType || !activityDescription) {
+      return NextResponse.json(
+        { error: 'Username, activityType, and activityDescription are required' },
+        { status: 400 }
+      );
+    }
+
+    const query = `
+      INSERT INTO activity_logs
+      (user_id, username, activity_type, activity_description, target_type, target_id, ip_address, user_agent)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING *
+    `;
+
+    const result = await client.query(query, [
+      userId || null,
+      username,
+      activityType,
+      activityDescription,
+      targetType || null,
+      targetId || null,
+      ipAddress || null,
+      userAgent || null,
+    ]);
+
+    return NextResponse.json({
+      success: true,
+      activity: result.rows[0],
+    }, { status: 201 });
+  } catch (error) {
+    console.error('Error logging activity:', error);
+    return NextResponse.json(
+      { error: 'Failed to log activity' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+// app/api/arsip/delete/route.ts
+
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/lib/db';
+import { logActivity } from '@/lib/activityLogger';
+
+// DELETE - Hapus permanen archived procedure
+export async function DELETE(request: NextRequest) {
+  const client = await pool.connect();
+  
+  try {
+    const body = await request.json();
+    const { nomorDokumen } = body;
+
+    if (!nomorDokumen) {
+      return NextResponse.json(
+        { error: 'Nomor dokumen is required' },
+        { status: 400 }
+      );
+    }
+
+    // ✅ Ambil nama_dokumen sebelum delete
+    const selectQuery = `
+      SELECT nama_dokumen FROM arsip_prosedur
+      WHERE nomor_dokumen = $1
+    `;
+    const selectResult = await client.query(selectQuery, [nomorDokumen]);
+    
+    let namaDokumen = nomorDokumen; // Fallback ke nomor jika tidak ditemukan
+    if (selectResult.rows.length > 0) {
+      namaDokumen = selectResult.rows[0].nama_dokumen;
+    }
+
+    // Delete permanen dari arsip_prosedur
+    const deleteQuery = `
+      DELETE FROM arsip_prosedur
+      WHERE nomor_dokumen = $1
+      RETURNING *
+    `;
+    const result = await client.query(deleteQuery, [nomorDokumen]);
+
+    if (result.rowCount === 0) {
+      return NextResponse.json(
+        { error: 'Archived procedure not found' },
+        { status: 404 }
+      );
+    }
+
+    // ✅ Tambahkan logging setelah delete berhasil - GUNAKAN NAMA DOKUMEN
+    await logActivity({
+      username: 'admin',
+      activityType: 'delete',
+      activityDescription: `Hapus permanen prosedur ${namaDokumen}`,
+      targetType: 'procedure',
+      targetId: nomorDokumen,
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: 'Procedure permanently deleted'
+    });
+  } catch (error) {
+    console.error('Error deleting procedure permanently:', error);
+    return NextResponse.json(
+      { error: 'Failed to delete procedure permanently' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+// app/api/arsip/restore/route.ts
+
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/lib/db';
+import { logActivity } from '@/lib/activityLogger';
+
+// POST - Restore archived procedure
+export async function POST(request: NextRequest) {
+  const client = await pool.connect();
+  
+  try {
+    const body = await request.json();
+    const { nomorDokumen } = body;
+
+    if (!nomorDokumen) {
+      return NextResponse.json(
+        { error: 'Nomor dokumen is required' },
+        { status: 400 }
+      );
+    }
+
+    await client.query('BEGIN');
+
+    // 1. Ambil data dari arsip_prosedur (inklusive nama_dokumen)
+    const selectQuery = `
+      SELECT nama_dokumen, * FROM arsip_prosedur 
+      WHERE nomor_dokumen = $1
+    `;
+    const selectResult = await client.query(selectQuery, [nomorDokumen]);
+
+    if (selectResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return NextResponse.json(
+        { error: 'Archived procedure not found' },
+        { status: 404 }
+      );
+    }
+
+    const row = selectResult.rows[0];
+    const namaDokumen = row.nama_dokumen; // ✅ SIMPAN NAMA DOKUMEN
+
+    // 2. Insert kembali ke procedure_documents
+    const insertQuery = `
+      INSERT INTO procedure_documents 
+      (nama_dokumen, nomor_dokumen, level_dokumen, tanggal_selesai_approval, 
+       revisi, owner, pic, email, status, is_custom, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)
+      RETURNING *
+    `;
+
+    const insertValues = [
+      row.nama_dokumen,
+      row.nomor_dokumen,
+      row.level_dokumen,
+      row.tanggal_selesai_approval,
+      row.revisi,
+      row.owner,
+      row.pic,
+      row.email,
+      row.status,
+      row.is_custom,
+      row.created_at
+    ];
+
+    await client.query(insertQuery, insertValues);
+
+    // 3. Delete dari arsip_prosedur
+    const deleteQuery = `
+      DELETE FROM arsip_prosedur 
+      WHERE nomor_dokumen = $1
+    `;
+    await client.query(deleteQuery, [nomorDokumen]);
+
+    await client.query('COMMIT');
+
+    // ✅ Tambahkan logging setelah restore berhasil - GUNAKAN NAMA DOKUMEN
+    await logActivity({
+      username: 'admin',
+      activityType: 'restore',
+      activityDescription: `Restore prosedur ${namaDokumen}`,
+      targetType: 'procedure',
+      targetId: nomorDokumen,
+    });
+
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Procedure restored successfully' 
+    });
+  } catch (error: any) {
+    await client.query('ROLLBACK');
+    console.error('Error restoring procedure:', error);
+    
+    if (error.code === '23505') {
+      return NextResponse.json(
+        { error: 'Procedure already exists in active list' },
+        { status: 409 }
+      );
+    }
+    
+    return NextResponse.json(
+      { error: 'Failed to restore procedure' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+// app/api/arsip/route.ts
+
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/lib/db';
+
+// GET - Ambil semua arsip prosedur
+export async function GET(request: NextRequest) {
+  const client = await pool.connect();
+  
+  try {
+    const query = 'SELECT * FROM arsip_prosedur ORDER BY deleted_at DESC';
+    const result = await client.query(query);
+
+    // Convert snake_case to camelCase (TAMBAHKAN email)
+    const arsip = result.rows.map((row: any) => ({
+      id: row.id,
+      namaDokumen: row.nama_dokumen,
+      nomorDokumen: row.nomor_dokumen,
+      levelDokumen: row.level_dokumen,
+      tanggalSelesaiApproval: row.tanggal_selesai_approval,
+      revisi: row.revisi,
+      owner: row.owner,
+      pic: row.pic,
+      email: row.email, // TAMBAHKAN INI
+      status: row.status,
+      isCustom: row.is_custom,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      deletedAt: row.deleted_at,
+    }));
+
+    return NextResponse.json(arsip);
+  } catch (error) {
+    console.error('Error fetching archived procedures:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch archived procedures' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+// app/api/auth/login/route.ts
+
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/lib/db';
+import { verifyPassword } from '@/lib/auth';
+import { logActivity } from '@/lib/activityLogger'; // ✅ Tambahan
+
+export async function POST(request: NextRequest) {
+  const client = await pool.connect();
+  
+  try {
+    const body = await request.json();
+    const { username, password } = body;
+
+    if (!username || !password) {
+      return NextResponse.json(
+        { error: 'Username dan password harus diisi' },
+        { status: 400 }
+      );
+    }
+
+    // Cari user berdasarkan username
+    const query = `
+      SELECT id, username, password, full_name, email, role, is_active 
+      FROM users 
+      WHERE username = $1
+    `;
+    
+    const result = await client.query(query, [username]);
+
+    if (result.rows.length === 0) {
+      return NextResponse.json(
+        { error: 'Username atau password salah' },
+        { status: 401 }
+      );
+    }
+
+    const user = result.rows[0];
+
+    // Cek apakah user aktif
+    if (!user.is_active) {
+      return NextResponse.json(
+        { error: 'Akun tidak aktif. Hubungi administrator.' },
+        { status: 403 }
+      );
+    }
+
+    // Verifikasi password
+    const isPasswordValid = await verifyPassword(password, user.password);
+
+    if (!isPasswordValid) {
+      return NextResponse.json(
+        { error: 'Username atau password salah' },
+        { status: 401 }
+      );
+    }
+
+    // ✅ Log aktivitas login setelah password valid
+    await logActivity({
+      userId: user.id,
+      username: user.username,
+      activityType: 'login',
+      activityDescription: `User ${user.username} login`,
+      targetType: 'user',
+      targetId: user.id.toString(),
+    });
+
+    // Return user data (tanpa password)
+    return NextResponse.json({
+      success: true,
+      user: {
+        id: user.id,
+        username: user.username,
+        fullName: user.full_name,
+        email: user.email,
+        role: user.role,
+      }
+    });
+  } catch (error) {
+    console.error('Error during login:', error);
+    return NextResponse.json(
+      { error: 'Terjadi kesalahan saat login' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+// app/api/auth/register/route.ts
+
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/lib/db';
+import { hashPassword } from '@/lib/auth';
+
+export async function POST(request: NextRequest) {
+  const client = await pool.connect();
+  
+  try {
+    const body = await request.json();
+    const { username, password, fullName, email, role = 'admin' } = body;
+
+    // Validasi input
+    if (!username || !password || !fullName) {
+      return NextResponse.json(
+        { error: 'Username, password, dan nama lengkap harus diisi' },
+        { status: 400 }
+      );
+    }
+
+    // Cek apakah username sudah ada
+    const checkQuery = 'SELECT id FROM users WHERE username = $1';
+    const checkResult = await client.query(checkQuery, [username]);
+
+    if (checkResult.rows.length > 0) {
+      return NextResponse.json(
+        { error: 'Username sudah digunakan' },
+        { status: 409 }
+      );
+    }
+
+    // Hash password
+    const hashedPassword = await hashPassword(password);
+
+    // Insert user baru
+    const insertQuery = `
+      INSERT INTO users (username, password, full_name, email, role)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING id, username, full_name, email, role
+    `;
+
+    const result = await client.query(insertQuery, [
+      username,
+      hashedPassword,
+      fullName,
+      email || null,
+      role
+    ]);
+
+    return NextResponse.json({
+      success: true,
+      user: {
+        id: result.rows[0].id,
+        username: result.rows[0].username,
+        fullName: result.rows[0].full_name,
+        email: result.rows[0].email,
+        role: result.rows[0].role,
+      }
+    }, { status: 201 });
+  } catch (error) {
+    console.error('Error creating user:', error);
+    return NextResponse.json(
+      { error: 'Terjadi kesalahan saat membuat user' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+// app/api/auth/validate/route.ts
+
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/lib/db';
+
+export async function POST(request: NextRequest) {
+  const client = await pool.connect();
+  
+  try {
+    const body = await request.json();
+    const { username } = body;
+
+    if (!username) {
+      return NextResponse.json(
+        { error: 'Username is required' },
+        { status: 400 }
+      );
+    }
+
+    // Cek apakah user masih aktif
+    const query = `
+      SELECT id, username, full_name, email, role, is_active 
+      FROM users 
+      WHERE username = $1
+    `;
+    
+    const result = await client.query(query, [username]);
+
+    if (result.rows.length === 0 || !result.rows[0].is_active) {
+      return NextResponse.json(
+        { valid: false },
+        { status: 401 }
+      );
+    }
+
+    return NextResponse.json({
+      valid: true,
+      user: {
+        id: result.rows[0].id,
+        username: result.rows[0].username,
+        fullName: result.rows[0].full_name,
+        email: result.rows[0].email,
+        role: result.rows[0].role,
+      }
+    });
+  } catch (error) {
+    console.error('Error validating session:', error);
+    return NextResponse.json(
+      { valid: false },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+// app/api/document-read/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/lib/db';
+import { logActivity } from '@/lib/activityLogger';
+
+// POST - Tandai dokumen telah dibaca oleh PIC
+export async function POST(request: NextRequest) {
+  const client = await pool.connect();
+
+  try {
+    const body = await request.json();
+    const { nomorDokumen, pic } = body;
+
+    // Validasi input
+    if (!nomorDokumen || !pic) {
+      return NextResponse.json(
+        { error: 'nomorDokumen dan pic harus diisi' },
+        { status: 400 }
+      );
+    }
+
+    // Ambil data dokumen terlebih dahulu
+    const docQuery = `
+      SELECT nama_dokumen, status, revisi 
+      FROM procedure_documents 
+      WHERE nomor_dokumen = $1
+    `;
+    const docResult = await client.query(docQuery, [nomorDokumen]);
+
+    if (docResult.rows.length === 0) {
+      return NextResponse.json(
+        { error: 'Dokumen tidak ditemukan' },
+        { status: 404 }
+      );
+    }
+
+    const { nama_dokumen, status: currentStatus, revisi: currentRevisi } = docResult.rows[0];
+
+    // Hanya update jika status masih eligible (belum final review)
+    const eligibleStatuses = ['Belum dikirim', 'Telah terkirim', 'Menunggu', '-'];
+    if (!eligibleStatuses.includes(currentStatus)) {
+      // Tidak perlu update, kembalikan response sukses
+      return NextResponse.json({
+        success: true,
+        updated: false,
+        currentStatus,
+        message: 'Status tidak perlu diubah',
+      });
+    }
+
+    // ✅ Mulai database transaction untuk konsistensi data
+    await client.query('BEGIN');
+
+    try {
+      // 1️⃣ Update procedure_documents ke "Telah dibaca"
+      const updateProcedureQuery = `
+        UPDATE procedure_documents
+        SET status = 'Telah dibaca', updated_at = CURRENT_TIMESTAMP
+        WHERE nomor_dokumen = $1
+        RETURNING status
+      `;
+      await client.query(updateProcedureQuery, [nomorDokumen]);
+
+      // 2️⃣ ✅ FIX UTAMA: Sync ke document_reviews agar konsisten dengan getDocumentReview()
+      //    Karena unique constraint: (nomor_dokumen, last_reviewed_month)
+      const currentMonth = new Date().getMonth(); // 0 = Januari, 11 = Desember
+      const revisiValue = currentRevisi || '0';
+
+      const syncReviewQuery = `
+        INSERT INTO document_reviews 
+          (nomor_dokumen, status, revisi, last_reviewed_month, updated_at)
+        VALUES ($1, 'Telah dibaca', $2, $3, CURRENT_TIMESTAMP)
+        ON CONFLICT (nomor_dokumen, last_reviewed_month) 
+        DO UPDATE SET 
+          status = 'Telah dibaca',
+          revisi = $2,
+          updated_at = CURRENT_TIMESTAMP
+        RETURNING status
+      `;
+      await client.query(syncReviewQuery, [nomorDokumen, revisiValue, currentMonth]);
+
+      // ✅ Commit transaction jika semua query sukses
+      await client.query('COMMIT');
+
+      // 3️⃣ Catat ke activity log
+      await logActivity({
+        username: pic,
+        activityType: 'review',
+        activityDescription: `PIC ${pic} membaca dokumen ${nama_dokumen}`,
+        targetType: 'procedure',
+        targetId: nomorDokumen,
+      });
+
+      return NextResponse.json({
+        success: true,
+        updated: true,
+        currentStatus: 'Telah dibaca',
+        message: 'Status berhasil diupdate menjadi Telah dibaca',
+      });
+
+    } catch (error) {
+      // ✅ Rollback jika ada error di tengah transaction
+      await client.query('ROLLBACK');
+      throw error;
+    }
+
+  } catch (error) {
+    console.error('Error marking document as read:', error);
+    return NextResponse.json(
+      { error: 'Gagal mengupdate status dokumen' },
+      { status: 500 }
+    );
+  } finally {
+    // ✅ Pastikan client release terlepas dari success/error
+    client.release();
+  }
+}
+
+// app/api/email-schedules/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/lib/db';
+
+// GET - Ambil semua email schedules atau filter by nomor_dokumen
+export async function GET(request: NextRequest) {
+  const client = await pool.connect();
+
+  try {
+    const { searchParams } = new URL(request.url);
+    const nomorDokumen = searchParams.get('nomorDokumen');
+
+    let query = `
+      SELECT
+        es.id,
+        es.nomor_dokumen,
+        es.scheduled_email_at,
+        es.email_status,
+        es.last_sent_at,
+        es.retry_count,
+        es.error_message,
+        es.created_at,
+        es.updated_at,
+        pd.nama_dokumen,
+        pd.pic,
+        pd.email
+      FROM email_schedules es
+      LEFT JOIN procedure_documents pd ON es.nomor_dokumen = pd.nomor_dokumen
+    `;
+
+    let values: any[] = [];
+
+    if (nomorDokumen) {
+      query += ' WHERE es.nomor_dokumen = $1';
+      values = [nomorDokumen];
+    }
+
+    query += ' ORDER BY es.scheduled_email_at ASC';
+
+    const result = await client.query(query, values);
+
+    const schedules = result.rows.map((row) => ({
+      id: row.id,
+      nomorDokumen: row.nomor_dokumen,
+      scheduledEmailAt: row.scheduled_email_at,
+      emailStatus: row.email_status,
+      lastSentAt: row.last_sent_at,
+      retryCount: row.retry_count,
+      errorMessage: row.error_message,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      namaDokumen: row.nama_dokumen,
+      pic: row.pic,
+      email: row.email,
+    }));
+
+    return NextResponse.json(schedules);
+  } catch (error) {
+    console.error('Error fetching email schedules:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch email schedules' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+// PUT - Update email schedule
+// Jika emailStatus di-set ke 'sent', otomatis update status dokumen ke "Telah terkirim"
+export async function PUT(request: NextRequest) {
+  const client = await pool.connect();
+
+  try {
+    const body = await request.json();
+    const { nomorDokumen, scheduledEmailAt, emailStatus } = body;
+
+    if (!nomorDokumen || !scheduledEmailAt) {
+      return NextResponse.json(
+        { error: 'Nomor dokumen dan scheduled email at harus diisi' },
+        { status: 400 }
+      );
+    }
+
+    // Validasi: tidak boleh tanggal di masa lalu (kecuali saat update ke 'sent')
+    if (emailStatus !== 'sent') {
+      const scheduledDate = new Date(scheduledEmailAt);
+      const now = new Date();
+
+      if (scheduledDate < now) {
+        return NextResponse.json(
+          { error: 'Tanggal/waktu pengiriman tidak boleh di masa lalu' },
+          { status: 400 }
+        );
+      }
+    }
+
+    await client.query('BEGIN');
+
+    // Cek apakah schedule sudah ada
+    const checkQuery = 'SELECT id FROM email_schedules WHERE nomor_dokumen = $1';
+    const checkResult = await client.query(checkQuery, [nomorDokumen]);
+
+    let result;
+
+    if (checkResult.rows.length > 0) {
+      // Update existing
+      const updateQuery = `
+        UPDATE email_schedules
+        SET
+          scheduled_email_at = $1,
+          email_status = COALESCE($2, 'pending'),
+          error_message = NULL,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE nomor_dokumen = $3
+        RETURNING *
+      `;
+      result = await client.query(updateQuery, [
+        scheduledEmailAt,
+        emailStatus || 'pending',
+        nomorDokumen,
+      ]);
+    } else {
+      // Insert new
+      const insertQuery = `
+        INSERT INTO email_schedules
+        (nomor_dokumen, scheduled_email_at, email_status)
+        VALUES ($1, $2, $3)
+        RETURNING *
+      `;
+      result = await client.query(insertQuery, [
+        nomorDokumen,
+        scheduledEmailAt,
+        emailStatus || 'pending',
+      ]);
+    }
+
+    // Jika email_status = 'sent' → update status dokumen ke "Telah terkirim"
+    // hanya jika status dokumen saat ini "Belum dikirim"
+    if (emailStatus === 'sent') {
+      const updateProcQuery = `
+        UPDATE procedure_documents
+        SET status = 'Telah terkirim', updated_at = CURRENT_TIMESTAMP
+        WHERE nomor_dokumen = $1
+          AND status = 'Belum dikirim'
+      `;
+      await client.query(updateProcQuery, [nomorDokumen]);
+    }
+
+    await client.query('COMMIT');
+
+    return NextResponse.json({
+      success: true,
+      schedule: result.rows[0],
+    });
+  } catch (error: any) {
+    await client.query('ROLLBACK');
+    console.error('Error updating email schedule:', error);
+    return NextResponse.json(
+      { error: 'Failed to update email schedule' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+// app/api/files/get/route.ts
+
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/lib/db';
+
+export async function GET(request: NextRequest) {
+  const client = await pool.connect();
+  
+  try {
+    const { searchParams } = new URL(request.url);
+    const nomorDokumen = searchParams.get('nomorDokumen');
+
+    if (!nomorDokumen) {
+      return NextResponse.json(
+        { error: 'Nomor dokumen is required' },
+        { status: 400 }
+      );
+    }
+
+    // Get active file
+    const query = `
+      SELECT * FROM active_procedure_files
+      WHERE nomor_dokumen = $1
+    `;
+
+    const result = await client.query(query, [nomorDokumen]);
+
+    if (result.rows.length === 0) {
+      return NextResponse.json(
+        { file: null },
+        { status: 200 }
+      );
+    }
+
+    const file = result.rows[0];
+
+    return NextResponse.json({
+      file: {
+        id: file.id,
+        nomorDokumen: file.nomor_dokumen,
+        fileName: file.file_name,
+        filePath: file.file_path,
+        fileSize: file.file_size,
+        mimeType: file.mime_type,
+        version: file.version,
+        uploadedBy: file.uploaded_by,
+        uploadedAt: file.uploaded_at,
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching file:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch file' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+// app/api/files/list/route.ts
+
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/lib/db';
+
+export async function GET(request: NextRequest) {
+  const client = await pool.connect();
+  
+  try {
+    const { searchParams } = new URL(request.url);
+    const nomorDokumen = searchParams.get('nomorDokumen');
+
+    if (!nomorDokumen) {
+      return NextResponse.json(
+        { error: 'Nomor dokumen is required' },
+        { status: 400 }
+      );
+    }
+
+    // Get all versions
+    const query = `
+      SELECT * FROM procedure_files
+      WHERE nomor_dokumen = $1
+      ORDER BY version DESC, uploaded_at DESC
+    `;
+
+    const result = await client.query(query, [nomorDokumen]);
+
+    const files = result.rows.map(file => ({
+      id: file.id,
+      nomorDokumen: file.nomor_dokumen,
+      fileName: file.file_name,
+      filePath: file.file_path,
+      fileSize: file.file_size,
+      mimeType: file.mime_type,
+      version: file.version,
+      isActive: file.is_active,
+      uploadedBy: file.uploaded_by,
+      uploadedAt: file.uploaded_at,
+    }));
+
+    return NextResponse.json({ files });
+
+  } catch (error) {
+    console.error('Error listing files:', error);
+    return NextResponse.json(
+      { error: 'Failed to list files' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+import { NextRequest, NextResponse } from 'next/server';
+import { readFile } from 'fs/promises';
+import path from 'path';
+
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const filePath = searchParams.get('path');
+
+    if (!filePath) {
+      return NextResponse.json(
+        { error: 'File path is required' },
+        { status: 400 }
+      );
+    }
+
+    // Decode path
+    const decodedPath = decodeURIComponent(filePath);
+    
+    // Pastikan path aman (tidak ada directory traversal)
+    if (decodedPath.includes('..') || decodedPath.startsWith('/')) {
+      return NextResponse.json(
+        { error: 'Invalid file path' },
+        { status: 400 }
+      );
+    }
+
+    // Build full path
+    const fullPath = path.join(process.cwd(), 'public', decodedPath);
+
+    // Baca file
+    const fileBuffer = await readFile(fullPath);
+
+    // Return dengan headers yang tepat untuk inline display
+    return new NextResponse(fileBuffer, {
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `inline; filename="${path.basename(fullPath)}"`,
+        'Content-Length': fileBuffer.length.toString(),
+        'Cache-Control': 'public, max-age=31536000',
+      },
+    });
+  } catch (error) {
+    console.error('Error serving file:', error);
+    return NextResponse.json(
+      { error: 'File not found' },
+      { status: 404 }
+    );
+  }
+}
+
+import { NextRequest, NextResponse } from 'next/server';
+import { writeFile, mkdir } from 'fs/promises';
+import { existsSync } from 'fs';
+import path from 'path';
+import pool from '@/lib/db';
+import { logActivity } from '@/lib/activityLogger';
+
+const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads', 'documents');
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+export async function POST(request: NextRequest) {
+  const client = await pool.connect();
+  
+  try {
+    const formData = await request.formData();
+    const file = formData.get('file') as File;
+    const nomorDokumen = formData.get('nomorDokumen') as string;
+    const uploadedBy = formData.get('uploadedBy') as string;
+
+    if (!file || !nomorDokumen) {
+      return NextResponse.json(
+        { error: 'File dan nomor dokumen harus diisi' },
+        { status: 400 }
+      );
+    }
+
+    if (file.type !== 'application/pdf') {
+      return NextResponse.json(
+        { error: 'Hanya file PDF yang diperbolehkan' },
+        { status: 400 }
+      );
+    }
+
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json(
+        { error: 'Ukuran file maksimal 10MB' },
+        { status: 400 }
+      );
+    }
+
+    const checkQuery = 'SELECT nama_dokumen FROM procedure_documents WHERE nomor_dokumen = $1';
+    const checkResult = await client.query(checkQuery, [nomorDokumen]);
+    
+    if (checkResult.rows.length === 0) {
+      return NextResponse.json(
+        { error: 'Nomor dokumen tidak ditemukan' },
+        { status: 404 }
+      );
+    }
+
+    await client.query('BEGIN');
+
+    // Get current version
+    const versionQuery = `
+      SELECT COALESCE(MAX(version), 0) + 1 as next_version
+      FROM procedure_files
+      WHERE nomor_dokumen = $1
+    `;
+    const versionResult = await client.query(versionQuery, [nomorDokumen]);
+    const nextVersion = versionResult.rows[0].next_version;
+
+    // Deactivate previous files
+    await client.query(
+      'UPDATE procedure_files SET is_active = false WHERE nomor_dokumen = $1',
+      [nomorDokumen]
+    );
+
+    // ✅ SIMPAN NAMA FILE ASLI (dengan .pdf)
+    const originalFileName = file.name.endsWith('.pdf') 
+      ? file.name 
+      : `${file.name}.pdf`;
+
+    // Generate filename untuk file di disk (dengan versioning)
+    const timestamp = new Date().toISOString().split('T')[0].replace(/-/g, '');
+    const sanitizedName = originalFileName
+      .replace(/[^a-zA-Z0-9.-]/g, '-')
+      .replace(/\.pdf$/i, '');
+    const diskFileName = `v${nextVersion}_${nomorDokumen}_${sanitizedName}_${timestamp}.pdf`;
+
+    // Create directory if not exists
+    const docDir = path.join(UPLOAD_DIR, nomorDokumen);
+    if (!existsSync(docDir)) {
+      await mkdir(docDir, { recursive: true });
+    }
+
+    // Save file dengan nama versioned di disk
+    const filePath = path.join(docDir, diskFileName);
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+    await writeFile(filePath, buffer);
+
+    // ✅ Path di database pointing ke file versioned
+    const dbPath = `/uploads/documents/${nomorDokumen}/${diskFileName}`;
+
+    let namaDokumen = nomorDokumen; // Fallback ke nomor jika tidak ditemukan
+    if (checkResult.rows.length > 0) {
+      namaDokumen = checkResult.rows[0].nama_dokumen;
+    }
+    
+    // ✅ Insert dengan nama file asli di kolom file_name
+    const insertQuery = `
+      INSERT INTO procedure_files
+      (nomor_dokumen, file_name, file_path, file_size, mime_type, version, uploaded_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING *
+    `;
+
+    const result = await client.query(insertQuery, [
+      nomorDokumen,
+      originalFileName, // ✅ NAMA ASLI untuk display
+      dbPath,           // ✅ PATH ke file versioned di disk
+      file.size,
+      file.type,
+      nextVersion,
+      uploadedBy || 'admin'
+    ]);
+
+    await client.query('COMMIT');
+
+    // Log activity
+    await logActivity({
+      username: uploadedBy || 'admin',
+      activityType: 'upload',
+      activityDescription: `Upload file ${originalFileName} untuk ${namaDokumen}`,
+      targetType: 'file',
+      targetId: nomorDokumen,
+    });
+
+    return NextResponse.json({
+      success: true,
+      file: {
+        id: result.rows[0].id,
+        fileName: result.rows[0].file_name,      // ✅ Nama asli
+        filePath: result.rows[0].file_path,      // ✅ Path versioned
+        fileSize: result.rows[0].file_size,
+        version: result.rows[0].version,
+        uploadedAt: result.rows[0].uploaded_at,
+      }
+    }, { status: 201 });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error uploading file:', error);
+    return NextResponse.json(
+      { error: 'Gagal mengupload file' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+// app/api/otp/verify/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/lib/db';
+import { generateMonthlyOTP } from '@/lib/otpGenerator';
+
+export async function POST(request: NextRequest) {
+  const client = await pool.connect();
+  
+  try {
+    const body = await request.json();
+    const { pic, otp } = body;
+
+    if (!pic || !otp) {
+      return NextResponse.json(
+        { error: 'PIC and OTP are required' },
+        { status: 400 }
+      );
+    }
+
+    // Validasi format OTP
+    if (!/^\d{6}$/.test(otp)) {
+      return NextResponse.json(
+        { error: 'OTP must be 6 digits' },
+        { status: 400 }
+      );
+    }
+
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1; // 1-12
+
+    // Cek di database
+    const query = `
+      SELECT id
+      FROM pic_otp
+      WHERE pic = $1 
+      AND otp_code = $2 
+      AND expires_at > NOW()
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+
+    const result = await client.query(query, [
+      pic.toUpperCase(),
+      otp
+    ]);
+
+    if (result.rows.length === 0) {
+      return NextResponse.json(
+        { valid: false, message: 'OTP tidak valid atau sudah expired' },
+        { status: 401 }
+      );
+    }
+
+    return NextResponse.json({
+      valid: true,
+      message: 'OTP verified successfully',
+      pic: pic.toUpperCase(),
+    });
+
+  } catch (error) {
+    console.error('Error verifying OTP:', error);
+    return NextResponse.json(
+      { error: 'Failed to verify OTP' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+// app/api/procedures/archive/route.ts
+
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/lib/db';
+import { logActivity } from '@/lib/activityLogger'; // ✅ Tambahan
+
+// POST - Archive (soft delete) procedure
+export async function POST(request: NextRequest) {
+  const client = await pool.connect();
+  
+  try {
+    const body = await request.json();
+    const { nomorDokumen } = body;
+
+    if (!nomorDokumen) {
+      return NextResponse.json(
+        { error: 'Nomor dokumen is required' },
+        { status: 400 }
+      );
+    }
+
+    await client.query('BEGIN');
+
+    // 1. Ambil data dari procedure_documents
+    const selectQuery = `
+      SELECT * FROM procedure_documents 
+      WHERE nomor_dokumen = $1
+    `;
+    const selectResult = await client.query(selectQuery, [nomorDokumen]);
+
+    if (selectResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return NextResponse.json(
+        { error: 'Procedure not found' },
+        { status: 404 }
+      );
+    }
+
+    const row = selectResult.rows[0];
+
+    // 2. Insert ke arsip_prosedur
+    const insertQuery = `
+      INSERT INTO arsip_prosedur 
+      (nama_dokumen, nomor_dokumen, level_dokumen, tanggal_selesai_approval, 
+       revisi, owner, pic, email, status, is_custom, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      RETURNING *
+    `;
+
+    const insertValues = [
+      row.nama_dokumen,
+      row.nomor_dokumen,
+      row.level_dokumen,
+      row.tanggal_selesai_approval,
+      row.revisi,
+      row.owner,
+      row.pic,
+      row.email,
+      row.status,
+      row.is_custom,
+      row.created_at,
+      row.updated_at
+    ];
+
+    await client.query(insertQuery, insertValues);
+
+    let namaDokumen = nomorDokumen; // Fallback ke nomor jika tidak ditemukan
+    if (selectResult.rows.length > 0) {
+      namaDokumen = selectResult.rows[0].nama_dokumen;
+    }
+
+    // 3. Delete dari procedure_documents
+    const deleteQuery = `
+      DELETE FROM procedure_documents 
+      WHERE nomor_dokumen = $1
+    `;
+    await client.query(deleteQuery, [nomorDokumen]);
+
+    // 4. Delete related reviews
+    const deleteReviewsQuery = `
+      DELETE FROM document_reviews 
+      WHERE nomor_dokumen = $1
+    `;
+    await client.query(deleteReviewsQuery, [nomorDokumen]);
+
+    await client.query('COMMIT');
+
+    // ✅ Tambahkan logging setelah archive berhasil
+    await logActivity({
+      username: 'admin',
+      activityType: 'archive',
+      activityDescription: `Archive prosedur ${namaDokumen}`,
+      targetType: 'procedure',
+      targetId: nomorDokumen,
+    });
+
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Procedure archived successfully' 
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error archiving procedure:', error);
+    return NextResponse.json(
+      { error: 'Failed to archive procedure' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+// app/api/procedures/seed/route.ts
+
+import { NextResponse } from 'next/server';
+import pool from '@/lib/db';
+import { RAW_EXCEL_ROWS } from '@/data/data_review/all-data-table';
+
+function parseExcelDate(dateStr: string): string {
+  const [day, month, year] = dateStr.split('-');
+  const months: Record<string, string> = {
+    Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+    Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12',
+  };
+  const paddedDay = day.padStart(2, '0');
+  const monthNum = months[month];
+  if (!monthNum) return '1970-01-01';
+  const fullYear = parseInt(year, 10) < 50 ? `20${year}` : `19${year}`;
+  return `${fullYear}-${monthNum}-${paddedDay}`;
+}
+
+export async function POST() {
+  const client = await pool.connect();
+  
+  try {
+    // Check if already seeded
+    const countResult = await client.query('SELECT COUNT(*) FROM procedure_documents');
+    const count = parseInt(countResult.rows[0].count);
+
+    if (count > 0) {
+      return NextResponse.json(
+        { message: 'Database already seeded', count },
+        { status: 200 }
+      );
+    }
+
+    // Begin transaction
+    await client.query('BEGIN');
+
+    // Insert data - AMBIL SEMUA PIC dan EMAIL (tidak di-split)
+    const insertQuery = `
+      INSERT INTO procedure_documents 
+      (nama_dokumen, nomor_dokumen, level_dokumen, tanggal_selesai_approval, revisi, owner, pic, email, status, is_custom)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    `;
+
+    for (const row of RAW_EXCEL_ROWS) {
+      const values = [
+        row.nama,
+        row.nomorDokumen,
+        row.level,
+        parseExcelDate(row.tanggal),
+        row.revisi,
+        row.owner.trim(),
+        row.pic.trim(), // AMBIL SEMUA PIC (tidak di-split)
+        row.email.trim(), // AMBIL SEMUA EMAIL (tidak di-split)
+        '-',
+        false
+      ];
+
+      await client.query(insertQuery, values);
+    }
+
+    // Commit transaction
+    await client.query('COMMIT');
+
+    const newCountResult = await client.query('SELECT COUNT(*) FROM procedure_documents');
+    const newCount = parseInt(newCountResult.rows[0].count);
+
+    return NextResponse.json(
+      { message: 'Database seeded successfully', count: newCount },
+      { status: 201 }
+    );
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error seeding database:', error);
+    return NextResponse.json(
+      { error: 'Failed to seed database' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+// app/api/procedures/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/lib/db';
+import { logActivity } from '@/lib/activityLogger';
+
+// =============================================================================
+// RANTAI LOGIKA AUTO-STATUS (dijalankan berurutan saat GET)
+//
+// Langkah 1 — autoReactivate:
+//   'Relevan' → 'Menunggu'
+//   Jika bulan approval == bulan sekarang DAN status = 'Relevan'
+//   (dokumen yang sudah pernah direview kini masuk siklus review bulan ini lagi)
+//
+// Langkah 2 — autoScheduleAndActivate:
+//   'Menunggu' + belum ada email_schedule → buat jadwal (1 bulan-approval 08:00)
+//                                         → ubah status ke 'Belum dikirim'
+//
+// Langkah 3 — autoExpire:
+//   Status non-final + sudah > 2 bulan sejak approval → 'Relevan'
+//   (dokumen yang tidak ditindaklanjuti selama 2 bulan dianggap Relevan)
+// =============================================================================
+
+// ─── Util: apakah bulan+tahun tanggal approval = bulan+tahun sekarang ─────────
+function isSameMonthYear(tanggal: string): boolean {
+  const d = new Date(tanggal);
+  if (isNaN(d.getTime())) return false;
+  const now = new Date();
+  return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+}
+
+// ─── Util: apakah sudah > 2 bulan sejak tanggal approval ─────────────────────
+function isPast2Months(tanggal: string): boolean {
+  const d = new Date(tanggal);
+  if (isNaN(d.getTime())) return false;
+  const twoMonthsLater = new Date(d.getFullYear(), d.getMonth() + 2, d.getDate());
+  return new Date() >= twoMonthsLater;
+}
+
+// ─── Langkah 1: Relevan → Menunggu ───────────────────────────────────────────
+// Dokumen berstatus 'Relevan' yang bulan approvalnya = bulan sekarang
+// perlu masuk siklus review lagi → ubah ke 'Menunggu'.
+async function autoReactivate(
+  client: any,
+  nomorDokumen: string,
+  tanggal: string,
+  status: string
+): Promise<string> {
+  if (status !== 'Relevan') return status;
+  if (!isSameMonthYear(tanggal)) return status;
+
+  await client.query(
+    `UPDATE procedure_documents
+     SET status = 'Menunggu', updated_at = CURRENT_TIMESTAMP
+     WHERE nomor_dokumen = $1 AND status = 'Relevan'`,
+    [nomorDokumen]
+  );
+  return 'Menunggu';
+}
+
+// ─── Langkah 2: Menunggu + tanpa jadwal → buat jadwal + ubah ke 'Belum dikirim' ─
+// Kondisi:
+//   - status = 'Menunggu'
+//   - belum ada entry di email_schedules
+// Aksi:
+//   - INSERT email_schedules: tanggal 1 bulan-approval 08:00, status 'pending'
+//   - UPDATE procedure_documents: status → 'Belum dikirim'
+async function autoScheduleAndActivate(
+  client: any,
+  nomorDokumen: string,
+  tanggal: string,
+  status: string
+): Promise<string> {
+  if (status !== 'Menunggu') return status;
+
+  // Cek apakah jadwal sudah ada
+  const check = await client.query(
+    `SELECT id FROM email_schedules WHERE nomor_dokumen = $1 LIMIT 1`,
+    [nomorDokumen]
+  );
+  if (check.rows.length > 0) {
+    // Jadwal sudah ada → langsung ubah ke 'Belum dikirim' jika masih 'Menunggu'
+    await client.query(
+      `UPDATE procedure_documents
+       SET status = 'Belum dikirim', updated_at = CURRENT_TIMESTAMP
+       WHERE nomor_dokumen = $1 AND status = 'Menunggu'`,
+      [nomorDokumen]
+    );
+    return 'Belum dikirim';
+  }
+
+  // Belum ada jadwal → buat jadwal baru
+  const docDate = new Date(tanggal);
+  if (isNaN(docDate.getTime())) return status;
+
+  // Hari ke-1 bulan approval, jam 08:00 waktu server
+  const scheduledAt = new Date(docDate.getFullYear(), docDate.getMonth(), 1, 8, 0, 0);
+
+  await client.query(
+    `INSERT INTO email_schedules (nomor_dokumen, scheduled_email_at, email_status)
+     VALUES ($1, $2, 'pending')`,
+    [nomorDokumen, scheduledAt]
+  );
+
+  // Ubah status → 'Belum dikirim'
+  await client.query(
+    `UPDATE procedure_documents
+     SET status = 'Belum dikirim', updated_at = CURRENT_TIMESTAMP
+     WHERE nomor_dokumen = $1 AND status = 'Menunggu'`,
+    [nomorDokumen]
+  );
+
+  return 'Belum dikirim';
+}
+
+// ─── Langkah 3: auto-expire → Relevan setelah 2 bulan ────────────────────────
+// Dokumen yang sudah > 2 bulan sejak approval dan statusnya belum final
+// dianggap tetap Relevan (tidak ada tindakan dari PIC).
+// TIDAK berlaku untuk: Revisi, Obsolete (sudah final dengan keputusan eksplisit).
+const NON_EXPIRABLE = ['Revisi', 'Obsolete'];
+
+async function autoExpire(
+  client: any,
+  nomorDokumen: string,
+  tanggal: string,
+  status: string
+): Promise<string> {
+  if (NON_EXPIRABLE.includes(status)) return status;
+  if (status === 'Relevan') return status; // sudah final
+  if (!isPast2Months(tanggal)) return status;
+
+  await client.query(
+    `UPDATE procedure_documents
+     SET status = 'Relevan', updated_at = CURRENT_TIMESTAMP
+     WHERE nomor_dokumen = $1
+       AND status NOT IN ('Revisi', 'Obsolete', 'Relevan')`,
+    [nomorDokumen]
+  );
+  return 'Relevan';
+}
+
+// ─── Orkestrasi: jalankan semua langkah berurutan ────────────────────────────
+async function runAutoStatusChain(
+  client: any,
+  nomorDokumen: string,
+  tanggal: string,
+  dbStatus: string   // status yang tersimpan di DB saat ini
+): Promise<string> {
+  // Langkah 3 dulu: kalau sudah expired, tidak perlu lanjut ke langkah 1-2
+  const afterExpire = await autoExpire(client, nomorDokumen, tanggal, dbStatus);
+  if (afterExpire !== dbStatus) return afterExpire; // sudah diubah ke 'Relevan'
+
+  // Langkah 1: Relevan → Menunggu (jika bulan sama)
+  const afterReactivate = await autoReactivate(client, nomorDokumen, tanggal, afterExpire);
+
+  // Langkah 2: Menunggu → buat jadwal → Belum dikirim
+  const afterSchedule = await autoScheduleAndActivate(client, nomorDokumen, tanggal, afterReactivate);
+
+  return afterSchedule;
+}
+
+// ─── Helper: status awal saat dokumen BARU ditambahkan (POST) ─────────────────
+async function resolveInitialStatus(
+  client: any,
+  nomorDokumen: string,
+  tanggal: string
+): Promise<string> {
+  if (!isSameMonthYear(tanggal)) return 'Relevan';
+
+  // Bulan sama → cek apakah sudah ada jadwal email yang terkirim
+  const schedResult = await client.query(
+    `SELECT email_status FROM email_schedules WHERE nomor_dokumen = $1 LIMIT 1`,
+    [nomorDokumen]
+  );
+  if (schedResult.rows.length > 0) {
+    if (schedResult.rows[0].email_status === 'sent') return 'Telah terkirim';
+    // Ada jadwal (pending) → langsung 'Belum dikirim'
+    return 'Belum dikirim';
+  }
+
+  // Belum ada jadwal → akan dibuat setelah insert, return 'Belum dikirim'
+  return 'Belum dikirim';
+}
+
+// =============================================================================
+// GET
+// =============================================================================
+export async function GET(request: NextRequest) {
+  const client = await pool.connect();
+
+  try {
+    const { searchParams } = new URL(request.url);
+    const pic = searchParams.get('pic');
+
+    let query = `SELECT * FROM procedure_documents`;
+    let values: any[] = [];
+
+    if (pic) {
+      query += ` WHERE $1 = ANY(string_to_array(REPLACE(pic, ' ', ''), ','))`;
+      values = [pic];
+    }
+
+    query += ` ORDER BY created_at DESC`;
+
+    const result = await client.query(query, values);
+
+    const procedures = await Promise.all(
+      result.rows.map(async (row: any) => {
+        // Jalankan rantai auto-status untuk setiap dokumen
+        const resolvedStatus = await runAutoStatusChain(
+          client,
+          row.nomor_dokumen,
+          row.tanggal_selesai_approval,
+          row.status
+        );
+
+        return {
+          id: row.id,
+          namaDokumen: row.nama_dokumen,
+          nomorDokumen: row.nomor_dokumen,
+          levelDokumen: row.level_dokumen,
+          tanggalSelesaiApproval: row.tanggal_selesai_approval,
+          revisi: row.revisi,
+          owner: row.owner,
+          pic: row.pic,
+          email: row.email,
+          status: resolvedStatus,
+          isCustom: row.is_custom,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        };
+      })
+    );
+
+    return NextResponse.json(procedures);
+  } catch (error) {
+    console.error('Error fetching procedures:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch procedures' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+// =============================================================================
+// POST — Tambah dokumen baru
+// =============================================================================
+export async function POST(request: NextRequest) {
+  const client = await pool.connect();
+
+  try {
+    const body = await request.json();
+
+    // Tentukan status awal
+    const status = await resolveInitialStatus(
+      client,
+      body.nomorDokumen,
+      body.tanggalSelesaiApproval
+    );
+
+    const query = `
+      INSERT INTO procedure_documents
+      (nama_dokumen, nomor_dokumen, level_dokumen, tanggal_selesai_approval,
+       revisi, owner, pic, email, status, is_custom)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING *
+    `;
+
+    const result = await client.query(query, [
+      body.namaDokumen,
+      body.nomorDokumen,
+      body.levelDokumen,
+      body.tanggalSelesaiApproval,
+      body.revisi || '0',
+      body.owner,
+      body.pic,
+      body.email || '',
+      status,
+      true,
+    ]);
+    const row = result.rows[0];
+
+    // Jika bulan sama dan belum ada jadwal → buat jadwal otomatis
+    if (isSameMonthYear(body.tanggalSelesaiApproval)) {
+      const existingSched = await client.query(
+        `SELECT id FROM email_schedules WHERE nomor_dokumen = $1 LIMIT 1`,
+        [body.nomorDokumen]
+      );
+      if (existingSched.rows.length === 0) {
+        const docDate = new Date(body.tanggalSelesaiApproval);
+        const scheduledAt = new Date(docDate.getFullYear(), docDate.getMonth(), 1, 8, 0, 0);
+        await client.query(
+          `INSERT INTO email_schedules (nomor_dokumen, scheduled_email_at, email_status)
+           VALUES ($1, $2, 'pending')`,
+          [body.nomorDokumen, scheduledAt]
+        );
+      }
+    }
+
+    await logActivity({
+      username: 'admin',
+      activityType: 'create',
+      activityDescription: `Tambah prosedur baru ${body.namaDokumen}`,
+      targetType: 'procedure',
+      targetId: body.nomorDokumen,
+    });
+
+    return NextResponse.json(
+      {
+        id: row.id,
+        namaDokumen: row.nama_dokumen,
+        nomorDokumen: row.nomor_dokumen,
+        levelDokumen: row.level_dokumen,
+        tanggalSelesaiApproval: row.tanggal_selesai_approval,
+        revisi: row.revisi,
+        owner: row.owner,
+        pic: row.pic,
+        email: row.email,
+        status: row.status,
+        isCustom: row.is_custom,
+      },
+      { status: 201 }
+    );
+  } catch (error: any) {
+    console.error('Error creating procedure:', error);
+
+    if (error.code === '23505') {
+      return NextResponse.json(
+        { error: 'Nomor dokumen sudah ada' },
+        { status: 409 }
+      );
+    }
+
+    return NextResponse.json(
+      { error: 'Failed to create procedure' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/lib/db';
+import { logActivity } from '@/lib/activityLogger';
+
+// GET - Ambil review berdasarkan nomorDokumen dan bulan
+export async function GET(request: NextRequest) {
+  const client = await pool.connect();
+  
+  try {
+    const { searchParams } = new URL(request.url);
+    const nomorDokumen = searchParams.get('nomorDokumen');
+    const month = searchParams.get('month');
+
+    if (!nomorDokumen || !month) {
+      return NextResponse.json(
+        { error: 'nomorDokumen and month are required' },
+        { status: 400 }
+      );
+    }
+
+    const query = `
+      SELECT * FROM document_reviews 
+      WHERE nomor_dokumen = $1 AND last_reviewed_month = $2
+    `;
+
+    const result = await client.query(query, [nomorDokumen, parseInt(month)]);
+
+    if (result.rows.length === 0) {
+      return NextResponse.json(null);
+    }
+
+    const row = result.rows[0];
+    const review = {
+      id: row.id,
+      nomorDokumen: row.nomor_dokumen,
+      status: row.status,
+      revisi: row.revisi,
+      lastReviewedMonth: row.last_reviewed_month,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+
+    return NextResponse.json(review);
+  } catch (error) {
+    console.error('Error fetching review:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch review' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+// POST - Simpan/update review
+export async function POST(request: NextRequest) {
+  const client = await pool.connect();
+  
+  try {
+    const body = await request.json();
+    const { nomorDokumen, status, revisi, lastReviewedMonth } = body;
+
+    // Ambil nama dokumen dari database
+    const docQuery = 'SELECT nama_dokumen FROM procedure_documents WHERE nomor_dokumen = $1';
+    const docResult = await client.query(docQuery, [nomorDokumen]);
+    const namaDokumen = docResult.rows[0]?.nama_dokumen || nomorDokumen;
+
+    await client.query('BEGIN');
+
+    // Upsert review
+    const upsertQuery = `
+      INSERT INTO document_reviews (nomor_dokumen, status, revisi, last_reviewed_month)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (nomor_dokumen, last_reviewed_month)
+      DO UPDATE SET 
+        status = EXCLUDED.status,
+        revisi = EXCLUDED.revisi,
+        updated_at = CURRENT_TIMESTAMP
+      RETURNING *
+    `;
+
+    const reviewResult = await client.query(upsertQuery, [
+      nomorDokumen,
+      status,
+      revisi,
+      lastReviewedMonth
+    ]);
+
+    // Update procedure document
+    const updateProcedureQuery = `
+      UPDATE procedure_documents 
+      SET status = $1, revisi = $2, updated_at = CURRENT_TIMESTAMP
+      WHERE nomor_dokumen = $3
+    `;
+
+    await client.query(updateProcedureQuery, [status, revisi, nomorDokumen]);
+
+    await client.query('COMMIT');
+
+    // ✅ Tambahkan log activity setelah review berhasil disimpan
+    await logActivity({
+      username: 'user', // bisa diganti dengan username dari session
+      activityType: 'review',
+      activityDescription: `Review ${status} untuk ${namaDokumen}`,
+      targetType: 'review',
+      targetId: nomorDokumen,
+    });
+
+    const row = reviewResult.rows[0];
+    const review = {
+      id: row.id,
+      nomorDokumen: row.nomor_dokumen,
+      status: row.status,
+      revisi: row.revisi,
+      lastReviewedMonth: row.last_reviewed_month,
+    };
+
+    return NextResponse.json(review);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error saving review:', error);
+    return NextResponse.json(
+      { error: 'Failed to save review' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+// PATCH - Batch update reviews
+export async function PATCH(request: NextRequest) {
+  const client = await pool.connect();
+  
+  try {
+    const body = await request.json();
+    const { reviews, username } = body; // ✅ AMBIL username dari request
+
+    await client.query('BEGIN');
+
+    for (const review of reviews) {
+      // Ambil nama dokumen dari database
+      const docQuery = 'SELECT nama_dokumen FROM procedure_documents WHERE nomor_dokumen = $1';
+      const docResult = await client.query(docQuery, [review.nomorDokumen]);
+      const namaDokumen = docResult.rows[0]?.nama_dokumen || review.nomorDokumen;
+
+      const upsertQuery = `
+        INSERT INTO document_reviews (nomor_dokumen, status, revisi, last_reviewed_month)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (nomor_dokumen, last_reviewed_month)
+        DO UPDATE SET 
+          status = EXCLUDED.status,
+          revisi = EXCLUDED.revisi,
+          updated_at = CURRENT_TIMESTAMP
+      `;
+
+      await client.query(upsertQuery, [
+        review.nomorDokumen,
+        review.status,
+        review.revisi,
+        review.lastReviewedMonth
+      ]);
+
+      const updateProcedureQuery = `
+        UPDATE procedure_documents 
+        SET status = $1, revisi = $2, updated_at = CURRENT_TIMESTAMP
+        WHERE nomor_dokumen = $3
+      `;
+
+      await client.query(updateProcedureQuery, [
+        review.status,
+        review.revisi,
+        review.nomorDokumen
+      ]);
+
+      // ✅ GUNAKAN USERNAME YANG DIKIRIM (PIC atau admin)
+      const actorUsername = username || 'user';
+      await logActivity({
+        username: actorUsername,
+        activityType: 'review',
+        activityDescription: `Batch review ${review.status} untuk ${namaDokumen}`,
+        targetType: 'review',
+        targetId: review.nomorDokumen,
+      });
+    }
+
+    await client.query('COMMIT');
+
+    return NextResponse.json({ success: true, count: reviews.length });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error batch updating reviews:', error);
+    return NextResponse.json(
+      { error: 'Failed to batch update reviews' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
