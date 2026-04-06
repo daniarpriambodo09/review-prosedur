@@ -34,9 +34,14 @@ function isExpiredForReview(tanggalApproval: string): boolean {
 }
 
 // Hitung tanggal jadwal kirim: 2 bulan SEBELUM bulan approval, tanggal 1
+// Hitung tanggal kirim otomatis: approval - 2 bulan, TANGGAL SAMA, jam 08:00
+// Contoh: approval 5 Juni → jadwal 5 April 08:00
+//         approval 1 Juni → jadwal 1 April 08:00
 function getScheduledSendDate(tanggalApproval: string): Date {
   const d = new Date(tanggalApproval);
-  return new Date(d.getFullYear(), d.getMonth() - 2, 1, 8, 0, 0);
+  // Gunakan tanggal yang sama dengan approval (bukan tanggal 1)
+  // JS Date otomatis handle rollover bulan (mis. Feb tidak punya 31 → overflow ke Mar)
+  return new Date(d.getFullYear(), d.getMonth() - 2, d.getDate(), 8, 0, 0);
 }
 
 // Tentukan tanggal kirim yang tepat sesuai konteks:
@@ -56,23 +61,30 @@ function getScheduledSendDate(tanggalApproval: string): Date {
 //   needsReview=true, approval apapun → NOW
 function resolveScheduledAt(tanggalApproval: string, needsReview: boolean | null): Date {
   const now = new Date();
+
+  // Kondisi 1: admin pilih needsReview=true → kirim sekarang
   if (needsReview === true) return now;
 
   const autoDate = getScheduledSendDate(tanggalApproval);
-  const schedYM  = autoDate.getFullYear() * 12 + autoDate.getMonth();
-  const nowYM    = now.getFullYear() * 12 + now.getMonth();
 
-  return nowYM >= schedYM ? now : autoDate;
+  // Kondisi 2: tanggal jadwal sudah lewat atau hari ini → kirim sekarang
+  if (now >= autoDate) return now;
+
+  // Kondisi 3: tanggal jadwal masih di masa depan → simpan tanggal otomatis (jam 08:00)
+  return autoDate;
 }
 
-// Apakah sudah waktunya jadwal email dikirim (sudah masuk bulan jadwal atau lewat)
-function isScheduleMonthReached(tanggalApproval: string): boolean {
+// Apakah sudah waktunya jadwal email dikirim?
+// Berbasis TANGGAL PENUH bukan hanya bulan — agar tidak prematur.
+// Contoh: approval 5 Jun, sekarang 1 Apr → jadwal 5 Apr 08:00 → belum reached ✓
+function isScheduleDateReached(tanggalApproval: string): boolean {
   const scheduledDate = getScheduledSendDate(tanggalApproval);
-  const now = new Date();
-  // Bandingkan hanya tahun+bulan
-  const schedYM = scheduledDate.getFullYear() * 12 + scheduledDate.getMonth();
-  const nowYM   = now.getFullYear() * 12 + now.getMonth();
-  return nowYM >= schedYM;
+  return new Date() >= scheduledDate;
+}
+
+// Alias untuk kompatibilitas
+function isScheduleMonthReached(tanggalApproval: string): boolean {
+  return isScheduleDateReached(tanggalApproval);
 }
 
 // ─── Langkah 1: auto-expire → Relevan setelah 2 bulan ────────────────────────

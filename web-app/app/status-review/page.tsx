@@ -567,7 +567,7 @@ export default function StatusReviewPage() {
   const [isEmailScheduleModalOpen, setIsEmailScheduleModalOpen] = useState(false);
   const [emailSchedules, setEmailSchedules] = useState<Record<string, EmailSchedule>>({});
 
-  const loadEmailSchedules = async () => {
+  const loadEmailSchedules = useCallback(async () => {
     try {
       const response = await fetch('/api/email-schedules');
       if (response.ok) {
@@ -579,12 +579,14 @@ export default function StatusReviewPage() {
     } catch (error) {
       console.error('Error loading email schedules:', error);
     }
-  };
+  }, []);
 
   // ✅ loadData dibuat useCallback agar bisa dipanggil ulang dari mana saja
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (showLoading = true) => {
     try {
-      setLoading(true);
+      // showLoading=false untuk background refresh (setelah modal tutup, dll)
+      // sehingga tidak muncul loading spinner yang mengganggu UX
+      if (showLoading) setLoading(true);
       const procedures = await getAllProcedures();
 
       // Status workflow aktif yang TIDAK boleh ditimpa oleh document_reviews.
@@ -627,17 +629,10 @@ export default function StatusReviewPage() {
   useEffect(() => { loadEmailSchedules(); }, []);
   useEffect(() => { loadData(); }, [loadData]);
 
-  // Auto-refresh saat admin kembali ke tab browser (misal setelah cek halaman PIC)
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        loadData();
-        loadEmailSchedules();
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [loadData]);
+  // Catatan: visibilitychange listener sengaja tidak digunakan di sini.
+  // Refresh saat kembali ke tab menyebabkan loading spinner muncul terus
+  // yang mengganggu UX. Data akan direfresh hanya saat benar-benar diperlukan
+  // (setelah simpan jadwal, tambah prosedur, arsip prosedur, dll).
 
   const dataResolved = useMemo(() => {
     return dataWithStatus.map((doc) => ({
@@ -660,7 +655,7 @@ export default function StatusReviewPage() {
     if (!confirmed) return;
     try {
       await archiveProcedure(nomorDokumen);
-      await loadData();
+      await loadData(false); // background refresh
       alert('Prosedur berhasil diarsipkan!');
     } catch (error: any) {
       console.error('Error archiving procedure:', error);
@@ -706,7 +701,7 @@ export default function StatusReviewPage() {
         return;
       }
 
-      await loadData();
+      await loadData(false); // background refresh — tidak perlu spinner
       setNewProcedure({
         namaDokumen: '', nomorDokumen: '', levelDokumen: '',
         tanggalSelesaiApproval: '', owner: '', pic: '', email: '',
@@ -825,7 +820,8 @@ export default function StatusReviewPage() {
           isOpen={isEmailScheduleModalOpen}
           onClose={async () => {
             setIsEmailScheduleModalOpen(false);
-            await Promise.all([loadData(), loadEmailSchedules()]);
+            // Background refresh — tanpa spinner (showLoading=false)
+            await Promise.all([loadData(false), loadEmailSchedules()]);
           }}
           procedures={dataWithStatus}
           emailSchedules={emailSchedules}
