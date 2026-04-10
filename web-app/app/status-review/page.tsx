@@ -148,52 +148,208 @@ function resolveDisplayStatus(
   return doc.status;
 }
 
+// ── Sort icon — 3 states: asc, desc, inactive ────────────────────────────────
+function SortIcon({ active, dir }: { active: boolean; dir: 'asc' | 'desc' | null }) {
+  return (
+    <span className="inline-flex flex-col ml-1 transition-opacity"
+          style={{ opacity: active ? 1 : 0.35 }}>
+      <svg className={`w-2.5 h-2.5 -mb-0.5 transition-colors
+                      ${active && dir === 'asc' ? 'text-blue-600' : 'text-slate-400'}`}
+        viewBox="0 0 10 6" fill="currentColor">
+        <path d="M5 0L10 6H0z"/>
+      </svg>
+      <svg className={`w-2.5 h-2.5 transition-colors
+                      ${active && dir === 'desc' ? 'text-blue-600' : 'text-slate-400'}`}
+        viewBox="0 0 10 6" fill="currentColor">
+        <path d="M5 6L0 0H10z"/>
+      </svg>
+    </span>
+  );
+}
+
+// ── Sortable column header (simple: asc → desc → reset) ──────────────────────
+function SortableTh({
+  label, colKey, currentSort, currentDir, onSort,
+}: {
+  label: string;
+  colKey: string;
+  currentSort: string | null;
+  currentDir: 'asc' | 'desc' | null;
+  onSort: (k: any) => void;
+}) {
+  const active = currentSort === colKey;
+  return (
+    <th
+      onClick={() => onSort(colKey)}
+      className="px-5 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider
+                 cursor-pointer select-none group hover:bg-slate-100 transition-colors"
+      title="Klik 1× → A→Z, klik 2× → Z→A, klik 3× → reset"
+    >
+      <span className="flex items-center gap-0.5 whitespace-nowrap">
+        {label}
+        <SortIcon active={active} dir={active ? currentDir : null} />
+      </span>
+    </th>
+  );
+}
+
+
+// ── Inline edit input ─────────────────────────────────────────────────────────
+function EditInput({
+  value, onChange, type = 'text', className = '',
+}: {
+  value: string; onChange: (v: string) => void; type?: string; className?: string;
+}) {
+  return (
+    <input
+      type={type}
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      className={`w-full px-2 py-1 text-sm border border-blue-400 rounded-md
+                  focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white ${className}`}
+    />
+  );
+}
+
 function ProceduresTable({
   data,
   onDelete,
   onDocumentClick,
-  emailSchedules
+  emailSchedules,
+  sortKey,
+  sortDir,
+  onSort,
+  editingRow,
+  editValues,
+  onStartEdit,
+  onCancelEdit,
+  onSaveEdit,
+  isSavingEdit,
+  onEditChange,
 }: {
   data: ProcedureDocument[];
   onDelete: (nomorDokumen: string) => void;
   onDocumentClick: (nomorDokumen: string, namaDokumen: string) => void;
   emailSchedules: Record<string, EmailSchedule>;
+  sortKey: string | null;
+  sortDir: 'asc' | 'desc' | null;
+  onSort: (k: any) => void;
+  editingRow: string | null;
+  editValues: Record<string, string>;
+  onStartEdit: (row: ProcedureDocument) => void;
+  onCancelEdit: () => void;
+  onSaveEdit: (originalNomor: string) => void;
+  isSavingEdit: boolean;
+  onEditChange: (field: string, value: string) => void;
 }) {
+  const sTh = (label: string, colKey: string) => (
+    <SortableTh label={label} colKey={colKey}
+      currentSort={sortKey} currentDir={sortDir} onSort={onSort} />
+  );
+  const plainTh = (label: string) => (
+    <th className="px-5 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">
+      {label}
+    </th>
+  );
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full">
         <thead className="bg-slate-50 border-b border-slate-200">
           <tr>
-            {['Nama Dokumen','Nomor Dokumen','Level Dokumen','Tanggal Selesai Approval','Revisi','Owner','PIC','Email','Status','Jadwal Email','Aksi'].map(h => (
-              <th key={h} className="px-5 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">{h}</th>
-            ))}
+            {sTh('Nama Dokumen',        'namaDokumen')}
+            {sTh('Nomor Dokumen',        'nomorDokumen')}
+            {sTh('Level',               'levelDokumen')}
+            {sTh('Tgl Selesai Approval','tanggalSelesaiApproval')}
+            {sTh('Revisi',              'revisi')}
+            {plainTh('Owner')}
+            {sTh('PIC',                 'pic')}
+            {plainTh('Email')}
+            {plainTh('Status')}
+            {plainTh('Jadwal Email')}
+            {plainTh('Aksi')}
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-200">
           {data.map((row, index) => {
-            const schedule = emailSchedules[row.nomorDokumen];
+            const schedule  = emailSchedules[row.nomorDokumen];
+            const isEditing = editingRow === row.nomorDokumen;
+
             return (
-              <tr key={`${row.nomorDokumen}-${index}`} className="hover:bg-blue-50 transition-colors">
-                <td className="px-5 py-4">
-                  <button
-                    onClick={() => onDocumentClick(row.nomorDokumen, row.namaDokumen)}
-                    className="text-left hover:text-blue-600 transition-colors underline decoration-dotted underline-offset-2 hover:decoration-solid"
-                    title="Klik untuk melihat dokumen"
-                  >
-                    {row.namaDokumen}
-                  </button>
+              <tr
+                key={`${row.nomorDokumen}-${index}`}
+                className={`transition-colors ${isEditing ? 'bg-blue-50' : 'hover:bg-blue-50'}`}
+              >
+                {/* Nama Dokumen */}
+                <td className="px-5 py-3">
+                  {isEditing ? (
+                    <EditInput value={editValues.namaDokumen ?? ''} onChange={v => onEditChange('namaDokumen', v)} />
+                  ) : (
+                    <button
+                      onClick={() => onDocumentClick(row.nomorDokumen, row.namaDokumen)}
+                      className="text-left hover:text-blue-600 transition-colors underline decoration-dotted underline-offset-2 hover:decoration-solid text-sm"
+                    >
+                      {row.namaDokumen}
+                    </button>
+                  )}
                 </td>
-                <td className="px-5 py-4 text-sm text-slate-700">{row.nomorDokumen}</td>
-                <td className="px-5 py-4 text-sm text-slate-700">{row.levelDokumen}</td>
-                <td className="px-5 py-4 text-sm text-slate-700">{formatToDDMonYYYY(row.tanggalSelesaiApproval)}</td>
-                <td className="px-5 py-4 text-sm text-slate-700">{row.revisi}</td>
-                <td className="px-5 py-4 text-sm text-slate-700">{row.owner}</td>
-                <td className="px-5 py-4 text-sm text-slate-700">{row.pic}</td>
-                <td className="px-5 py-4 text-sm text-slate-700">{row.email || '-'}</td>
-                <td className="px-5 py-4">
+
+                {/* Nomor Dokumen */}
+                <td className="px-5 py-3 text-sm text-slate-700">
+                  {isEditing ? (
+                    <EditInput value={editValues.nomorDokumen ?? ''} onChange={v => onEditChange('nomorDokumen', v)} />
+                  ) : row.nomorDokumen}
+                </td>
+
+                {/* Level */}
+                <td className="px-5 py-3 text-sm text-slate-700">
+                  {isEditing ? (
+                    <EditInput value={editValues.levelDokumen ?? ''} onChange={v => onEditChange('levelDokumen', v)} className="w-16" />
+                  ) : row.levelDokumen}
+                </td>
+
+                {/* Tanggal */}
+                <td className="px-5 py-3 text-sm text-slate-700">
+                  {isEditing ? (
+                    <EditInput type="date" value={editValues.tanggalSelesaiApproval ?? ''} onChange={v => onEditChange('tanggalSelesaiApproval', v)} />
+                  ) : formatToDDMonYYYY(row.tanggalSelesaiApproval)}
+                </td>
+
+                {/* Revisi */}
+                <td className="px-5 py-3 text-sm text-slate-700">
+                  {isEditing ? (
+                    <EditInput value={editValues.revisi ?? '0'} onChange={v => onEditChange('revisi', v)} className="w-16" />
+                  ) : row.revisi}
+                </td>
+
+                {/* Owner */}
+                <td className="px-5 py-3 text-sm text-slate-700">
+                  {isEditing ? (
+                    <EditInput value={editValues.owner ?? ''} onChange={v => onEditChange('owner', v)} />
+                  ) : row.owner}
+                </td>
+
+                {/* PIC */}
+                <td className="px-5 py-3 text-sm text-slate-700">
+                  {isEditing ? (
+                    <EditInput value={editValues.pic ?? ''} onChange={v => onEditChange('pic', v)} />
+                  ) : row.pic}
+                </td>
+
+                {/* Email */}
+                <td className="px-5 py-3 text-sm text-slate-700">
+                  {isEditing ? (
+                    <EditInput type="email" value={editValues.email ?? ''} onChange={v => onEditChange('email', v)} />
+                  ) : (row.email || '-')}
+                </td>
+
+                {/* Status */}
+                <td className="px-5 py-3">
                   <StatusBadge status={row.status} />
                 </td>
-                <td className="px-5 py-4">
+
+                {/* Jadwal Email */}
+                <td className="px-5 py-3">
                   {schedule && schedule.emailStatus !== 'cancelled' ? (
                     <div className="flex flex-col gap-1 text-xs">
                       <div className="flex items-center gap-2">
@@ -209,12 +365,10 @@ function ProceduresTable({
                         </span>
                         <EmailStatusBadge status={schedule.emailStatus} />
                       </div>
-                      {/* Tampilkan info terkirim + expiry jika sudah sent */}
                       {schedule.emailStatus === 'sent' && schedule.lastSentAt && (() => {
-                        const sentDate = new Date(schedule.lastSentAt);
+                        const sentDate  = new Date(schedule.lastSentAt);
                         const expiryDate = new Date(sentDate.getFullYear(), sentDate.getMonth() + 2, sentDate.getDate());
-                        const now = new Date();
-                        const isExpired = now >= expiryDate;
+                        const isExpired  = new Date() >= expiryDate;
                         return (
                           <div className="flex flex-col gap-0.5">
                             <span className="text-emerald-600">
@@ -231,14 +385,56 @@ function ProceduresTable({
                     <span className="text-slate-400 text-sm">-</span>
                   )}
                 </td>
-                <td className="px-5 py-4">
-                  <button
-                    onClick={() => onDelete(row.nomorDokumen)}
-                    className="text-red-600 hover:text-red-800 hover:bg-red-50 px-3 py-1.5 rounded-lg text-sm font-medium transition-all active:scale-95"
-                    title="Arsipkan prosedur"
-                  >
-                    🗑️ Hapus
-                  </button>
+
+                {/* Aksi */}
+                <td className="px-5 py-3">
+                  {isEditing ? (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => onSaveEdit(row.nomorDokumen)}
+                        disabled={isSavingEdit}
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold
+                                   rounded-lg transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1"
+                      >
+                        {isSavingEdit ? (
+                          <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                          </svg>
+                        ) : '✓'} Simpan
+                      </button>
+                      <button
+                        onClick={onCancelEdit}
+                        disabled={isSavingEdit}
+                        className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 text-xs font-medium
+                                   rounded-lg transition-all active:scale-95"
+                      >
+                        ✕ Batal
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => onStartEdit(row)}
+                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg
+                                   transition-all active:scale-95"
+                        title="Edit prosedur"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round"
+                            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => onDelete(row.nomorDokumen)}
+                        className="px-3 py-1.5 text-red-600 hover:text-red-800 hover:bg-red-50
+                                   rounded-lg text-sm font-medium transition-all active:scale-95"
+                        title="Arsipkan prosedur"
+                      >
+                        🗑️ Hapus
+                      </button>
+                    </div>
+                  )}
                 </td>
               </tr>
             );
@@ -248,7 +444,8 @@ function ProceduresTable({
       {data.length === 0 && (
         <div className="px-5 py-12 text-center text-sm text-slate-500">
           <svg className="w-16 h-16 mx-auto text-slate-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
           Tidak ada data prosedur yang sesuai dengan filter
         </div>
@@ -256,6 +453,7 @@ function ProceduresTable({
     </div>
   );
 }
+
 
 function Pagination({
   currentPage, totalPages, startIndex, endIndex, totalItems, onPrevious, onNext,
@@ -290,12 +488,12 @@ function Pagination({
 function Controls({
   searchValue, filterValue, monthFilter,
   onSearchChange, onFilterChange, onMonthFilterChange,
-  onAddProcedure, onOpenEmailSchedule,
+  onAddProcedure, onOpenEmailSchedule, onDownloadExcel,
 }: {
   searchValue: string; filterValue: string; monthFilter: string;
   onSearchChange: (v: string) => void; onFilterChange: (v: string) => void;
   onMonthFilterChange: (v: string) => void; onAddProcedure: () => void;
-  onOpenEmailSchedule: () => void;
+  onOpenEmailSchedule: () => void; onDownloadExcel: () => void;
 }) {
   return (
     <div className="flex gap-3 mb-6 items-center flex-wrap">
@@ -349,6 +547,18 @@ function Controls({
           <line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
         </svg>
         Atur Jadwal
+      </button>
+
+      <button
+        onClick={onDownloadExcel}
+        className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all hover:shadow-md active:scale-95"
+        title="Download data tabel ke Excel (mengikuti filter & sorting aktif)"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-4 h-4">
+          <path strokeLinecap="round" strokeLinejoin="round"
+            d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+        </svg>
+        Download Excel
       </button>
 
       <button onClick={onAddProcedure}
@@ -561,6 +771,19 @@ export default function StatusReviewPage() {
   });
   // null = belum dipilih, true = perlu review, false = langsung Relevan
   const [needsReview, setNeedsReview] = useState<boolean | null>(null);
+
+  // ── Sorting ──────────────────────────────────────────────────────────────
+  type SortKey = 'namaDokumen' | 'nomorDokumen' | 'levelDokumen' | 'tanggalSelesaiApproval' | 'revisi' | 'pic';
+  // 3-state cycle: asc → desc → null (reset ke default)
+  type SortDir = 'asc' | 'desc' | null;
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>(null);
+
+
+  // ── Inline Edit ──────────────────────────────────────────────────────────
+  const [editingRow, setEditingRow]   = useState<string | null>(null); // nomorDokumen
+  const [editValues, setEditValues]   = useState<Record<string, string>>({});
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<{
     nomorDokumen: string; namaDokumen: string;
   } | null>(null);
@@ -667,6 +890,64 @@ export default function StatusReviewPage() {
     setSelectedDocument({ nomorDokumen, namaDokumen });
   };
 
+  // ── Download Excel ────────────────────────────────────────────────────────
+  // Menggunakan SheetJS (xlsx) via dynamic import — tidak perlu install npm package.
+  // Data yang didownload mengikuti kondisi tabel saat ini (filter, search, sorting).
+  const handleDownloadExcel = async () => {
+    try {
+      const ExcelJS = await import('exceljs');
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Data Dokumen');
+
+      // Define columns dengan auto-width
+      worksheet.columns = [
+        { header: 'Nama Dokumen', key: 'namaDokumen', width: 30 },
+        { header: 'Nomor Dokumen', key: 'nomorDokumen', width: 20 },
+        { header: 'Level Dokumen', key: 'levelDokumen', width: 15 },
+        { header: 'Tanggal Selesai Approval', key: 'tanggal', width: 20 },
+        { header: 'Revisi', key: 'revisi', width: 10 },
+        { header: 'Owner', key: 'owner', width: 20 },
+        { header: 'PIC', key: 'pic', width: 20 },
+        { header: 'Email', key: 'email', width: 25 },
+        { header: 'Status', key: 'status', width: 20 },
+      ];
+
+      // Bold header
+      worksheet.getRow(1).font = { bold: true };
+
+      // Add rows
+      filteredData.forEach(doc => {
+        worksheet.addRow({
+          namaDokumen: doc.namaDokumen,
+          nomorDokumen: doc.nomorDokumen,
+          levelDokumen: doc.levelDokumen,
+          tanggal: formatToDDMonYYYY(doc.tanggalSelesaiApproval),
+          revisi: doc.revisi ?? '0',
+          owner: doc.owner,
+          pic: doc.pic,
+          email: doc.email ?? '',
+          status: doc.status,
+        });
+      });
+
+      // Generate & download
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { 
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+      });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `dokumen-prosedur-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+      
+    } catch (err) {
+      console.error('Download Excel gagal:', err);
+      alert('Gagal membuat file Excel. Silakan coba lagi.');
+    }
+  };
+
 
 
   const handleSaveNewProcedure = async () => {
@@ -718,6 +999,83 @@ export default function StatusReviewPage() {
     }
   };
 
+  // ── Sort handler ─────────────────────────────────────────────────────────
+  // Siklus 3-state: klik 1 → asc, klik 2 → desc, klik 3 → reset (null)
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      if (sortDir === 'asc')  { setSortDir('desc'); }
+      else if (sortDir === 'desc') { setSortKey(null); setSortDir(null); }
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+    setCurrentPage(1);
+  };
+
+  // ── Inline edit handlers ──────────────────────────────────────────────────
+  const handleStartEdit = (row: ProcedureDocument) => {
+    setEditingRow(row.nomorDokumen);
+    setEditValues({
+      namaDokumen:             row.namaDokumen,
+      nomorDokumen:            row.nomorDokumen,
+      levelDokumen:            row.levelDokumen,
+      tanggalSelesaiApproval:  row.tanggalSelesaiApproval?.slice(0, 10) ?? '',
+      revisi:                  row.revisi ?? '0',
+      owner:                   row.owner,
+      pic:                     row.pic,
+      email:                   row.email ?? '',
+    });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingRow(null);
+    setEditValues({});
+  };
+
+  const handleSaveEdit = async (originalNomor: string) => {
+    if (!editValues.namaDokumen || !editValues.nomorDokumen || !editValues.levelDokumen ||
+        !editValues.tanggalSelesaiApproval || !editValues.owner || !editValues.pic) {
+      alert('Field wajib tidak boleh kosong.');
+      return;
+    }
+    try {
+      setIsSavingEdit(true);
+      // Hanya sertakan nomorDokumenBaru jika nomor dokumen memang berubah.
+      // Jika tidak berubah, jangan kirim field ini agar backend tidak
+      // salah mengira ada perubahan nomor dan memicu cek duplikat.
+      const nomorBerubah = editValues.nomorDokumen.trim() !== originalNomor.trim();
+      const res = await fetch(
+        `/api/procedures/${encodeURIComponent(originalNomor)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            namaDokumen:            editValues.namaDokumen,
+            ...(nomorBerubah && { nomorDokumenBaru: editValues.nomorDokumen }),
+            levelDokumen:           editValues.levelDokumen,
+            tanggalSelesaiApproval: editValues.tanggalSelesaiApproval,
+            revisi:                 editValues.revisi,
+            owner:                  editValues.owner,
+            pic:                    editValues.pic,
+            email:                  editValues.email,
+          }),
+        }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Gagal menyimpan perubahan');
+        return;
+      }
+      setEditingRow(null);
+      setEditValues({});
+      await loadData(false);
+    } catch {
+      alert('Gagal menyimpan perubahan. Silakan coba lagi.');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
   const filteredData = useMemo(() => {
     let result = dataResolved;
     if (searchValue) {
@@ -735,8 +1093,35 @@ export default function StatusReviewPage() {
         return approvalDate.getMonth() === selectedMonth;
       });
     }
+    // ── Apply sorting ───────────────────────────────────────────────────────
+    if (sortKey && sortDir) {
+      result = [...result].sort((a, b) => {
+        const dir = sortDir === 'asc' ? 1 : -1;
+
+        if (sortKey === 'tanggalSelesaiApproval') {
+          const diff = new Date(a.tanggalSelesaiApproval).getTime()
+                     - new Date(b.tanggalSelesaiApproval).getTime();
+          return diff * dir;
+        }
+
+        if (sortKey === 'levelDokumen' || sortKey === 'revisi') {
+          return ((parseInt(a[sortKey]) || 0) - (parseInt(b[sortKey]) || 0)) * dir;
+        }
+
+        if (sortKey === 'nomorDokumen') {
+          // Natural sort: "PFP-W-2" < "PFP-W-10" (angka diurutkan numerik)
+          return a.nomorDokumen.localeCompare(b.nomorDokumen, undefined, { numeric: true }) * dir;
+        }
+
+        // Default: string sort
+        const aStr = String(a[sortKey] ?? '').toLowerCase();
+        const bStr = String(b[sortKey] ?? '').toLowerCase();
+        return aStr.localeCompare(bStr) * dir;
+      });
+    }
+
     return result;
-  }, [searchValue, filterValue, monthFilter, dataResolved]);
+  }, [searchValue, filterValue, monthFilter, dataResolved, sortKey, sortDir]);
 
   const totalPages = Math.ceil(filteredData.length / ROWS_PER_PAGE);
   const startIndex = filteredData.length === 0 ? 0 : (currentPage - 1) * ROWS_PER_PAGE + 1;
@@ -773,6 +1158,7 @@ export default function StatusReviewPage() {
             onMonthFilterChange={(v) => { setMonthFilter(v); setCurrentPage(1); }}
             onAddProcedure={() => setIsModalOpen(true)}
             onOpenEmailSchedule={() => setIsEmailScheduleModalOpen(true)}
+            onDownloadExcel={handleDownloadExcel}
           />
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="px-6 py-5 bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200">
@@ -784,6 +1170,16 @@ export default function StatusReviewPage() {
               onDelete={handleDeleteProcedure}
               onDocumentClick={handleDocumentClick}
               emailSchedules={emailSchedules}
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onSort={handleSort}
+              editingRow={editingRow}
+              editValues={editValues}
+              onStartEdit={handleStartEdit}
+              onCancelEdit={handleCancelEdit}
+              onSaveEdit={handleSaveEdit}
+              isSavingEdit={isSavingEdit}
+              onEditChange={(field, value) => setEditValues(prev => ({ ...prev, [field]: value }))}
             />
             <Pagination
               currentPage={currentPage} totalPages={totalPages || 1}

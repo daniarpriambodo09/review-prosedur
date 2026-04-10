@@ -1,0 +1,5 @@
+Invoke-WebRequest -Uri "http://localhost:3090/api/procedures/seed" -Method POST
+
+npx tsx scripts/migrate-documents.ts
+
+& "C:\Program Files\PostgreSQL\16\bin\psql.exe" -U postgres -d procedure_management -f ".\update_file_paths.sql"
