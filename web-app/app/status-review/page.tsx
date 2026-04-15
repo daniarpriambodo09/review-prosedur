@@ -1,6 +1,6 @@
 // app/status-review/page.tsx
 'use client';
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Header } from '@/components/procedures/header';
 import {
   ProcedureDocument,
@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import DocumentModal from '@/components/documents/DocumentModal';
 import EmailScheduleModal from '@/components/status-review/EmailScheduleModal';
+import EditProcedureModal from '@/components/status-review/EditProcedureModal';
 
 function Breadcrumb() {
   return (
@@ -74,81 +75,50 @@ interface EmailSchedule {
 }
 
 // =============================================================================
-// resolveDisplayStatus — prioritas yang benar
-//
-// KUNCI: "Relevan" BUKAN immutable. Jika ada jadwal email pending/sent,
-// status Relevan harus di-override karena ini siklus review baru.
-//
-// Yang benar-benar immutable hanya hasil review final PIC:
-//   - Revisi   → PIC sudah memilih Revisi
-//   - Obsolete → PIC sudah memilih Obsolete
-//   - Telah dibaca → PIC sudah buka dokumen (lebih maju dari Telah terkirim)
-//
-// Relevan bisa muncul dari:
-//   a) PIC memilih Relevan (hasil review) → akan di-override oleh jadwal baru (benar)
-//   b) Auto-expire setelah 2 bulan       → juga boleh di-override oleh jadwal baru
-// =============================================================================
-// =============================================================================
 // resolveDisplayStatus
-//
-// Fungsi ini hanya sebagai LAPISAN DISPLAY di atas data dari DB.
-// Sumber kebenaran utama tetap procedure_documents.status di DB.
-//
-// Alur status yang benar:
-//   Relevan (lama) → [admin buat jadwal] → Belum dikirim → [email terkirim]
-//   → Telah terkirim → [PIC klik] → Telah dibaca → [PIC submit]
-//   → Relevan / Revisi / Obsolete
-//
-// Prioritas display:
-//   1. Revisi / Obsolete          → hasil review final, tidak bisa di-override
-//   2. Telah dibaca               → PIC sudah buka, tidak boleh mundur ke Telah terkirim
-//   3. Email schedule sent        → tampilkan Telah terkirim
-//   4. Email schedule pending     → tampilkan Belum dikirim
-//   5. Relevan (tanpa schedule)   → hasil review sebelumnya, tampilkan apa adanya
-//   6. Default                    → status dari DB
-// =============================================================================
-// =============================================================================
-// resolveDisplayStatus
-//
-// ATURAN SEDERHANA:
-// - Jika doc.status dari DB adalah status final PIC (Relevan/Revisi/Obsolete)
-//   atau status yang lebih maju (Telah dibaca) → tampilkan apa adanya, SELESAI.
-// - Jika doc.status masih dalam tahap awal (Belum dikirim, Menunggu, dsb)
-//   → cek email schedule untuk display yang lebih akurat.
-//
-// Kenapa Relevan masuk P1:
-//   loadData() sudah menjamin bahwa jika doc.status = 'Relevan' di state,
-//   itu adalah hasil review PIC yang valid (bukan nilai lama yang tertimpa),
-//   karena loadData() tidak menimpa status workflow aktif dengan review lama.
-//   Jadi saat resolveDisplayStatus melihat Relevan, itu memang sudah final.
 // =============================================================================
 function resolveDisplayStatus(
   doc: ProcedureDocument,
   emailSchedules: Record<string, EmailSchedule>
 ): StatusType {
-  // P1: Status final dari PIC — tidak bisa di-override oleh apapun
   if (
     doc.status === 'Relevan' ||
     doc.status === 'Revisi'  ||
     doc.status === 'Obsolete'
   ) return doc.status;
 
-  // P2: PIC sudah membaca — tidak boleh mundur ke Telah terkirim
   if (doc.status === 'Telah dibaca') return 'Telah dibaca';
 
-  // P3: Belum ada aksi PIC → tampilkan berdasarkan status email schedule
-  // Schedule 'cancelled' diabaikan — tidak mempengaruhi display status
   const schedule = emailSchedules[doc.nomorDokumen];
   if (schedule && schedule.emailStatus !== 'cancelled') {
     if (schedule.emailStatus === 'sent')    return 'Telah terkirim';
     if (schedule.emailStatus === 'pending') return 'Belum dikirim';
   }
 
-  // Default
   return doc.status;
 }
 
-// ── Sort icon — 3 states: asc, desc, inactive ────────────────────────────────
+// ── Highlight component ───────────────────────────────────────────────────────
+function Highlight({ text, keyword }: { text: string; keyword: string }) {
+  if (!keyword.trim()) return <>{text}</>;
+  const regex = new RegExp(`(${keyword.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+  const parts = text.split(regex);
+  return (
+    <>
+      {parts.map((part, i) =>
+        regex.test(part) ? (
+          <mark key={i} className="bg-yellow-200 text-yellow-900 rounded-sm px-0.5 not-italic font-medium">
+            {part}
+          </mark>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </>
+  );
+}
+
+// ── Sort icon ─────────────────────────────────────────────────────────────────
 function SortIcon({ active, dir }: { active: boolean; dir: 'asc' | 'desc' | null }) {
   return (
     <span className="inline-flex flex-col ml-1 transition-opacity"
@@ -167,7 +137,6 @@ function SortIcon({ active, dir }: { active: boolean; dir: 'asc' | 'desc' | null
   );
 }
 
-// ── Sortable column header (simple: asc → desc → reset) ──────────────────────
 function SortableTh({
   label, colKey, currentSort, currentDir, onSort,
 }: {
@@ -193,54 +162,27 @@ function SortableTh({
   );
 }
 
-
-// ── Inline edit input ─────────────────────────────────────────────────────────
-function EditInput({
-  value, onChange, type = 'text', className = '',
-}: {
-  value: string; onChange: (v: string) => void; type?: string; className?: string;
-}) {
-  return (
-    <input
-      type={type}
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      className={`w-full px-2 py-1 text-sm border border-blue-400 rounded-md
-                  focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white ${className}`}
-    />
-  );
-}
-
+// ── ProceduresTable (tanpa inline-edit) ──────────────────────────────────────
 function ProceduresTable({
   data,
   onDelete,
   onDocumentClick,
+  onEditClick,
   emailSchedules,
+  searchKeyword,
   sortKey,
   sortDir,
   onSort,
-  editingRow,
-  editValues,
-  onStartEdit,
-  onCancelEdit,
-  onSaveEdit,
-  isSavingEdit,
-  onEditChange,
 }: {
   data: ProcedureDocument[];
   onDelete: (nomorDokumen: string) => void;
   onDocumentClick: (nomorDokumen: string, namaDokumen: string) => void;
+  onEditClick: (row: ProcedureDocument) => void;
   emailSchedules: Record<string, EmailSchedule>;
+  searchKeyword: string;
   sortKey: string | null;
   sortDir: 'asc' | 'desc' | null;
   onSort: (k: any) => void;
-  editingRow: string | null;
-  editValues: Record<string, string>;
-  onStartEdit: (row: ProcedureDocument) => void;
-  onCancelEdit: () => void;
-  onSaveEdit: (originalNomor: string) => void;
-  isSavingEdit: boolean;
-  onEditChange: (field: string, value: string) => void;
 }) {
   const sTh = (label: string, colKey: string) => (
     <SortableTh label={label} colKey={colKey}
@@ -257,13 +199,13 @@ function ProceduresTable({
       <table className="w-full">
         <thead className="bg-slate-50 border-b border-slate-200">
           <tr>
-            {sTh('Nama Dokumen',        'namaDokumen')}
-            {sTh('Nomor Dokumen',        'nomorDokumen')}
-            {sTh('Level',               'levelDokumen')}
-            {sTh('Tgl Selesai Approval','tanggalSelesaiApproval')}
-            {sTh('Revisi',              'revisi')}
+            {sTh('Nama Dokumen',         'namaDokumen')}
+            {sTh('Nomor Dokumen',         'nomorDokumen')}
+            {sTh('Level',                'levelDokumen')}
+            {sTh('Tgl Selesai Approval', 'tanggalSelesaiApproval')}
+            {sTh('Revisi',               'revisi')}
             {plainTh('Owner')}
-            {sTh('PIC',                 'pic')}
+            {sTh('PIC',                  'pic')}
             {plainTh('Email')}
             {plainTh('Status')}
             {plainTh('Jadwal Email')}
@@ -272,75 +214,54 @@ function ProceduresTable({
         </thead>
         <tbody className="divide-y divide-slate-200">
           {data.map((row, index) => {
-            const schedule  = emailSchedules[row.nomorDokumen];
-            const isEditing = editingRow === row.nomorDokumen;
+            const schedule = emailSchedules[row.nomorDokumen];
 
             return (
               <tr
                 key={`${row.nomorDokumen}-${index}`}
-                className={`transition-colors ${isEditing ? 'bg-blue-50' : 'hover:bg-blue-50'}`}
+                className="transition-colors hover:bg-blue-50/40"
               >
                 {/* Nama Dokumen */}
                 <td className="px-5 py-3">
-                  {isEditing ? (
-                    <EditInput value={editValues.namaDokumen ?? ''} onChange={v => onEditChange('namaDokumen', v)} />
-                  ) : (
-                    <button
-                      onClick={() => onDocumentClick(row.nomorDokumen, row.namaDokumen)}
-                      className="text-left hover:text-blue-600 transition-colors underline decoration-dotted underline-offset-2 hover:decoration-solid text-sm"
-                    >
-                      {row.namaDokumen}
-                    </button>
-                  )}
+                  <button
+                    onClick={() => onDocumentClick(row.nomorDokumen, row.namaDokumen)}
+                    className="text-left hover:text-blue-600 transition-colors underline decoration-dotted underline-offset-2 hover:decoration-solid text-sm"
+                  >
+                    <Highlight text={row.namaDokumen} keyword={searchKeyword} />
+                  </button>
                 </td>
 
                 {/* Nomor Dokumen */}
                 <td className="px-5 py-3 text-sm text-slate-700">
-                  {isEditing ? (
-                    <EditInput value={editValues.nomorDokumen ?? ''} onChange={v => onEditChange('nomorDokumen', v)} />
-                  ) : row.nomorDokumen}
+                  <Highlight text={row.nomorDokumen} keyword={searchKeyword} />
                 </td>
 
                 {/* Level */}
-                <td className="px-5 py-3 text-sm text-slate-700">
-                  {isEditing ? (
-                    <EditInput value={editValues.levelDokumen ?? ''} onChange={v => onEditChange('levelDokumen', v)} className="w-16" />
-                  ) : row.levelDokumen}
-                </td>
+                <td className="px-5 py-3 text-sm text-slate-700">{row.levelDokumen}</td>
 
                 {/* Tanggal */}
                 <td className="px-5 py-3 text-sm text-slate-700">
-                  {isEditing ? (
-                    <EditInput type="date" value={editValues.tanggalSelesaiApproval ?? ''} onChange={v => onEditChange('tanggalSelesaiApproval', v)} />
-                  ) : formatToDDMonYYYY(row.tanggalSelesaiApproval)}
+                  <Highlight text={formatToDDMonYYYY(row.tanggalSelesaiApproval)} keyword={searchKeyword} />
                 </td>
 
                 {/* Revisi */}
                 <td className="px-5 py-3 text-sm text-slate-700">
-                  {isEditing ? (
-                    <EditInput value={editValues.revisi ?? '0'} onChange={v => onEditChange('revisi', v)} className="w-16" />
-                  ) : row.revisi}
+                  <Highlight text={String(row.revisi ?? '')} keyword={searchKeyword} />
                 </td>
 
                 {/* Owner */}
                 <td className="px-5 py-3 text-sm text-slate-700">
-                  {isEditing ? (
-                    <EditInput value={editValues.owner ?? ''} onChange={v => onEditChange('owner', v)} />
-                  ) : row.owner}
+                  <Highlight text={row.owner} keyword={searchKeyword} />
                 </td>
 
                 {/* PIC */}
                 <td className="px-5 py-3 text-sm text-slate-700">
-                  {isEditing ? (
-                    <EditInput value={editValues.pic ?? ''} onChange={v => onEditChange('pic', v)} />
-                  ) : row.pic}
+                  <Highlight text={row.pic} keyword={searchKeyword} />
                 </td>
 
                 {/* Email */}
                 <td className="px-5 py-3 text-sm text-slate-700">
-                  {isEditing ? (
-                    <EditInput type="email" value={editValues.email ?? ''} onChange={v => onEditChange('email', v)} />
-                  ) : (row.email || '-')}
+                  <Highlight text={row.email || '-'} keyword={searchKeyword} />
                 </td>
 
                 {/* Status */}
@@ -366,7 +287,7 @@ function ProceduresTable({
                         <EmailStatusBadge status={schedule.emailStatus} />
                       </div>
                       {schedule.emailStatus === 'sent' && schedule.lastSentAt && (() => {
-                        const sentDate  = new Date(schedule.lastSentAt);
+                        const sentDate   = new Date(schedule.lastSentAt);
                         const expiryDate = new Date(sentDate.getFullYear(), sentDate.getMonth() + 2, sentDate.getDate());
                         const isExpired  = new Date() >= expiryDate;
                         return (
@@ -375,7 +296,9 @@ function ProceduresTable({
                               Terkirim: {sentDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
                             </span>
                             <span className={isExpired ? 'text-red-500 font-medium' : 'text-slate-400'}>
-                              {isExpired ? '⚠ Expired' : `Berlaku s/d: ${expiryDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}`}
+                              {isExpired
+                                ? '⚠ Expired'
+                                : `Berlaku s/d: ${expiryDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}`}
                             </span>
                           </div>
                         );
@@ -388,59 +311,37 @@ function ProceduresTable({
 
                 {/* Aksi */}
                 <td className="px-5 py-3">
-                  {isEditing ? (
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => onSaveEdit(row.nomorDokumen)}
-                        disabled={isSavingEdit}
-                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold
-                                   rounded-lg transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1"
-                      >
-                        {isSavingEdit ? (
-                          <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                          </svg>
-                        ) : '✓'} Simpan
-                      </button>
-                      <button
-                        onClick={onCancelEdit}
-                        disabled={isSavingEdit}
-                        className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 text-xs font-medium
-                                   rounded-lg transition-all active:scale-95"
-                      >
-                        ✕ Batal
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => onStartEdit(row)}
-                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg
-                                   transition-all active:scale-95"
-                        title="Edit prosedur"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round"
-                            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={() => onDelete(row.nomorDokumen)}
-                        className="px-3 py-1.5 text-red-600 hover:text-red-800 hover:bg-red-50
-                                   rounded-lg text-sm font-medium transition-all active:scale-95"
-                        title="Arsipkan prosedur"
-                      >
-                        🗑️ Hapus
-                      </button>
-                    </div>
-                  )}
+                  <div className="flex items-center gap-1.5">
+                    {/* Tombol Edit — membuka modal */}
+                    <button
+                      onClick={() => onEditClick(row)}
+                      className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg
+                                 transition-all active:scale-95"
+                      title="Edit prosedur"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round"
+                          d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
+
+                    {/* Tombol Hapus / Arsip */}
+                    <button
+                      onClick={() => onDelete(row.nomorDokumen)}
+                      className="px-3 py-1.5 text-red-600 hover:text-red-800 hover:bg-red-50
+                                 rounded-lg text-sm font-medium transition-all active:scale-95"
+                      title="Arsipkan prosedur"
+                    >
+                      🗑️ Hapus
+                    </button>
+                  </div>
                 </td>
               </tr>
             );
           })}
         </tbody>
       </table>
+
       {data.length === 0 && (
         <div className="px-5 py-12 text-center text-sm text-slate-500">
           <svg className="w-16 h-16 mx-auto text-slate-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -453,7 +354,6 @@ function ProceduresTable({
     </div>
   );
 }
-
 
 function Pagination({
   currentPage, totalPages, startIndex, endIndex, totalItems, onPrevious, onNext,
@@ -502,10 +402,23 @@ function Controls({
           className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400">
           <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
         </svg>
-        <input type="text" placeholder="Cari prosedur..." value={searchValue}
+        <input type="text"
+          placeholder="Cari nama, nomor, PIC, email, status..."
+          value={searchValue}
           onChange={(e) => onSearchChange(e.target.value)}
-          className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+          className="w-full pl-10 pr-8 py-2.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
         />
+        {searchValue && (
+          <button
+            onClick={() => onSearchChange('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+            title="Hapus pencarian"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-4 h-4">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
       </div>
 
       <select value={filterValue} onChange={(e) => onFilterChange(e.target.value)}
@@ -574,25 +487,73 @@ function Controls({
 
 const ROWS_PER_PAGE = 10;
 
-// Helper: apakah tanggal approval dalam rentang yang membutuhkan pilihan review?
-// Rentang = sudah waktunya jadwal (reached) DAN belum expired (< 2 bulan)
+// ─────────────────────────────────────────────────────────────────────────────
+// AutoResizeTextarea — tinggi mengikuti konten secara otomatis
+// ─────────────────────────────────────────────────────────────────────────────
+interface AutoResizeTextareaProps {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  disabled?: boolean;
+  className?: string;
+  minRows?: number;
+  maxRows?: number;
+}
+
+function AutoResizeTextarea({
+  value, onChange, placeholder, disabled, className = '', minRows = 1, maxRows = 6,
+}: AutoResizeTextareaProps) {
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  const resize = useCallback(() => {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const style      = getComputedStyle(el);
+    const lineHeight = parseFloat(style.lineHeight) || 20;
+    const paddingY   = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+    const minH       = lineHeight * minRows + paddingY;
+    const maxH       = lineHeight * maxRows + paddingY;
+    const newH       = Math.min(Math.max(el.scrollHeight, minH), maxH);
+    el.style.height    = `${newH}px`;
+    el.style.overflowY = el.scrollHeight > maxH ? 'auto' : 'hidden';
+  }, [minRows, maxRows]);
+
+  useEffect(() => { resize(); }, [value, resize]);
+
+  return (
+    <textarea
+      ref={taRef}
+      value={value}
+      rows={minRows}
+      onChange={e => onChange(e.target.value)}
+      onInput={resize}
+      placeholder={placeholder}
+      disabled={disabled}
+      className={`resize-none leading-relaxed ${className}`}
+      style={{ overflowY: 'hidden' }}
+    />
+  );
+}
+
+// Shared styling untuk semua field (dipakai oleh AddProcedureModal)
+const fieldCls =
+  'w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm text-slate-900 ' +
+  'placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 ' +
+  'focus:border-transparent transition-all bg-white';
+
 function isInReviewRange(tanggalApproval: string): boolean {
   if (!tanggalApproval) return false;
   const d = new Date(tanggalApproval);
   if (isNaN(d.getTime())) return false;
   const now = new Date();
-
-  // Hitung expiry (approval + 2 bulan)
-  const expiry = new Date(d.getFullYear(), d.getMonth() + 2, d.getDate());
-  if (now >= expiry) return false; // sudah expired → tidak perlu pilihan
-
-  // Hitung jadwal kirim (approval - 2 bulan)
+  const expiry   = new Date(d.getFullYear(), d.getMonth() + 2, d.getDate());
+  if (now >= expiry) return false;
   const schedDate = new Date(d.getFullYear(), d.getMonth() - 2, 1);
-  const schedYM = schedDate.getFullYear() * 12 + schedDate.getMonth();
-  const nowYM   = now.getFullYear() * 12 + now.getMonth();
-  if (nowYM < schedYM) return false; // belum waktunya → tidak perlu pilihan
-
-  return true; // dalam rentang → perlu pilihan admin
+  const schedYM   = schedDate.getFullYear() * 12 + schedDate.getMonth();
+  const nowYM     = now.getFullYear() * 12 + now.getMonth();
+  if (nowYM < schedYM) return false;
+  return true;
 }
 
 function AddProcedureModal({
@@ -624,35 +585,101 @@ function AddProcedureModal({
           <p className="text-xs text-slate-600 mt-1">Isi semua kolom dengan informasi yang akurat</p>
         </div>
         <div className="p-6 grid grid-cols-2 gap-4">
-          {([
-            { label: 'Nama Dokumen',  key: 'namaDokumen' },
-            { label: 'Nomor Dokumen', key: 'nomorDokumen' },
-            { label: 'Level Dokumen', key: 'levelDokumen' },
-            { label: 'Owner',         key: 'owner' },
-            { label: 'PIC',           key: 'pic' },
-            { label: 'Email',         key: 'email' },
-          ] as const).map(({ label, key }) => (
-            <div key={key}>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">{label}</label>
-              <input type={key === 'email' ? 'email' : 'text'} value={value[key] || ''}
-                onChange={(e) => onChange(key as any, e.target.value)}
-                className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                placeholder={`Masukkan ${label.toLowerCase()}`} disabled={isSaving} />
-            </div>
-          ))}
+
+          {/* Nama Dokumen — textarea auto-resize, selalu full width */}
+          <div className="col-span-2">
+            <label className="block text-sm font-semibold text-slate-700 mb-2">
+              Nama Dokumen
+            </label>
+            <AutoResizeTextarea
+              value={value.namaDokumen || ''}
+              onChange={v => onChange('namaDokumen', v)}
+              placeholder="Masukkan nama dokumen"
+              disabled={isSaving}
+              minRows={1}
+              maxRows={5}
+              className={fieldCls}
+            />
+          </div>
+
+          {/* Nomor Dokumen */}
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">Nomor Dokumen</label>
+            <input
+              type="text"
+              value={value.nomorDokumen || ''}
+              onChange={e => onChange('nomorDokumen', e.target.value)}
+              placeholder="Masukkan nomor dokumen"
+              disabled={isSaving}
+              className={fieldCls}
+            />
+          </div>
+
+          {/* Level Dokumen */}
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">Level Dokumen</label>
+            <input
+              type="text"
+              value={value.levelDokumen || ''}
+              onChange={e => onChange('levelDokumen', e.target.value)}
+              placeholder="Masukkan level dokumen"
+              disabled={isSaving}
+              className={fieldCls}
+            />
+          </div>
+
+          {/* Owner — textarea: nama unit bisa panjang */}
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">Owner</label>
+            <AutoResizeTextarea
+              value={value.owner || ''}
+              onChange={v => onChange('owner', v)}
+              placeholder="Masukkan owner"
+              disabled={isSaving}
+              minRows={1}
+              maxRows={3}
+              className={fieldCls}
+            />
+          </div>
+
+          {/* PIC */}
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">PIC</label>
+            <input
+              type="text"
+              value={value.pic || ''}
+              onChange={e => onChange('pic', e.target.value)}
+              placeholder="Masukkan PIC"
+              disabled={isSaving}
+              className={fieldCls}
+            />
+          </div>
+
+          {/* Email */}
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">Email</label>
+            <input
+              type="email"
+              value={value.email || ''}
+              onChange={e => onChange('email', e.target.value)}
+              placeholder="Masukkan email"
+              disabled={isSaving}
+              className={fieldCls}
+            />
+          </div>
+
+          {/* Tanggal Selesai Approval */}
           <div className="col-span-2">
             <label className="block text-sm font-semibold text-slate-700 mb-2">Tanggal Selesai Approval</label>
             <input type="date" value={value.tanggalSelesaiApproval || ''}
               onChange={(e) => onChange('tanggalSelesaiApproval' as any, e.target.value)}
-              className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+              className={fieldCls}
               disabled={isSaving} />
           </div>
 
-          {/* Opsi status awal — hanya muncul jika tanggal dalam rentang review */}
           {value.tanggalSelesaiApproval && (
             <div className="col-span-2">
               {isExpired ? (
-                // Expired: otomatis Relevan, tidak perlu pilihan
                 <div className="flex items-start gap-2 bg-slate-50 border border-slate-200 rounded-lg px-4 py-3">
                   <span className="text-slate-500 text-sm mt-0.5">ℹ️</span>
                   <p className="text-sm text-slate-600">
@@ -661,7 +688,6 @@ function AddProcedureModal({
                   </p>
                 </div>
               ) : inReviewRange ? (
-                // Dalam rentang: admin harus pilih
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-2">
                     Status Awal Dokumen
@@ -708,7 +734,6 @@ function AddProcedureModal({
                   )}
                 </div>
               ) : (
-                // Belum waktunya: otomatis dormant
                 <div className="flex items-start gap-2 bg-slate-50 border border-slate-200 rounded-lg px-4 py-3">
                   <span className="text-slate-500 text-sm mt-0.5">ℹ️</span>
                   <p className="text-sm text-slate-600">
@@ -757,38 +782,34 @@ function formatToDDMonYYYY(iso: string): string {
 }
 
 export default function StatusReviewPage() {
-  const [searchValue,    setSearchValue]    = useState('');
-  const [filterValue,    setFilterValue]    = useState('');
-  const [monthFilter,    setMonthFilter]    = useState('');
-  const [currentPage,    setCurrentPage]    = useState(1);
-  const [dataWithStatus, setDataWithStatus] = useState<ProcedureDocument[]>([]);
-  const [loading,        setLoading]        = useState(true);
-  const [isModalOpen,    setIsModalOpen]    = useState(false);
-  const [isSaving,       setIsSaving]       = useState(false);
-  const [newProcedure,   setNewProcedure]   = useState<Omit<ProcedureDocument, 'status' | 'revisi' | 'id'>>({
+  const [searchValue,      setSearchValue]      = useState('');
+  const [debouncedSearch,  setDebouncedSearch]  = useState('');
+  const [filterValue,      setFilterValue]      = useState('');
+  const [monthFilter,      setMonthFilter]      = useState('');
+  const [currentPage,      setCurrentPage]      = useState(1);
+  const [dataWithStatus,   setDataWithStatus]   = useState<ProcedureDocument[]>([]);
+  const [loading,          setLoading]          = useState(true);
+  const [isAddModalOpen,   setIsAddModalOpen]   = useState(false);
+  const [isSaving,         setIsSaving]         = useState(false);
+  const [newProcedure,     setNewProcedure]     = useState<Omit<ProcedureDocument, 'status' | 'revisi' | 'id'>>({
     namaDokumen: '', nomorDokumen: '', levelDokumen: '',
     tanggalSelesaiApproval: '', owner: '', pic: '', email: '',
   });
-  // null = belum dipilih, true = perlu review, false = langsung Relevan
-  const [needsReview, setNeedsReview] = useState<boolean | null>(null);
+  const [needsReview,      setNeedsReview]      = useState<boolean | null>(null);
 
-  // ── Sorting ──────────────────────────────────────────────────────────────
+  // ── Edit modal state ──────────────────────────────────────────────────────
+  const [editingProcedure, setEditingProcedure] = useState<ProcedureDocument | null>(null);
+  const [isEditModalOpen,  setIsEditModalOpen]  = useState(false);
+
+  // ── Sorting ───────────────────────────────────────────────────────────────
   type SortKey = 'namaDokumen' | 'nomorDokumen' | 'levelDokumen' | 'tanggalSelesaiApproval' | 'revisi' | 'pic';
-  // 3-state cycle: asc → desc → null (reset ke default)
   type SortDir = 'asc' | 'desc' | null;
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>(null);
 
-
-  // ── Inline Edit ──────────────────────────────────────────────────────────
-  const [editingRow, setEditingRow]   = useState<string | null>(null); // nomorDokumen
-  const [editValues, setEditValues]   = useState<Record<string, string>>({});
-  const [isSavingEdit, setIsSavingEdit] = useState(false);
-  const [selectedDocument, setSelectedDocument] = useState<{
-    nomorDokumen: string; namaDokumen: string;
-  } | null>(null);
-  const [isEmailScheduleModalOpen, setIsEmailScheduleModalOpen] = useState(false);
-  const [emailSchedules, setEmailSchedules] = useState<Record<string, EmailSchedule>>({});
+  const [selectedDocument,          setSelectedDocument]          = useState<{ nomorDokumen: string; namaDokumen: string } | null>(null);
+  const [isEmailScheduleModalOpen,  setIsEmailScheduleModalOpen]  = useState(false);
+  const [emailSchedules,            setEmailSchedules]            = useState<Record<string, EmailSchedule>>({});
 
   const loadEmailSchedules = useCallback(async () => {
     try {
@@ -804,36 +825,21 @@ export default function StatusReviewPage() {
     }
   }, []);
 
-  // ✅ loadData dibuat useCallback agar bisa dipanggil ulang dari mana saja
   const loadData = useCallback(async (showLoading = true) => {
     try {
-      // showLoading=false untuk background refresh (setelah modal tutup, dll)
-      // sehingga tidak muncul loading spinner yang mengganggu UX
       if (showLoading) setLoading(true);
       const procedures = await getAllProcedures();
 
-      // Status workflow aktif yang TIDAK boleh ditimpa oleh document_reviews.
-      // DB procedure_documents adalah sumber kebenaran untuk status ini —
-      // document_reviews hanya menyimpan hasil review final dari PIC.
       const workflowStatuses: StatusType[] = [
-        'Belum dikirim',
-        'Telah terkirim',
-        'Telah dibaca',
-        'Menunggu',
+        'Belum dikirim', 'Telah terkirim', 'Telah dibaca', 'Menunggu',
       ];
 
       const withReviews = await Promise.all(
         procedures.map(async (doc) => {
-          // Jika status dari DB sudah dalam workflow aktif, jangan timpa
           if (workflowStatuses.includes(doc.status)) return doc;
-
           const docDate = new Date(doc.tanggalSelesaiApproval);
-          const approvalMonth = isNaN(docDate.getTime())
-            ? new Date().getMonth()
-            : docDate.getMonth();
+          const approvalMonth = isNaN(docDate.getTime()) ? new Date().getMonth() : docDate.getMonth();
           const review = await getDocumentReview(doc.nomorDokumen, approvalMonth);
-
-          // Hanya terapkan review jika berisi status final PIC
           if (review && ['Relevan', 'Revisi', 'Obsolete'].includes(review.status)) {
             return { ...doc, status: review.status as StatusType, revisi: review.revisi };
           }
@@ -852,10 +858,11 @@ export default function StatusReviewPage() {
   useEffect(() => { loadEmailSchedules(); }, []);
   useEffect(() => { loadData(); }, [loadData]);
 
-  // Catatan: visibilitychange listener sengaja tidak digunakan di sini.
-  // Refresh saat kembali ke tab menyebabkan loading spinner muncul terus
-  // yang mengganggu UX. Data akan direfresh hanya saat benar-benar diperlukan
-  // (setelah simpan jadwal, tambah prosedur, arsip prosedur, dll).
+  // Debounce search
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchValue), 300);
+    return () => clearTimeout(timer);
+  }, [searchValue]);
 
   const dataResolved = useMemo(() => {
     return dataWithStatus.map((doc) => ({
@@ -878,7 +885,7 @@ export default function StatusReviewPage() {
     if (!confirmed) return;
     try {
       await archiveProcedure(nomorDokumen);
-      await loadData(false); // background refresh
+      await loadData(false);
       alert('Prosedur berhasil diarsipkan!');
     } catch (error: any) {
       console.error('Error archiving procedure:', error);
@@ -886,69 +893,58 @@ export default function StatusReviewPage() {
     }
   };
 
+  // ── Edit handlers ─────────────────────────────────────────────────────────
+  const handleEditClick = (row: ProcedureDocument) => {
+    setEditingProcedure(row);
+    setIsEditModalOpen(true);
+  };
+
+  const handleEditClose = () => {
+    setIsEditModalOpen(false);
+    // Delay clearing procedure so exit animation can play
+    setTimeout(() => setEditingProcedure(null), 250);
+  };
+
+  const handleEditSaved = async () => {
+    await loadData(false);
+  };
+
   const handleDocumentClick = (nomorDokumen: string, namaDokumen: string) => {
     setSelectedDocument({ nomorDokumen, namaDokumen });
   };
 
   // ── Download Excel ────────────────────────────────────────────────────────
-  // Menggunakan SheetJS (xlsx) via dynamic import — tidak perlu install npm package.
-  // Data yang didownload mengikuti kondisi tabel saat ini (filter, search, sorting).
   const handleDownloadExcel = async () => {
     try {
-      const ExcelJS = await import('exceljs');
-      const workbook = new ExcelJS.Workbook();
-      const worksheet = workbook.addWorksheet('Data Dokumen');
-
-      // Define columns dengan auto-width
-      worksheet.columns = [
-        { header: 'Nama Dokumen', key: 'namaDokumen', width: 30 },
-        { header: 'Nomor Dokumen', key: 'nomorDokumen', width: 20 },
-        { header: 'Level Dokumen', key: 'levelDokumen', width: 15 },
-        { header: 'Tanggal Selesai Approval', key: 'tanggal', width: 20 },
-        { header: 'Revisi', key: 'revisi', width: 10 },
-        { header: 'Owner', key: 'owner', width: 20 },
-        { header: 'PIC', key: 'pic', width: 20 },
-        { header: 'Email', key: 'email', width: 25 },
-        { header: 'Status', key: 'status', width: 20 },
-      ];
-
-      // Bold header
-      worksheet.getRow(1).font = { bold: true };
-
-      // Add rows
-      filteredData.forEach(doc => {
-        worksheet.addRow({
-          namaDokumen: doc.namaDokumen,
-          nomorDokumen: doc.nomorDokumen,
-          levelDokumen: doc.levelDokumen,
-          tanggal: formatToDDMonYYYY(doc.tanggalSelesaiApproval),
-          revisi: doc.revisi ?? '0',
-          owner: doc.owner,
-          pic: doc.pic,
-          email: doc.email ?? '',
-          status: doc.status,
-        });
+      const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs' as any);
+      const exportData = filteredData.map(doc => ({
+        'Nama Dokumen':             doc.namaDokumen,
+        'Nomor Dokumen':            doc.nomorDokumen,
+        'Level Dokumen':            doc.levelDokumen,
+        'Tanggal Selesai Approval': formatToDDMonYYYY(doc.tanggalSelesaiApproval),
+        'Revisi':                   doc.revisi ?? '0',
+        'Owner':                    doc.owner,
+        'PIC':                      doc.pic,
+        'Email':                    doc.email ?? '',
+        'Status':                   doc.status,
+      }));
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const colWidths = Object.keys(exportData[0] ?? {}).map(key => {
+        const maxDataLen = exportData.reduce(
+          (max, row) => Math.max(max, String((row as any)[key] ?? '').length), 0
+        );
+        return { wch: Math.max(key.length, maxDataLen) + 2 };
       });
-
-      // Generate & download
-      const buffer = await workbook.xlsx.writeBuffer();
-      const blob = new Blob([buffer], { 
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
-      });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `dokumen-prosedur-${new Date().toISOString().slice(0, 10)}.xlsx`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-      
+      ws['!cols'] = colWidths;
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Data Dokumen');
+      const today = new Date().toISOString().slice(0, 10);
+      XLSX.writeFile(wb, `dokumen-prosedur-${today}.xlsx`);
     } catch (err) {
       console.error('Download Excel gagal:', err);
       alert('Gagal membuat file Excel. Silakan coba lagi.');
     }
   };
-
-
 
   const handleSaveNewProcedure = async () => {
     if (!newProcedure.namaDokumen || !newProcedure.nomorDokumen || !newProcedure.levelDokumen ||
@@ -958,20 +954,11 @@ export default function StatusReviewPage() {
     }
     try {
       setIsSaving(true);
-
-      // Kirim needsReview sebagai field terpisah di body request.
-      // addProcedure() tidak mengenal needsReview di typenya, jadi kita panggil
-      // API /api/procedures langsung agar bisa menyertakan field tersebut.
       const response = await fetch('/api/procedures', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...newProcedure,
-          revisi: '0',
-          needsReview, // diterima backend di body.needsReview
-        }),
+        body: JSON.stringify({ ...newProcedure, revisi: '0', needsReview }),
       });
-
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
         if (response.status === 409) {
@@ -981,14 +968,13 @@ export default function StatusReviewPage() {
         }
         return;
       }
-
-      await loadData(false); // background refresh — tidak perlu spinner
+      await loadData(false);
       setNewProcedure({
         namaDokumen: '', nomorDokumen: '', levelDokumen: '',
         tanggalSelesaiApproval: '', owner: '', pic: '', email: '',
       });
       setNeedsReview(null);
-      setIsModalOpen(false);
+      setIsAddModalOpen(false);
       setCurrentPage(1);
       alert('Prosedur berhasil ditambahkan!');
     } catch (error: any) {
@@ -999,11 +985,10 @@ export default function StatusReviewPage() {
     }
   };
 
-  // ── Sort handler ─────────────────────────────────────────────────────────
-  // Siklus 3-state: klik 1 → asc, klik 2 → desc, klik 3 → reset (null)
+  // ── Sort handler ──────────────────────────────────────────────────────────
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
-      if (sortDir === 'asc')  { setSortDir('desc'); }
+      if (sortDir === 'asc')       { setSortDir('desc'); }
       else if (sortDir === 'desc') { setSortKey(null); setSortDir(null); }
     } else {
       setSortKey(key);
@@ -1012,78 +997,23 @@ export default function StatusReviewPage() {
     setCurrentPage(1);
   };
 
-  // ── Inline edit handlers ──────────────────────────────────────────────────
-  const handleStartEdit = (row: ProcedureDocument) => {
-    setEditingRow(row.nomorDokumen);
-    setEditValues({
-      namaDokumen:             row.namaDokumen,
-      nomorDokumen:            row.nomorDokumen,
-      levelDokumen:            row.levelDokumen,
-      tanggalSelesaiApproval:  row.tanggalSelesaiApproval?.slice(0, 10) ?? '',
-      revisi:                  row.revisi ?? '0',
-      owner:                   row.owner,
-      pic:                     row.pic,
-      email:                   row.email ?? '',
-    });
-  };
-
-  const handleCancelEdit = () => {
-    setEditingRow(null);
-    setEditValues({});
-  };
-
-  const handleSaveEdit = async (originalNomor: string) => {
-    if (!editValues.namaDokumen || !editValues.nomorDokumen || !editValues.levelDokumen ||
-        !editValues.tanggalSelesaiApproval || !editValues.owner || !editValues.pic) {
-      alert('Field wajib tidak boleh kosong.');
-      return;
-    }
-    try {
-      setIsSavingEdit(true);
-      // Hanya sertakan nomorDokumenBaru jika nomor dokumen memang berubah.
-      // Jika tidak berubah, jangan kirim field ini agar backend tidak
-      // salah mengira ada perubahan nomor dan memicu cek duplikat.
-      const nomorBerubah = editValues.nomorDokumen.trim() !== originalNomor.trim();
-      const res = await fetch(
-        `/api/procedures/${encodeURIComponent(originalNomor)}`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            namaDokumen:            editValues.namaDokumen,
-            ...(nomorBerubah && { nomorDokumenBaru: editValues.nomorDokumen }),
-            levelDokumen:           editValues.levelDokumen,
-            tanggalSelesaiApproval: editValues.tanggalSelesaiApproval,
-            revisi:                 editValues.revisi,
-            owner:                  editValues.owner,
-            pic:                    editValues.pic,
-            email:                  editValues.email,
-          }),
-        }
-      );
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        alert(err.error || 'Gagal menyimpan perubahan');
-        return;
-      }
-      setEditingRow(null);
-      setEditValues({});
-      await loadData(false);
-    } catch {
-      alert('Gagal menyimpan perubahan. Silakan coba lagi.');
-    } finally {
-      setIsSavingEdit(false);
-    }
-  };
-
   const filteredData = useMemo(() => {
     let result = dataResolved;
-    if (searchValue) {
-      const searchLower = searchValue.toLowerCase();
-      result = result.filter((row) =>
-        row.namaDokumen.toLowerCase().includes(searchLower) ||
-        row.nomorDokumen.toLowerCase().includes(searchLower)
-      );
+    if (debouncedSearch) {
+      const q = debouncedSearch.toLowerCase().trim();
+      result = result.filter((row) => {
+        const tgl = formatToDDMonYYYY(row.tanggalSelesaiApproval).toLowerCase();
+        return (
+          row.namaDokumen.toLowerCase().includes(q)          ||
+          row.nomorDokumen.toLowerCase().includes(q)         ||
+          tgl.includes(q)                                     ||
+          String(row.revisi ?? '').toLowerCase().includes(q) ||
+          row.owner.toLowerCase().includes(q)                 ||
+          row.pic.toLowerCase().includes(q)                   ||
+          (row.email ?? '').toLowerCase().includes(q)         ||
+          row.status.toLowerCase().includes(q)
+        );
+      });
     }
     if (filterValue) result = result.filter((row) => row.status === filterValue);
     if (monthFilter !== '') {
@@ -1093,40 +1023,30 @@ export default function StatusReviewPage() {
         return approvalDate.getMonth() === selectedMonth;
       });
     }
-    // ── Apply sorting ───────────────────────────────────────────────────────
     if (sortKey && sortDir) {
       result = [...result].sort((a, b) => {
         const dir = sortDir === 'asc' ? 1 : -1;
-
         if (sortKey === 'tanggalSelesaiApproval') {
-          const diff = new Date(a.tanggalSelesaiApproval).getTime()
-                     - new Date(b.tanggalSelesaiApproval).getTime();
-          return diff * dir;
+          return (new Date(a.tanggalSelesaiApproval).getTime() - new Date(b.tanggalSelesaiApproval).getTime()) * dir;
         }
-
         if (sortKey === 'levelDokumen' || sortKey === 'revisi') {
           return ((parseInt(a[sortKey]) || 0) - (parseInt(b[sortKey]) || 0)) * dir;
         }
-
         if (sortKey === 'nomorDokumen') {
-          // Natural sort: "PFP-W-2" < "PFP-W-10" (angka diurutkan numerik)
           return a.nomorDokumen.localeCompare(b.nomorDokumen, undefined, { numeric: true }) * dir;
         }
-
-        // Default: string sort
         const aStr = String(a[sortKey] ?? '').toLowerCase();
         const bStr = String(b[sortKey] ?? '').toLowerCase();
         return aStr.localeCompare(bStr) * dir;
       });
     }
-
     return result;
-  }, [searchValue, filterValue, monthFilter, dataResolved, sortKey, sortDir]);
+  }, [debouncedSearch, filterValue, monthFilter, dataResolved, sortKey, sortDir]);
 
-  const totalPages = Math.ceil(filteredData.length / ROWS_PER_PAGE);
-  const startIndex = filteredData.length === 0 ? 0 : (currentPage - 1) * ROWS_PER_PAGE + 1;
-  const endIndex   = Math.min(currentPage * ROWS_PER_PAGE, filteredData.length);
-  const pageData   = filteredData.slice((currentPage - 1) * ROWS_PER_PAGE, currentPage * ROWS_PER_PAGE);
+  const totalPages  = Math.ceil(filteredData.length / ROWS_PER_PAGE);
+  const startIndex  = filteredData.length === 0 ? 0 : (currentPage - 1) * ROWS_PER_PAGE + 1;
+  const endIndex    = Math.min(currentPage * ROWS_PER_PAGE, filteredData.length);
+  const pageData    = filteredData.slice((currentPage - 1) * ROWS_PER_PAGE, currentPage * ROWS_PER_PAGE);
 
   if (loading) {
     return (
@@ -1151,36 +1071,36 @@ export default function StatusReviewPage() {
               Memantau perkembangan review, status relevansi, dan riwayat revisi dokumen.
             </p>
           </div>
+
           <Controls
             searchValue={searchValue} filterValue={filterValue} monthFilter={monthFilter}
             onSearchChange={(v) => { setSearchValue(v); setCurrentPage(1); }}
             onFilterChange={(v) => { setFilterValue(v); setCurrentPage(1); }}
             onMonthFilterChange={(v) => { setMonthFilter(v); setCurrentPage(1); }}
-            onAddProcedure={() => setIsModalOpen(true)}
+            onAddProcedure={() => setIsAddModalOpen(true)}
             onOpenEmailSchedule={() => setIsEmailScheduleModalOpen(true)}
             onDownloadExcel={handleDownloadExcel}
           />
+
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="px-6 py-5 bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200">
               <h2 className="font-bold text-lg text-slate-900">Daftar Dokumen Prosedur</h2>
               <p className="text-xs text-slate-600 mt-1">Total: {filteredData.length} dokumen</p>
             </div>
+
+            {/* ── Tabel — tidak ada inline-edit lagi ── */}
             <ProceduresTable
               data={pageData}
               onDelete={handleDeleteProcedure}
               onDocumentClick={handleDocumentClick}
+              onEditClick={handleEditClick}
               emailSchedules={emailSchedules}
+              searchKeyword={debouncedSearch}
               sortKey={sortKey}
               sortDir={sortDir}
               onSort={handleSort}
-              editingRow={editingRow}
-              editValues={editValues}
-              onStartEdit={handleStartEdit}
-              onCancelEdit={handleCancelEdit}
-              onSaveEdit={handleSaveEdit}
-              isSavingEdit={isSavingEdit}
-              onEditChange={(field, value) => setEditValues(prev => ({ ...prev, [field]: value }))}
             />
+
             <Pagination
               currentPage={currentPage} totalPages={totalPages || 1}
               startIndex={startIndex} endIndex={endIndex} totalItems={filteredData.length}
@@ -1190,9 +1110,10 @@ export default function StatusReviewPage() {
           </div>
         </div>
 
+        {/* ── Tambah Prosedur Modal ── */}
         <AddProcedureModal
-          isOpen={isModalOpen}
-          onClose={() => { if (!isSaving) { setIsModalOpen(false); setNeedsReview(null); } }}
+          isOpen={isAddModalOpen}
+          onClose={() => { if (!isSaving) { setIsAddModalOpen(false); setNeedsReview(null); } }}
           onSave={handleSaveNewProcedure}
           value={newProcedure}
           onChange={handleNewProcedureChange}
@@ -1201,6 +1122,15 @@ export default function StatusReviewPage() {
           isSaving={isSaving}
         />
 
+        {/* ── Edit Prosedur Modal (card-based, menggantikan inline edit) ── */}
+        <EditProcedureModal
+          isOpen={isEditModalOpen}
+          onClose={handleEditClose}
+          procedure={editingProcedure}
+          onSaved={handleEditSaved}
+        />
+
+        {/* ── Document Modal ── */}
         <DocumentModal
           isOpen={selectedDocument !== null}
           onClose={() => setSelectedDocument(null)}
@@ -1208,15 +1138,11 @@ export default function StatusReviewPage() {
           namaDokumen={selectedDocument?.namaDokumen || ''}
         />
 
-        {/* ✅ FIX: onClose sekarang reload KEDUA sumber data:
-            - loadData()          → refresh status dokumen dari DB (dataWithStatus)
-            - loadEmailSchedules() → refresh jadwal email (emailSchedules)
-            Keduanya diperlukan agar resolveDisplayStatus bekerja dengan data terbaru */}
+        {/* ── Email Schedule Modal ── */}
         <EmailScheduleModal
           isOpen={isEmailScheduleModalOpen}
           onClose={async () => {
             setIsEmailScheduleModalOpen(false);
-            // Background refresh — tanpa spinner (showLoading=false)
             await Promise.all([loadData(false), loadEmailSchedules()]);
           }}
           procedures={dataWithStatus}
