@@ -24,7 +24,7 @@ procedure_management=# \d
 (19 rows)
 
 
-procedure_management=# \d active_procedure_files;
+procedure_management=# \d active_procedure_files
                      View "public.active_procedure_files"
     Column     |            Type             | Collation | Nullable | Default
 ---------------+-----------------------------+-----------+----------+---------
@@ -85,8 +85,9 @@ Indexes:
     "idx_arsip_pic" btree (pic)
 
 
-procedure_management=#
-procedure_management=# \d document_reviews;
+procedure_management=# \d document_schedules
+Did not find any relation named "document_schedules".
+procedure_management=# \d document_reviews
                                              Table "public.document_reviews"
        Column        |            Type             | Collation | Nullable |                   Default
 ---------------------+-----------------------------+-----------+----------+----------------------------------------------
@@ -202,8 +203,30 @@ Foreign-key constraints:
     "fk_procedure_files_nomor_dokumen" FOREIGN KEY (nomor_dokumen) REFERENCES procedure_documents(nomor_dokumen) ON DELETE CASCADE
 
 
+procedure_management=# \d users
+                                        Table "public.users"
+   Column   |            Type             | Collation | Nullable |              Default
+------------+-----------------------------+-----------+----------+-----------------------------------
+ id         | integer                     |           | not null | nextval('users_id_seq'::regclass)
+ username   | character varying(100)      |           | not null |
+ password   | character varying(255)      |           | not null |
+ full_name  | character varying(200)      |           | not null |
+ email      | character varying(200)      |           |          |
+ role       | character varying(50)       |           |          | 'admin'::character varying
+ is_active  | boolean                     |           |          | true
+ created_at | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+ updated_at | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+Indexes:
+    "users_pkey" PRIMARY KEY, btree (id)
+    "idx_users_is_active" btree (is_active)
+    "idx_users_username" btree (username)
+    "users_username_key" UNIQUE CONSTRAINT, btree (username)
+Triggers:
+    update_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
+
+
 procedure_management=# select * from procedure_documents;
- id  |                                     nama_dokumen                                     |        nomor_dokumen         | level_dokumen | tanggal_selesai_approval | revisi |         owner          |       pic       |     status     | is_custom |         created_at         |         updated_at         |                  email           
+ id  |                                     nama_dokumen                                     |        nomor_dokumen         | level_dokumen | tanggal_selesai_approval | revisi |         owner          |       pic       |     status     | is_custom |         created_at         |         updated_at         |                  email
 -----+--------------------------------------------------------------------------------------+------------------------------+---------------+--------------------------+--------+------------------------+-----------------+----------------+-----------+----------------------------+----------------------------+-----------------------------------------
  773 | dokumen-januari                                                                      | 0091J                        | 1             | 2026-01-01               | 0      | DP                     | DP              | Relevan        | t         | 2026-03-27 08:34:51.574294 | 2026-03-27 10:29:15.644096 | daniarpriambodo11@gmail.com
  766 | QR_QA                                                                                | T-0909                       | 3             | 2026-03-05               | 0      | DP                     | DP              | Relevan        | t         | 2026-03-05 11:42:30.694821 | 2026-03-12 14:49:32.737675 | daniarpriambodo11@gmail.com
@@ -211,10 +234,9 @@ procedure_management=# select * from procedure_documents;
  501 | Business Plan                                                                        | BPR-P-01                     | 2             | 2025-10-01               | 08     | QSA                    | ISR             | Relevan        | f         | 2026-02-18 09:08:32.000013 | 2026-03-13 08:49:51.41916  | 123ika.y@jai.co.id
  502 | Risk Analysis                                                                        | BPR-W-01                     | 3             | 2025-07-31               | 03     | QSA                    | ISR             | Relevan        | f         | 2026-02-18 09:08:32.000013 | 2026-03-13 08:49:51.41916  | 123ika.y@jai.co.id
  769 | Test Hari Ini 123                                                                    | 1                            | 1             | 2026-03-11               | 0      | DP                     | DP              | Relevan        | t         | 2026-03-12 10:03:43.82576  | 2026-04-09 03:49:20.039678 | daniarpriambodo11@gmail.com
- 790 | TESTING APRIL 123                                                                    | TES-123                      | 2             | 2026-05-30               | 0      | DP                     | DP              | Relevan        | t         | 2026-04-04 17:48:55.645906 | 2026-04-09 10:57:18.729715 | daniarpriambodo11@gmail.com
  785 | DK-98                                                                                | 09-LL                        | 3             | 2026-03-24               | 0      | DP                     | DP              | Relevan        | t         | 2026-03-31 04:15:32.28548  | 2026-03-31 04:15:32.28548  | daniarpriambodo11@gmail.com
- 789 | Test_April                                                                           | 0909-DP                      | 3             | 2026-04-01               | 0      | DP                     | DP              | Telah terkirim | t         | 2026-04-01 16:00:34.245137 | 2026-04-04 17:50:51.936238 | daniarpriambodo11@gmail.com
  767 | QR_GA                                                                                | T-0900                       | 3             | 2026-03-05               | 0      | DP                     | DP              | Relevan        | t         | 2026-03-05 11:43:21.560862 | 2026-03-12 14:49:32.737675 | daniarpriambodo11@gmail.com
+ 789 | Test_April_123_09                                                                    | 0909-DP                      | 3             | 2026-03-30               | 0      | DP                     | DP              | Telah terkirim | t         | 2026-04-01 16:00:34.245137 | 2026-04-10 13:45:42.535875 | daniarpriambodo11@gmail.com
  771 | test hari ini 2                                                                      | 09092                        | 2             | 2026-03-12               | 0      | DP                     | DP              | Relevan        | t         | 2026-03-12 10:05:37.430786 | 2026-03-12 14:52:57.00108  | daniarpriambodo11@gmail.com
  555 | Risk Assessment                                                                      | PQP-W-06                     | 3             | 2007-10-09               | 02     | PP                     | LDA             | Relevan        | f         | 2026-02-18 09:08:32.000013 | 2026-03-05 11:32:57.084179 | 123lita.d@jai.co.id
  772 | 123                                                                                  | 13215                        | 2             | 2026-02-12               | 0      | DP                     | DP              | Relevan        | t         | 2026-03-12 10:07:10.367594 | 2026-03-27 08:22:33.086919 | daniarpriambodo11@gmail.com
@@ -468,21 +490,13 @@ procedure_management=# select * from procedure_documents;
  745 | Analisa Hasil Kalibrasi                                                              | CMD-W-02                     | 3             | 2025-11-07               | 06     | QC MSA                 | SFE             | Relevan        | f         | 2026-02-18 09:08:32.000013 | 2026-03-05 11:32:57.084179 | 123shinta.f@jai.co.id
  746 | Verifikasi Torque                                                                    | CMD-W-03                     | 3             | 2025-08-11               | 02     | PD, PE, QC MSA         | DAF,YHE,TWI     | Relevan        | f         | 2026-02-18 09:08:32.000013 | 2026-03-05 11:32:57.084179 | 123david.a@jai.co.id
  747 | Penaganan Kerusakan Atau Kehilangan Alat Ukur                                        | CMD-W-04                     | 3             | 2024-11-01               | 02     | QC MSA                 | SFE             | Relevan        | f         | 2026-02-18 09:08:32.000013 | 2026-03-05 11:32:57.084179 | 123shinta.f@jai.co.id
-(263 rows)
+(262 rows)
 
 
 procedure_management=#
-procedure_management=#
-procedure_management=#
-procedure_management=#
-procedure_management=#
-procedure_management=#
-procedure_management=#
-procedure_management=#
-procedure_management=#
-procedure_management=#
-procedure_management=#
-procedure_management=# select * from procedure_files;
+
+procedure_management=# select * from procedure_files
+procedure_management-# ;
  id  | nomor_dokumen |                                         file_name                                         |                                                       file_path                                                       | file_size |    mime_type    | version | is_active | uploaded_by |        uploaded_at
 -----+---------------+-------------------------------------------------------------------------------------------+-----------------------------------------------------------------------------------------------------------------------+-----------+-----------------+---------+-----------+-------------+----------------------------
    3 | BPR-P-01      | BPR-P-01 Business Plan R08.pdf                                                            | /uploads/documents/BPR-P-01/BPR-P-01 Business Plan R08.pdf                                                            |    206161 | application/pdf |       1 | t         | system      | 2026-02-20 15:14:31.327466

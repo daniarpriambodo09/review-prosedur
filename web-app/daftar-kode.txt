@@ -552,12 +552,10 @@ import { logActivity } from '@/lib/activityLogger';
 // POST - Tandai dokumen telah dibaca oleh PIC
 export async function POST(request: NextRequest) {
   const client = await pool.connect();
-
   try {
     const body = await request.json();
     const { nomorDokumen, pic } = body;
 
-    // Validasi input
     if (!nomorDokumen || !pic) {
       return NextResponse.json(
         { error: 'nomorDokumen dan pic harus diisi' },
@@ -565,10 +563,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Ambil data dokumen terlebih dahulu
     const docQuery = `
-      SELECT nama_dokumen, status, revisi 
-      FROM procedure_documents 
+      SELECT nama_dokumen, status, revisi, tanggal_selesai_approval
+      FROM procedure_documents
       WHERE nomor_dokumen = $1
     `;
     const docResult = await client.query(docQuery, [nomorDokumen]);
@@ -580,12 +577,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { nama_dokumen, status: currentStatus, revisi: currentRevisi } = docResult.rows[0];
+    const {
+      nama_dokumen,
+      status: currentStatus,
+      revisi: currentRevisi,
+      tanggal_selesai_approval,
+    } = docResult.rows[0];
 
     // Hanya update jika status masih eligible (belum final review)
-    const eligibleStatuses = ['Belum dikirim', 'Telah terkirim', 'Menunggu', '-'];
+    const eligibleStatuses = ['Belum dikirim', 'Telah terkirim', 'Menunggu', '-', 'Telah dibaca'];
     if (!eligibleStatuses.includes(currentStatus)) {
-      // Tidak perlu update, kembalikan response sukses
       return NextResponse.json({
         success: true,
         updated: false,
@@ -594,38 +595,46 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // ✅ Mulai database transaction untuk konsistensi data
     await client.query('BEGIN');
-
     try {
       // 1️⃣ Update procedure_documents ke "Telah dibaca"
-      const updateProcedureQuery = `
-        UPDATE procedure_documents
-        SET status = 'Telah dibaca', updated_at = CURRENT_TIMESTAMP
-        WHERE nomor_dokumen = $1
-        RETURNING status
-      `;
-      await client.query(updateProcedureQuery, [nomorDokumen]);
+      await client.query(
+        `UPDATE procedure_documents
+         SET status = 'Telah dibaca', updated_at = CURRENT_TIMESTAMP
+         WHERE nomor_dokumen = $1`,
+        [nomorDokumen]
+      );
 
-      // 2️⃣ ✅ FIX UTAMA: Sync ke document_reviews agar konsisten dengan getDocumentReview()
-      //    Karena unique constraint: (nomor_dokumen, last_reviewed_month)
-      const currentMonth = new Date().getMonth(); // 0 = Januari, 11 = Desember
+      // 2️⃣ Sync ke document_reviews menggunakan BULAN APPROVAL DOKUMEN
+      const docDate = new Date(tanggal_selesai_approval);
+      const approvalMonth = isNaN(docDate.getTime())
+        ? new Date().getMonth()
+        : docDate.getMonth();
+
       const revisiValue = currentRevisi || '0';
 
-      const syncReviewQuery = `
-        INSERT INTO document_reviews 
-          (nomor_dokumen, status, revisi, last_reviewed_month, updated_at)
-        VALUES ($1, 'Telah dibaca', $2, $3, CURRENT_TIMESTAMP)
-        ON CONFLICT (nomor_dokumen, last_reviewed_month) 
-        DO UPDATE SET 
-          status = 'Telah dibaca',
-          revisi = $2,
-          updated_at = CURRENT_TIMESTAMP
-        RETURNING status
-      `;
-      await client.query(syncReviewQuery, [nomorDokumen, revisiValue, currentMonth]);
+      await client.query(
+        `INSERT INTO document_reviews
+           (nomor_dokumen, status, revisi, last_reviewed_month, updated_at)
+         VALUES ($1, 'Telah dibaca', $2, $3, CURRENT_TIMESTAMP)
+         ON CONFLICT (nomor_dokumen, last_reviewed_month)
+         DO UPDATE SET
+           status      = 'Telah dibaca',
+           revisi      = $2,
+           updated_at  = CURRENT_TIMESTAMP`,
+        [nomorDokumen, revisiValue, approvalMonth]
+      );
 
-      // ✅ Commit transaction jika semua query sukses
+      // 3️⃣ Cancel email schedule jika sebelumnya "sent"
+      // Karena PIC sudah membaca, status "Telah terkirim" tidak lagi relevan
+      await client.query(
+        `UPDATE email_schedules
+         SET email_status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+         WHERE nomor_dokumen = $1
+           AND email_status = 'sent'`,
+        [nomorDokumen]
+      );
+
       await client.query('COMMIT');
 
       // 3️⃣ Catat ke activity log
@@ -643,13 +652,10 @@ export async function POST(request: NextRequest) {
         currentStatus: 'Telah dibaca',
         message: 'Status berhasil diupdate menjadi Telah dibaca',
       });
-
     } catch (error) {
-      // ✅ Rollback jika ada error di tengah transaction
       await client.query('ROLLBACK');
       throw error;
     }
-
   } catch (error) {
     console.error('Error marking document as read:', error);
     return NextResponse.json(
@@ -657,8 +663,81 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   } finally {
-    // ✅ Pastikan client release terlepas dari success/error
     client.release();
+  }
+}
+
+// app/api/download-excel/route.ts
+
+import { NextRequest, NextResponse } from 'next/server';
+import ExcelJS from 'exceljs';
+
+export async function POST(request: NextRequest) {
+  try {
+    const { data } = await request.json();
+    
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Data Dokumen');
+
+    if (data && data.length > 0) {
+      const columns = Object.keys(data[0]).map(key => ({
+        header: key,
+        key: key,
+        width: 20,
+      }));
+
+      worksheet.columns = columns;
+
+      // ✅ Auto-width dengan null-check
+      worksheet.columns.forEach(column => {
+        let maxLength = 0;
+        if (column.key) {
+          const columnKey = column.key as string;
+          const headerText = column.header ? String(column.header) : columnKey;
+          maxLength = headerText.length;
+          
+          data.forEach((row: any) => {
+            if (row[columnKey] !== undefined && row[columnKey] !== null) {
+              const cellLength = String(row[columnKey]).length;
+              if (cellLength > maxLength) {
+                maxLength = cellLength;
+              }
+            }
+          });
+        }
+        column.width = Math.min(maxLength + 2, 50);
+      });
+
+      // Bold header
+      worksheet.getRow(1).font = { bold: true };
+      worksheet.getRow(1).fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF4F46E5' },
+      };
+      worksheet.getRow(1).font = { 
+        bold: true,
+        color: { argb: 'FFFFFFFF' }
+      };
+      worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
+
+      data.forEach((row: any) => {
+        worksheet.addRow(row);
+      });
+    }
+
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    // ✅ Return tanpa Content-Length (atau gunakan Opsi A/C di atas)
+    return new NextResponse(buffer, {
+      headers: {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename="dokumen-prosedur-${new Date().toISOString().slice(0, 10)}.xlsx"`,
+      },
+    });
+  } catch (error) {
+    console.error('Error generating Excel:', error);
+    return NextResponse.json({ error: 'Failed to generate Excel' }, { status: 500 });
   }
 }
 
@@ -666,10 +745,9 @@ export async function POST(request: NextRequest) {
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
 
-// GET - Ambil semua email schedules atau filter by nomor_dokumen
+// GET
 export async function GET(request: NextRequest) {
   const client = await pool.connect();
-
   try {
     const { searchParams } = new URL(request.url);
     const nomorDokumen = searchParams.get('nomorDokumen');
@@ -691,7 +769,6 @@ export async function GET(request: NextRequest) {
       FROM email_schedules es
       LEFT JOIN procedure_documents pd ON es.nomor_dokumen = pd.nomor_dokumen
     `;
-
     let values: any[] = [];
 
     if (nomorDokumen) {
@@ -703,7 +780,7 @@ export async function GET(request: NextRequest) {
 
     const result = await client.query(query, values);
 
-    const schedules = result.rows.map((row) => ({
+    return NextResponse.json(result.rows.map((row) => ({
       id: row.id,
       nomorDokumen: row.nomor_dokumen,
       scheduledEmailAt: row.scheduled_email_at,
@@ -716,25 +793,18 @@ export async function GET(request: NextRequest) {
       namaDokumen: row.nama_dokumen,
       pic: row.pic,
       email: row.email,
-    }));
-
-    return NextResponse.json(schedules);
+    })));
   } catch (error) {
     console.error('Error fetching email schedules:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch email schedules' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to fetch email schedules' }, { status: 500 });
   } finally {
     client.release();
   }
 }
 
-// PUT - Update email schedule
-// Jika emailStatus di-set ke 'sent', otomatis update status dokumen ke "Telah terkirim"
+// PUT
 export async function PUT(request: NextRequest) {
   const client = await pool.connect();
-
   try {
     const body = await request.json();
     const { nomorDokumen, scheduledEmailAt, emailStatus } = body;
@@ -746,14 +816,14 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // Validasi: tidak boleh tanggal di masa lalu (kecuali saat update ke 'sent')
+    // Validasi tanggal — bandingkan hanya bagian YYYY-MM-DD untuk menghindari
+    // bug timezone antara browser (WIB) dan server Node.js (UTC)
     if (emailStatus !== 'sent') {
-      const scheduledDate = new Date(scheduledEmailAt);
-      const now = new Date();
-
-      if (scheduledDate < now) {
+      const scheduledDateOnly = scheduledEmailAt.split('T')[0];
+      const todayDateOnly = new Date().toISOString().split('T')[0];
+      if (scheduledDateOnly < todayDateOnly) {
         return NextResponse.json(
-          { error: 'Tanggal/waktu pengiriman tidak boleh di masa lalu' },
+          { error: 'Tanggal pengiriman tidak boleh sebelum hari ini' },
           { status: 400 }
         );
       }
@@ -761,67 +831,104 @@ export async function PUT(request: NextRequest) {
 
     await client.query('BEGIN');
 
-    // Cek apakah schedule sudah ada
-    const checkQuery = 'SELECT id FROM email_schedules WHERE nomor_dokumen = $1';
-    const checkResult = await client.query(checkQuery, [nomorDokumen]);
-
+    // Upsert email schedule
+    const checkResult = await client.query(
+      'SELECT id FROM email_schedules WHERE nomor_dokumen = $1',
+      [nomorDokumen]
+    );
     let result;
 
     if (checkResult.rows.length > 0) {
-      // Update existing
-      const updateQuery = `
-        UPDATE email_schedules
-        SET
-          scheduled_email_at = $1,
-          email_status = COALESCE($2, 'pending'),
-          error_message = NULL,
-          updated_at = CURRENT_TIMESTAMP
-        WHERE nomor_dokumen = $3
-        RETURNING *
-      `;
-      result = await client.query(updateQuery, [
-        scheduledEmailAt,
-        emailStatus || 'pending',
-        nomorDokumen,
-      ]);
+      result = await client.query(
+        `UPDATE email_schedules
+         SET
+           scheduled_email_at = $1,
+           email_status       = COALESCE($2, 'pending'),
+           error_message      = NULL,
+           updated_at         = CURRENT_TIMESTAMP
+         WHERE nomor_dokumen = $3
+         RETURNING *`,
+        [scheduledEmailAt, emailStatus || 'pending', nomorDokumen]
+      );
     } else {
-      // Insert new
-      const insertQuery = `
-        INSERT INTO email_schedules
-        (nomor_dokumen, scheduled_email_at, email_status)
-        VALUES ($1, $2, $3)
-        RETURNING *
-      `;
-      result = await client.query(insertQuery, [
-        nomorDokumen,
-        scheduledEmailAt,
-        emailStatus || 'pending',
-      ]);
+      result = await client.query(
+        `INSERT INTO email_schedules (nomor_dokumen, scheduled_email_at, email_status)
+         VALUES ($1, $2, $3)
+         RETURNING *`,
+        [nomorDokumen, scheduledEmailAt, emailStatus || 'pending']
+      );
     }
 
-    // Jika email_status = 'sent' → update status dokumen ke "Telah terkirim"
-    // hanya jika status dokumen saat ini "Belum dikirim"
-    if (emailStatus === 'sent') {
-      const updateProcQuery = `
-        UPDATE procedure_documents
-        SET status = 'Telah terkirim', updated_at = CURRENT_TIMESTAMP
-        WHERE nomor_dokumen = $1
-          AND status = 'Belum dikirim'
-      `;
-      await client.query(updateProcQuery, [nomorDokumen]);
+    const currentScheduleStatus = emailStatus || 'pending';
+
+    if (currentScheduleStatus === 'pending') {
+      // Admin secara eksplisit membuat/mengupdate jadwal baru →
+      // reset status dokumen ke "Belum dikirim" tanpa pengecualian apapun.
+      // Ini berlaku meski status sebelumnya Revisi, Obsolete, atau Relevan
+      // karena admin memulai siklus review baru.
+      await client.query(
+        `UPDATE procedure_documents
+         SET status = 'Belum dikirim', updated_at = CURRENT_TIMESTAMP
+         WHERE nomor_dokumen = $1`,
+        [nomorDokumen]
+      );
+    } else if (currentScheduleStatus === 'sent') {
+      // Dipanggil sistem pengirim email (bukan admin) saat email berhasil terkirim →
+      // ubah ke "Telah terkirim" HANYA jika PIC belum lebih maju
+      // (belum membaca atau belum submit hasil review)
+      await client.query(
+        `UPDATE procedure_documents
+         SET status = 'Telah terkirim', updated_at = CURRENT_TIMESTAMP
+         WHERE nomor_dokumen = $1
+           AND status NOT IN ('Relevan', 'Revisi', 'Obsolete', 'Telah dibaca')`,
+        [nomorDokumen]
+      );
     }
 
     await client.query('COMMIT');
 
-    return NextResponse.json({
-      success: true,
-      schedule: result.rows[0],
-    });
+    return NextResponse.json({ success: true, schedule: result.rows[0] });
   } catch (error: any) {
     await client.query('ROLLBACK');
     console.error('Error updating email schedule:', error);
+    return NextResponse.json({ error: 'Failed to update email schedule' }, { status: 500 });
+  } finally {
+    client.release();
+  }
+}
+
+// DELETE - Cancel jadwal email (set status = 'cancelled')
+// Dipanggil saat status dokumen berubah dari "Telah terkirim" ke status lain
+export async function DELETE(request: NextRequest) {
+  const client = await pool.connect();
+  try {
+    const { searchParams } = new URL(request.url);
+    const nomorDokumen = searchParams.get('nomorDokumen');
+
+    if (!nomorDokumen) {
+      return NextResponse.json(
+        { error: 'nomorDokumen harus diisi' },
+        { status: 400 }
+      );
+    }
+
+    const result = await client.query(
+      `UPDATE email_schedules
+       SET email_status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+       WHERE nomor_dokumen = $1
+         AND email_status = 'sent'
+       RETURNING nomor_dokumen, email_status`,
+      [nomorDokumen]
+    );
+
+    return NextResponse.json({
+      success: true,
+      cancelled: result.rowCount ?? 0,
+    });
+  } catch (error) {
+    console.error('Error cancelling email schedule:', error);
     return NextResponse.json(
-      { error: 'Failed to update email schedule' },
+      { error: 'Failed to cancel email schedule' },
       { status: 500 }
     );
   } finally {
@@ -1218,6 +1325,141 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// app/api/procedures/[nomorDokumen]/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/lib/db';
+import { logActivity } from '@/lib/activityLogger';
+
+// PATCH — Update data prosedur (edit inline dari tabel)
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ nomorDokumen: string }> }
+) {
+  const client = await pool.connect();
+  try {
+    // Next.js 15+ App Router: params adalah Promise, harus di-await
+    const { nomorDokumen: rawParam } = await params;
+    const nomorDokumen = decodeURIComponent(rawParam);
+
+    const body = await request.json();
+
+    const {
+      namaDokumen,
+      nomorDokumenBaru,
+      levelDokumen,
+      tanggalSelesaiApproval,
+      revisi,
+      owner,
+      pic,
+      email,
+    } = body;
+
+    if (!namaDokumen || !levelDokumen || !tanggalSelesaiApproval || !owner || !pic) {
+      return NextResponse.json(
+        { error: 'Field wajib tidak boleh kosong' },
+        { status: 400 }
+      );
+    }
+
+    await client.query('BEGIN');
+
+    // Cek duplikat HANYA jika nomor dokumen memang berubah
+    if (nomorDokumenBaru && nomorDokumenBaru.trim() !== nomorDokumen.trim()) {
+      const dupCheck = await client.query(
+        'SELECT nomor_dokumen FROM procedure_documents WHERE nomor_dokumen = $1',
+        [nomorDokumenBaru.trim()]
+      );
+      if (dupCheck.rows.length > 0) {
+        await client.query('ROLLBACK');
+        return NextResponse.json(
+          { error: 'Nomor dokumen sudah digunakan' },
+          { status: 409 }
+        );
+      }
+    }
+
+    const finalNomor = nomorDokumenBaru?.trim() || nomorDokumen;
+
+    const result = await client.query(
+      `UPDATE procedure_documents
+       SET
+         nama_dokumen              = $1,
+         nomor_dokumen             = $2,
+         level_dokumen             = $3,
+         tanggal_selesai_approval  = $4,
+         revisi                    = $5,
+         owner                     = $6,
+         pic                       = $7,
+         email                     = $8,
+         updated_at                = CURRENT_TIMESTAMP
+       WHERE nomor_dokumen = $9
+       RETURNING *`,
+      [
+        namaDokumen,
+        finalNomor,
+        levelDokumen,
+        tanggalSelesaiApproval,
+        revisi || '0',
+        owner,
+        pic,
+        email || '',
+        nomorDokumen,
+      ]
+    );
+
+    if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return NextResponse.json({ error: 'Dokumen tidak ditemukan' }, { status: 404 });
+    }
+
+    // Update referensi di tabel lain jika nomor berubah
+    if (nomorDokumenBaru && finalNomor !== nomorDokumen) {
+      await client.query(
+        `UPDATE email_schedules SET nomor_dokumen = $1 WHERE nomor_dokumen = $2`,
+        [finalNomor, nomorDokumen]
+      );
+      await client.query(
+        `UPDATE document_reviews SET nomor_dokumen = $1 WHERE nomor_dokumen = $2`,
+        [finalNomor, nomorDokumen]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    const row = result.rows[0];
+
+    await logActivity({
+      username: 'admin',
+      activityType: 'update',
+      activityDescription: `Update prosedur ${namaDokumen} (${nomorDokumen})`,
+      targetType: 'procedure',
+      targetId: finalNomor,
+    });
+
+    return NextResponse.json({
+      id: row.id,
+      namaDokumen: row.nama_dokumen,
+      nomorDokumen: row.nomor_dokumen,
+      levelDokumen: row.level_dokumen,
+      tanggalSelesaiApproval: row.tanggal_selesai_approval,
+      revisi: row.revisi,
+      owner: row.owner,
+      pic: row.pic,
+      email: row.email,
+      status: row.status,
+    });
+  } catch (error: any) {
+    await client.query('ROLLBACK');
+    console.error('Error updating procedure:', error);
+    if (error.code === '23505') {
+      return NextResponse.json({ error: 'Nomor dokumen sudah digunakan' }, { status: 409 });
+    }
+    return NextResponse.json({ error: 'Gagal mengupdate prosedur' }, { status: 500 });
+  } finally {
+    client.release();
+  }
+}
+
 // app/api/procedures/archive/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -1419,23 +1661,14 @@ import pool from '@/lib/db';
 import { logActivity } from '@/lib/activityLogger';
 
 // =============================================================================
-// RANTAI LOGIKA AUTO-STATUS (dijalankan berurutan saat GET)
-//
-// Langkah 1 — autoReactivate:
-//   'Relevan' → 'Menunggu'
-//   Jika bulan approval == bulan sekarang DAN status = 'Relevan'
-//   (dokumen yang sudah pernah direview kini masuk siklus review bulan ini lagi)
-//
-// Langkah 2 — autoScheduleAndActivate:
-//   'Menunggu' + belum ada email_schedule → buat jadwal (1 bulan-approval 08:00)
-//                                         → ubah status ke 'Belum dikirim'
-//
-// Langkah 3 — autoExpire:
-//   Status non-final + sudah > 2 bulan sejak approval → 'Relevan'
-//   (dokumen yang tidak ditindaklanjuti selama 2 bulan dianggap Relevan)
+// RANTAI LOGIKA AUTO-STATUS
+// Urutan: autoExpire → autoReactivate → autoScheduleAndActivate
+// Semua fungsi WAJIB melindungi status final: Relevan, Revisi, Obsolete, Telah dibaca
 // =============================================================================
 
-// ─── Util: apakah bulan+tahun tanggal approval = bulan+tahun sekarang ─────────
+// Status yang TIDAK BOLEH di-override oleh auto-chain
+const PROTECTED_STATUSES = ['Revisi', 'Obsolete', 'Relevan', 'Telah dibaca'];
+
 function isSameMonthYear(tanggal: string): boolean {
   const d = new Date(tanggal);
   if (isNaN(d.getTime())) return false;
@@ -1443,7 +1676,6 @@ function isSameMonthYear(tanggal: string): boolean {
   return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
 }
 
-// ─── Util: apakah sudah > 2 bulan sejak tanggal approval ─────────────────────
 function isPast2Months(tanggal: string): boolean {
   const d = new Date(tanggal);
   if (isNaN(d.getTime())) return false;
@@ -1451,9 +1683,89 @@ function isPast2Months(tanggal: string): boolean {
   return new Date() >= twoMonthsLater;
 }
 
-// ─── Langkah 1: Relevan → Menunggu ───────────────────────────────────────────
-// Dokumen berstatus 'Relevan' yang bulan approvalnya = bulan sekarang
-// perlu masuk siklus review lagi → ubah ke 'Menunggu'.
+// Apakah dokumen sudah expired dari perspektif review?
+// Expired = sudah lebih dari 2 bulan sejak tanggal approval
+// Dokumen expired tidak perlu masuk alur review lagi → langsung Relevan
+function isExpiredForReview(tanggalApproval: string): boolean {
+  return isPast2Months(tanggalApproval);
+}
+
+// Hitung tanggal jadwal kirim: 2 bulan SEBELUM bulan approval, tanggal 1
+// Hitung tanggal kirim otomatis: approval - 2 bulan, TANGGAL SAMA, jam 08:00
+// Contoh: approval 5 Juni → jadwal 5 April 08:00
+//         approval 1 Juni → jadwal 1 April 08:00
+function getScheduledSendDate(tanggalApproval: string): Date {
+  const d = new Date(tanggalApproval);
+  // Gunakan tanggal yang sama dengan approval (bukan tanggal 1)
+  // JS Date otomatis handle rollover bulan (mis. Feb tidak punya 31 → overflow ke Mar)
+  return new Date(d.getFullYear(), d.getMonth() - 2, d.getDate(), 8, 0, 0);
+}
+
+// Tentukan tanggal kirim yang tepat sesuai konteks:
+//
+// Kondisi 1 — needsReview=true (admin pilih "Perlu Direview" saat buat dokumen):
+//   Email harus langsung dikirim hari ini → scheduledAt = NOW
+//
+// Kondisi 2 — auto (needsReview=null), sudah reached (jadwal sudah lewat):
+//   Waktunya sudah lewat, kirim sekarang → scheduledAt = NOW
+//
+// Kondisi 3 — auto (needsReview=null), belum reached (jadwal masih future):
+//   Simpan tanggal otomatis (approval - 2 bulan) → scheduledAt = getScheduledSendDate()
+//
+// Contoh:
+//   Approval 30 Jun, sekarang 31 Mar → schedYM=Apr < nowYM=Mar? Tidak → future → 1 Apr
+//   Approval 31 Mar, sekarang 31 Mar → reached → NOW
+//   needsReview=true, approval apapun → NOW
+function resolveScheduledAt(tanggalApproval: string, needsReview: boolean | null): Date {
+  const now = new Date();
+
+  // Kondisi 1: admin pilih needsReview=true → kirim sekarang
+  if (needsReview === true) return now;
+
+  const autoDate = getScheduledSendDate(tanggalApproval);
+
+  // Kondisi 2: tanggal jadwal sudah lewat atau hari ini → kirim sekarang
+  if (now >= autoDate) return now;
+
+  // Kondisi 3: tanggal jadwal masih di masa depan → simpan tanggal otomatis (jam 08:00)
+  return autoDate;
+}
+
+// Apakah sudah waktunya jadwal email dikirim?
+// Berbasis TANGGAL PENUH bukan hanya bulan — agar tidak prematur.
+// Contoh: approval 5 Jun, sekarang 1 Apr → jadwal 5 Apr 08:00 → belum reached ✓
+function isScheduleDateReached(tanggalApproval: string): boolean {
+  const scheduledDate = getScheduledSendDate(tanggalApproval);
+  return new Date() >= scheduledDate;
+}
+
+// Alias untuk kompatibilitas
+function isScheduleMonthReached(tanggalApproval: string): boolean {
+  return isScheduleDateReached(tanggalApproval);
+}
+
+// ─── Langkah 1: auto-expire → Relevan setelah 2 bulan ────────────────────────
+// Hanya status '-' (unset) yang boleh auto-expire
+async function autoExpire(
+  client: any,
+  nomorDokumen: string,
+  tanggal: string,
+  status: string
+): Promise<string> {
+  // Jangan sentuh status apapun selain '-'
+  if (status !== '-') return status;
+  if (!isPast2Months(tanggal)) return status;
+
+  await client.query(
+    `UPDATE procedure_documents
+     SET status = 'Relevan', updated_at = CURRENT_TIMESTAMP
+     WHERE nomor_dokumen = $1 AND status = '-'`,
+    [nomorDokumen]
+  );
+  return 'Relevan';
+}
+
+// ─── Langkah 2: auto-reactivate → Menunggu jika approval bulan ini ───────────
 async function autoReactivate(
   client: any,
   nomorDokumen: string,
@@ -1461,7 +1773,9 @@ async function autoReactivate(
   status: string
 ): Promise<string> {
   if (status !== 'Relevan') return status;
-  if (!isSameMonthYear(tanggal)) return status;
+  // Aktifkan jika sudah masuk bulan jadwal kirim (2 bulan sebelum approval)
+  // Contoh: approval Mei → aktifkan mulai bulan April
+  if (!isScheduleMonthReached(tanggal)) return status;
 
   await client.query(
     `UPDATE procedure_documents
@@ -1472,13 +1786,7 @@ async function autoReactivate(
   return 'Menunggu';
 }
 
-// ─── Langkah 2: Menunggu + tanpa jadwal → buat jadwal + ubah ke 'Belum dikirim' ─
-// Kondisi:
-//   - status = 'Menunggu'
-//   - belum ada entry di email_schedules
-// Aksi:
-//   - INSERT email_schedules: tanggal 1 bulan-approval 08:00, status 'pending'
-//   - UPDATE procedure_documents: status → 'Belum dikirim'
+// ─── Langkah 3: auto-schedule → Belum dikirim jika ada jadwal email ──────────
 async function autoScheduleAndActivate(
   client: any,
   nomorDokumen: string,
@@ -1487,13 +1795,13 @@ async function autoScheduleAndActivate(
 ): Promise<string> {
   if (status !== 'Menunggu') return status;
 
-  // Cek apakah jadwal sudah ada
   const check = await client.query(
     `SELECT id FROM email_schedules WHERE nomor_dokumen = $1 LIMIT 1`,
     [nomorDokumen]
   );
+
   if (check.rows.length > 0) {
-    // Jadwal sudah ada → langsung ubah ke 'Belum dikirim' jika masih 'Menunggu'
+    // Ada jadwal email → ubah ke "Belum dikirim"
     await client.query(
       `UPDATE procedure_documents
        SET status = 'Belum dikirim', updated_at = CURRENT_TIMESTAMP
@@ -1503,20 +1811,21 @@ async function autoScheduleAndActivate(
     return 'Belum dikirim';
   }
 
-  // Belum ada jadwal → buat jadwal baru
+  // Belum ada jadwal → buat jadwal otomatis
   const docDate = new Date(tanggal);
   if (isNaN(docDate.getTime())) return status;
 
-  // Hari ke-1 bulan approval, jam 08:00 waktu server
-  const scheduledAt = new Date(docDate.getFullYear(), docDate.getMonth(), 1, 8, 0, 0);
+  // Gunakan resolveScheduledAt dengan needsReview=null (auto)
+  // Jika sudah reached → NOW; jika belum → tanggal otomatis (approval - 2bln)
+  const scheduledAt = resolveScheduledAt(tanggal, null);
 
   await client.query(
     `INSERT INTO email_schedules (nomor_dokumen, scheduled_email_at, email_status)
-     VALUES ($1, $2, 'pending')`,
+     VALUES ($1, $2, 'pending')
+     ON CONFLICT DO NOTHING`,
     [nomorDokumen, scheduledAt]
   );
 
-  // Ubah status → 'Belum dikirim'
   await client.query(
     `UPDATE procedure_documents
      SET status = 'Belum dikirim', updated_at = CURRENT_TIMESTAMP
@@ -1527,73 +1836,71 @@ async function autoScheduleAndActivate(
   return 'Belum dikirim';
 }
 
-// ─── Langkah 3: auto-expire → Relevan setelah 2 bulan ────────────────────────
-// Dokumen yang sudah > 2 bulan sejak approval dan statusnya belum final
-// dianggap tetap Relevan (tidak ada tindakan dari PIC).
-// TIDAK berlaku untuk: Revisi, Obsolete (sudah final dengan keputusan eksplisit).
-const NON_EXPIRABLE = ['Revisi', 'Obsolete'];
-
-async function autoExpire(
-  client: any,
-  nomorDokumen: string,
-  tanggal: string,
-  status: string
-): Promise<string> {
-  if (NON_EXPIRABLE.includes(status)) return status;
-  if (status === 'Relevan') return status; // sudah final
-  if (!isPast2Months(tanggal)) return status;
-
-  await client.query(
-    `UPDATE procedure_documents
-     SET status = 'Relevan', updated_at = CURRENT_TIMESTAMP
-     WHERE nomor_dokumen = $1
-       AND status NOT IN ('Revisi', 'Obsolete', 'Relevan')`,
-    [nomorDokumen]
-  );
-  return 'Relevan';
-}
-
-// ─── Orkestrasi: jalankan semua langkah berurutan ────────────────────────────
+// ─── Master chain ─────────────────────────────────────────────────────────────
 async function runAutoStatusChain(
   client: any,
   nomorDokumen: string,
   tanggal: string,
-  dbStatus: string   // status yang tersimpan di DB saat ini
+  dbStatus: string
 ): Promise<string> {
-  // Langkah 3 dulu: kalau sudah expired, tidak perlu lanjut ke langkah 1-2
-  const afterExpire = await autoExpire(client, nomorDokumen, tanggal, dbStatus);
-  if (afterExpire !== dbStatus) return afterExpire; // sudah diubah ke 'Relevan'
+  // ✅ PROTEKSI UTAMA: status final tidak boleh disentuh auto-chain
+  if (PROTECTED_STATUSES.includes(dbStatus)) return dbStatus;
 
-  // Langkah 1: Relevan → Menunggu (jika bulan sama)
+  // Workflow email juga dilindungi (hanya bisa berubah lewat trigger eksplisit)
+  if (['Belum dikirim', 'Telah terkirim'].includes(dbStatus)) return dbStatus;
+
+  const afterExpire     = await autoExpire(client, nomorDokumen, tanggal, dbStatus);
+  if (afterExpire !== dbStatus) return afterExpire;
+
   const afterReactivate = await autoReactivate(client, nomorDokumen, tanggal, afterExpire);
-
-  // Langkah 2: Menunggu → buat jadwal → Belum dikirim
-  const afterSchedule = await autoScheduleAndActivate(client, nomorDokumen, tanggal, afterReactivate);
+  const afterSchedule   = await autoScheduleAndActivate(client, nomorDokumen, tanggal, afterReactivate);
 
   return afterSchedule;
 }
 
-// ─── Helper: status awal saat dokumen BARU ditambahkan (POST) ─────────────────
+// ─── Resolve status awal saat dokumen baru ditambahkan ───────────────────────
+// needsReview: pilihan eksplisit dari admin saat membuat dokumen
+//   true  → dokumen perlu masuk alur review (kirim email ke PIC)
+//   false → dokumen langsung Relevan (tidak perlu review)
+//   null  → sistem tentukan otomatis berdasarkan tanggal
 async function resolveInitialStatus(
   client: any,
   nomorDokumen: string,
-  tanggal: string
+  tanggal: string,
+  needsReview: boolean | null = null
 ): Promise<string> {
-  if (!isSameMonthYear(tanggal)) return 'Relevan';
+  // PRIORITAS 1: Jika admin eksplisit memilih "tidak perlu review" → langsung Relevan
+  if (needsReview === false) return 'Relevan';
 
-  // Bulan sama → cek apakah sudah ada jadwal email yang terkirim
-  const schedResult = await client.query(
-    `SELECT email_status FROM email_schedules WHERE nomor_dokumen = $1 LIMIT 1`,
-    [nomorDokumen]
-  );
-  if (schedResult.rows.length > 0) {
-    if (schedResult.rows[0].email_status === 'sent') return 'Telah terkirim';
-    // Ada jadwal (pending) → langsung 'Belum dikirim'
+  // PRIORITAS 2: Dokumen expired (>2 bulan dari approval) → otomatis Relevan
+  // Ini kasus dokumen lama yang baru diinput ke sistem, tidak perlu review lagi
+  if (isExpiredForReview(tanggal)) return 'Relevan';
+
+  // PRIORITAS 3: Belum waktunya jadwal dikirim → dormant Relevan
+  // Contoh: approval Agustus, sekarang Maret → jadwal Juni belum tercapai
+  if (!isScheduleMonthReached(tanggal)) return 'Relevan';
+
+  // PRIORITAS 4: Sudah waktunya, tapi admin pilih tidak perlu review → Relevan
+  // (sudah ditangani di PRIORITAS 1)
+
+  // PRIORITAS 5: Dalam rentang review
+  // Jika admin eksplisit pilih needsReview=true, atau sistem otomatis → masuk alur review
+  if (needsReview === true || needsReview === null) {
+    // Cek apakah jadwal sudah ada
+    const schedResult = await client.query(
+      `SELECT email_status FROM email_schedules WHERE nomor_dokumen = $1 LIMIT 1`,
+      [nomorDokumen]
+    );
+
+    if (schedResult.rows.length > 0) {
+      return schedResult.rows[0].email_status === 'sent' ? 'Telah terkirim' : 'Belum dikirim';
+    }
+
+    // Jadwal belum ada → akan dibuat di blok POST
     return 'Belum dikirim';
   }
 
-  // Belum ada jadwal → akan dibuat setelah insert, return 'Belum dikirim'
-  return 'Belum dikirim';
+  return 'Relevan';
 }
 
 // =============================================================================
@@ -1601,26 +1908,32 @@ async function resolveInitialStatus(
 // =============================================================================
 export async function GET(request: NextRequest) {
   const client = await pool.connect();
-
   try {
     const { searchParams } = new URL(request.url);
     const pic = searchParams.get('pic');
 
-    let query = `SELECT * FROM procedure_documents`;
+    // JOIN email_schedules untuk mendapatkan last_sent_at dan scheduled_email_at
+    // yang dibutuhkan frontend untuk menghitung batas visibilitas dokumen
+    let query = `
+      SELECT pd.*,
+             es.last_sent_at,
+             es.scheduled_email_at
+      FROM procedure_documents pd
+      LEFT JOIN email_schedules es ON pd.nomor_dokumen = es.nomor_dokumen
+    `;
     let values: any[] = [];
 
     if (pic) {
-      query += ` WHERE $1 = ANY(string_to_array(REPLACE(pic, ' ', ''), ','))`;
+      query += ` WHERE $1 = ANY(string_to_array(REPLACE(pd.pic, ' ', ''), ','))`;
       values = [pic];
     }
 
-    query += ` ORDER BY created_at DESC`;
+    query += ` ORDER BY pd.created_at DESC`;
 
     const result = await client.query(query, values);
 
     const procedures = await Promise.all(
       result.rows.map(async (row: any) => {
-        // Jalankan rantai auto-status untuk setiap dokumen
         const resolvedStatus = await runAutoStatusChain(
           client,
           row.nomor_dokumen,
@@ -1642,6 +1955,8 @@ export async function GET(request: NextRequest) {
           isCustom: row.is_custom,
           createdAt: row.created_at,
           updatedAt: row.updated_at,
+          lastSentAt: row.last_sent_at ?? null,
+          scheduledEmailAt: row.scheduled_email_at ?? null,
         };
       })
     );
@@ -1663,21 +1978,23 @@ export async function GET(request: NextRequest) {
 // =============================================================================
 export async function POST(request: NextRequest) {
   const client = await pool.connect();
-
   try {
     const body = await request.json();
 
-    // Tentukan status awal
+    // needsReview: dikirim dari frontend (null = auto, true = perlu review, false = langsung Relevan)
+    const needsReview: boolean | null = body.needsReview ?? null;
+
     const status = await resolveInitialStatus(
       client,
       body.nomorDokumen,
-      body.tanggalSelesaiApproval
+      body.tanggalSelesaiApproval,
+      needsReview
     );
 
     const query = `
       INSERT INTO procedure_documents
-      (nama_dokumen, nomor_dokumen, level_dokumen, tanggal_selesai_approval,
-       revisi, owner, pic, email, status, is_custom)
+        (nama_dokumen, nomor_dokumen, level_dokumen, tanggal_selesai_approval,
+         revisi, owner, pic, email, status, is_custom)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *
     `;
@@ -1694,17 +2011,29 @@ export async function POST(request: NextRequest) {
       status,
       true,
     ]);
+
     const row = result.rows[0];
 
-    // Jika bulan sama dan belum ada jadwal → buat jadwal otomatis
-    if (isSameMonthYear(body.tanggalSelesaiApproval)) {
+    // Buat jadwal HANYA jika:
+    // 1. Status dokumen = 'Belum dikirim' (perlu review), DAN
+    // 2. Sudah waktunya jadwal dikirim, DAN
+    // 3. Dokumen belum expired
+    // Dokumen Relevan (expired atau dormant atau pilihan admin) tidak perlu jadwal.
+    if (
+      status === 'Belum dikirim' &&
+      isScheduleMonthReached(body.tanggalSelesaiApproval) &&
+      !isExpiredForReview(body.tanggalSelesaiApproval)
+    ) {
       const existingSched = await client.query(
         `SELECT id FROM email_schedules WHERE nomor_dokumen = $1 LIMIT 1`,
         [body.nomorDokumen]
       );
+
       if (existingSched.rows.length === 0) {
-        const docDate = new Date(body.tanggalSelesaiApproval);
-        const scheduledAt = new Date(docDate.getFullYear(), docDate.getMonth(), 1, 8, 0, 0);
+        // Kondisi 1: needsReview=true → kirim sekarang
+        // Kondisi 2: auto reached → kirim sekarang
+        // Kondisi 3: auto future → kirim pada tanggal otomatis
+        const scheduledAt = resolveScheduledAt(body.tanggalSelesaiApproval, needsReview);
         await client.query(
           `INSERT INTO email_schedules (nomor_dokumen, scheduled_email_at, email_status)
            VALUES ($1, $2, 'pending')`,
@@ -1739,14 +2068,12 @@ export async function POST(request: NextRequest) {
     );
   } catch (error: any) {
     console.error('Error creating procedure:', error);
-
     if (error.code === '23505') {
       return NextResponse.json(
         { error: 'Nomor dokumen sudah ada' },
         { status: 409 }
       );
     }
-
     return NextResponse.json(
       { error: 'Failed to create procedure' },
       { status: 500 }
@@ -1956,4 +2283,3 @@ export async function PATCH(request: NextRequest) {
     client.release();
   }
 }
-
