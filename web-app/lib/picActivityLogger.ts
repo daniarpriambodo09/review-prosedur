@@ -64,7 +64,10 @@ export async function getPICActivities(
   }
 }
 
-export async function getPICActivityStats(picId: number): Promise<any> {
+export async function getPICActivityStats(picId: number): Promise<{
+  totalActivities: number;
+  byType: Record<string, { count: number; lastActivity: Date }>;
+}> {
   const client = await pool.connect();
   
   try {
@@ -80,9 +83,12 @@ export async function getPICActivityStats(picId: number): Promise<any> {
 
     const result = await client.query(query, [picId]);
     
-    const stats = {
+    const stats: {
+      totalActivities: number;
+      byType: Record<string, { count: number; lastActivity: Date }>;
+    } = {
       totalActivities: result.rows.reduce((sum, row) => sum + parseInt(row.count), 0),
-      byType: {},
+      byType: {} as Record<string, { count: number; lastActivity: Date }>,
     };
 
     result.rows.forEach((row: any) => {
