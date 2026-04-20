@@ -9,13 +9,15 @@ interface User {
   username: string;
   fullName: string;
   email: string | null;
-  role: string;
+  role: 'user' | 'pic';
+  picId?: number;
 }
 
 interface AuthContextType {
   isAuthenticated: boolean;
   user: User | null;
   login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  picLogin: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   isLoading: boolean;
 }
@@ -112,6 +114,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const picLogin = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const response = await fetch('/api/auth/pic-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        setIsAuthenticated(true);
+        setUser(data.user);
+        localStorage.setItem('isAuthenticated', 'true');
+        localStorage.setItem('user', JSON.stringify(data.user));
+        
+        // Redirect ke PIC dashboard
+        router.push('/pic-dashboard');
+        
+        return { success: true };
+      } else {
+        return { success: false, error: data.error || 'Login gagal' };
+      }
+    } catch (error) {
+      console.error('PIC Login error:', error);
+      return { success: false, error: 'Terjadi kesalahan saat login' };
+    }
+  };
+
   const logout = () => {
     setIsAuthenticated(false);
     setUser(null);
@@ -121,7 +152,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, user, login, logout, isLoading }}>
+    <AuthContext.Provider value={{ isAuthenticated, user, login, picLogin, logout, isLoading }}>
       {children}
     </AuthContext.Provider>
   );
