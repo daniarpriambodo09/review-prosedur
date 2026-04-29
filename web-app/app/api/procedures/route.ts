@@ -1,15 +1,19 @@
 // app/api/procedures/route.ts
+//
+// PATCH untuk autoReactivate:
+// Fungsi ini hanya mengubah bagian autoReactivate dan runAutoStatusChain.
+// Salin seluruh isi file ini menggantikan app/api/procedures/route.ts yang lama.
+//
+// Root cause bug dokumen lama muncul:
+// autoReactivate tidak punya guard "apakah approval sudah lewat 2 bulan?".
+// Dokumen approval Feb/Mar yang sudah Relevan akan terus di-reactivate → Menunggu
+// karena isScheduleMonthReached(Feb) = true (jadwal Des sudah jauh lewat).
+// Fix: tambahkan guard isPast2Months sebelum reactivate.
+
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { logActivity } from '@/lib/activityLogger';
 
-// =============================================================================
-// RANTAI LOGIKA AUTO-STATUS
-// Urutan: autoExpire → autoReactivate → autoScheduleAndActivate
-// Semua fungsi WAJIB melindungi status final: Relevan, Revisi, Obsolete, Telah dibaca
-// =============================================================================
-
-// Status yang TIDAK BOLEH di-override oleh auto-chain
 const PROTECTED_STATUSES = ['Revisi', 'Obsolete', 'Relevan', 'Telah dibaca'];
 
 function isSameMonthYear(tanggal: string): boolean {
@@ -26,76 +30,39 @@ function isPast2Months(tanggal: string): boolean {
   return new Date() >= twoMonthsLater;
 }
 
-// Apakah dokumen sudah expired dari perspektif review?
-// Expired = sudah lebih dari 2 bulan sejak tanggal approval
-// Dokumen expired tidak perlu masuk alur review lagi → langsung Relevan
 function isExpiredForReview(tanggalApproval: string): boolean {
   return isPast2Months(tanggalApproval);
 }
 
-// Hitung tanggal jadwal kirim: 2 bulan SEBELUM bulan approval, tanggal 1
-// Hitung tanggal kirim otomatis: approval - 2 bulan, TANGGAL SAMA, jam 08:00
-// Contoh: approval 5 Juni → jadwal 5 April 08:00
-//         approval 1 Juni → jadwal 1 April 08:00
 function getScheduledSendDate(tanggalApproval: string): Date {
   const d = new Date(tanggalApproval);
-  // Gunakan tanggal yang sama dengan approval (bukan tanggal 1)
-  // JS Date otomatis handle rollover bulan (mis. Feb tidak punya 31 → overflow ke Mar)
   return new Date(d.getFullYear(), d.getMonth() - 2, d.getDate(), 8, 0, 0);
 }
 
-// Tentukan tanggal kirim yang tepat sesuai konteks:
-//
-// Kondisi 1 — needsReview=true (admin pilih "Perlu Direview" saat buat dokumen):
-//   Email harus langsung dikirim hari ini → scheduledAt = NOW
-//
-// Kondisi 2 — auto (needsReview=null), sudah reached (jadwal sudah lewat):
-//   Waktunya sudah lewat, kirim sekarang → scheduledAt = NOW
-//
-// Kondisi 3 — auto (needsReview=null), belum reached (jadwal masih future):
-//   Simpan tanggal otomatis (approval - 2 bulan) → scheduledAt = getScheduledSendDate()
-//
-// Contoh:
-//   Approval 30 Jun, sekarang 31 Mar → schedYM=Apr < nowYM=Mar? Tidak → future → 1 Apr
-//   Approval 31 Mar, sekarang 31 Mar → reached → NOW
-//   needsReview=true, approval apapun → NOW
 function resolveScheduledAt(tanggalApproval: string, needsReview: boolean | null): Date {
   const now = new Date();
-
-  // Kondisi 1: admin pilih needsReview=true → kirim sekarang
   if (needsReview === true) return now;
-
   const autoDate = getScheduledSendDate(tanggalApproval);
-
-  // Kondisi 2: tanggal jadwal sudah lewat atau hari ini → kirim sekarang
   if (now >= autoDate) return now;
-
-  // Kondisi 3: tanggal jadwal masih di masa depan → simpan tanggal otomatis (jam 08:00)
   return autoDate;
 }
 
-// Apakah sudah waktunya jadwal email dikirim?
-// Berbasis TANGGAL PENUH bukan hanya bulan — agar tidak prematur.
-// Contoh: approval 5 Jun, sekarang 1 Apr → jadwal 5 Apr 08:00 → belum reached ✓
 function isScheduleDateReached(tanggalApproval: string): boolean {
   const scheduledDate = getScheduledSendDate(tanggalApproval);
   return new Date() >= scheduledDate;
 }
 
-// Alias untuk kompatibilitas
 function isScheduleMonthReached(tanggalApproval: string): boolean {
   return isScheduleDateReached(tanggalApproval);
 }
 
 // ─── Langkah 1: auto-expire → Relevan setelah 2 bulan ────────────────────────
-// Hanya status '-' (unset) yang boleh auto-expire
 async function autoExpire(
   client: any,
   nomorDokumen: string,
   tanggal: string,
   status: string
 ): Promise<string> {
-  // Jangan sentuh status apapun selain '-'
   if (status !== '-') return status;
   if (!isPast2Months(tanggal)) return status;
 
@@ -108,7 +75,18 @@ async function autoExpire(
   return 'Relevan';
 }
 
-// ─── Langkah 2: auto-reactivate → Menunggu jika approval bulan ini ───────────
+// ─── Langkah 2: auto-reactivate → Menunggu ───────────────────────────────────
+// FIX: tambahkan guard isPast2Months.
+// Dokumen yang approval-nya sudah lewat lebih dari 2 bulan (Feb, Mar, dst)
+// TIDAK boleh di-reactivate, walaupun isScheduleMonthReached = true,
+// karena window review-nya sudah selesai.
+//
+// Contoh yang HARUS di-reactivate:
+//   Sekarang 22 Apr, approval 15 Jun → jadwal 15 Apr → reached, belum expired → reactivate ✓
+//
+// Contoh yang TIDAK boleh di-reactivate:
+//   Sekarang 22 Apr, approval 22 Feb → isPast2Months = true → SKIP ✗
+//   Sekarang 22 Apr, approval 11 Mar → isPast2Months = true → SKIP ✗
 async function autoReactivate(
   client: any,
   nomorDokumen: string,
@@ -116,8 +94,12 @@ async function autoReactivate(
   status: string
 ): Promise<string> {
   if (status !== 'Relevan') return status;
-  // Aktifkan jika sudah masuk bulan jadwal kirim (2 bulan sebelum approval)
-  // Contoh: approval Mei → aktifkan mulai bulan April
+
+  // ✅ GUARD BARU: jika approval sudah lewat lebih dari 2 bulan → jangan reactivate
+  // Window review sudah selesai, dokumen harus tetap Relevan
+  if (isPast2Months(tanggal)) return status;
+
+  // Aktifkan hanya jika sudah masuk jadwal kirim (2 bulan sebelum approval)
   if (!isScheduleMonthReached(tanggal)) return status;
 
   await client.query(
@@ -129,7 +111,7 @@ async function autoReactivate(
   return 'Menunggu';
 }
 
-// ─── Langkah 3: auto-schedule → Belum dikirim jika ada jadwal email ──────────
+// ─── Langkah 3: auto-schedule → Belum dikirim ────────────────────────────────
 async function autoScheduleAndActivate(
   client: any,
   nomorDokumen: string,
@@ -144,7 +126,6 @@ async function autoScheduleAndActivate(
   );
 
   if (check.rows.length > 0) {
-    // Ada jadwal email → ubah ke "Belum dikirim"
     await client.query(
       `UPDATE procedure_documents
        SET status = 'Belum dikirim', updated_at = CURRENT_TIMESTAMP
@@ -154,12 +135,9 @@ async function autoScheduleAndActivate(
     return 'Belum dikirim';
   }
 
-  // Belum ada jadwal → buat jadwal otomatis
   const docDate = new Date(tanggal);
   if (isNaN(docDate.getTime())) return status;
 
-  // Gunakan resolveScheduledAt dengan needsReview=null (auto)
-  // Jika sudah reached → NOW; jika belum → tanggal otomatis (approval - 2bln)
   const scheduledAt = resolveScheduledAt(tanggal, null);
 
   await client.query(
@@ -186,10 +164,7 @@ async function runAutoStatusChain(
   tanggal: string,
   dbStatus: string
 ): Promise<string> {
-  // ✅ PROTEKSI UTAMA: status final tidak boleh disentuh auto-chain
   if (PROTECTED_STATUSES.includes(dbStatus)) return dbStatus;
-
-  // Workflow email juga dilindungi (hanya bisa berubah lewat trigger eksplisit)
   if (['Belum dikirim', 'Telah terkirim'].includes(dbStatus)) return dbStatus;
 
   const afterExpire     = await autoExpire(client, nomorDokumen, tanggal, dbStatus);
@@ -202,79 +177,108 @@ async function runAutoStatusChain(
 }
 
 // ─── Resolve status awal saat dokumen baru ditambahkan ───────────────────────
-// needsReview: pilihan eksplisit dari admin saat membuat dokumen
-//   true  → dokumen perlu masuk alur review (kirim email ke PIC)
-//   false → dokumen langsung Relevan (tidak perlu review)
-//   null  → sistem tentukan otomatis berdasarkan tanggal
 async function resolveInitialStatus(
   client: any,
   nomorDokumen: string,
   tanggal: string,
   needsReview: boolean | null = null
 ): Promise<string> {
-  // PRIORITAS 1: Jika admin eksplisit memilih "tidak perlu review" → langsung Relevan
   if (needsReview === false) return 'Relevan';
-
-  // PRIORITAS 2: Dokumen expired (>2 bulan dari approval) → otomatis Relevan
-  // Ini kasus dokumen lama yang baru diinput ke sistem, tidak perlu review lagi
   if (isExpiredForReview(tanggal)) return 'Relevan';
-
-  // PRIORITAS 3: Belum waktunya jadwal dikirim → dormant Relevan
-  // Contoh: approval Agustus, sekarang Maret → jadwal Juni belum tercapai
   if (!isScheduleMonthReached(tanggal)) return 'Relevan';
 
-  // PRIORITAS 4: Sudah waktunya, tapi admin pilih tidak perlu review → Relevan
-  // (sudah ditangani di PRIORITAS 1)
-
-  // PRIORITAS 5: Dalam rentang review
-  // Jika admin eksplisit pilih needsReview=true, atau sistem otomatis → masuk alur review
   if (needsReview === true || needsReview === null) {
-    // Cek apakah jadwal sudah ada
     const schedResult = await client.query(
       `SELECT email_status FROM email_schedules WHERE nomor_dokumen = $1 LIMIT 1`,
       [nomorDokumen]
     );
-
     if (schedResult.rows.length > 0) {
       return schedResult.rows[0].email_status === 'sent' ? 'Telah terkirim' : 'Belum dikirim';
     }
-
-    // Jadwal belum ada → akan dibuat di blok POST
     return 'Belum dikirim';
   }
 
   return 'Relevan';
 }
 
-// =============================================================================
-// GET
-// =============================================================================
+// ── GET ─────────────────────────────────────────────────────────────────────
 export async function GET(request: NextRequest) {
   const client = await pool.connect();
   try {
     const { searchParams } = new URL(request.url);
-    const pic = searchParams.get('pic');
-
-    // JOIN email_schedules untuk mendapatkan last_sent_at dan scheduled_email_at
-    // yang dibutuhkan frontend untuk menghitung batas visibilitas dokumen
-    let query = `
-      SELECT pd.*,
-             es.last_sent_at,
-             es.scheduled_email_at
-      FROM procedure_documents pd
-      LEFT JOIN email_schedules es ON pd.nomor_dokumen = es.nomor_dokumen
-    `;
+    const picParam = searchParams.get('pic');
+ 
+    let query: string;
     let values: any[] = [];
-
-    if (pic) {
-      query += ` WHERE $1 = ANY(string_to_array(REPLACE(pd.pic, ' ', ''), ','))`;
-      values = [pic];
+ 
+    if (picParam) {
+      // FIX: Deteksi apakah parameter adalah email (mengandung '@') atau kode PIC
+      if (picParam.includes('@')) {
+        // Login baru: parameter adalah email lengkap seperti "dp@jai.co.id"
+        // Ekstrak kode dari email: "dp@jai.co.id" → "DP"
+        // Juga cari di kolom email untuk backward compat
+        const emailLocalPart = picParam.split('@')[0].trim().toUpperCase();
+        const picCodes = emailLocalPart
+          .split(',')
+          .map((c: string) => c.trim())
+          .filter((c: string) => c.length > 0);
+ 
+        const conditions: string[] = [];
+        values = [];
+        let idx = 1;
+ 
+        // Match berdasarkan kode pic di kolom `pic`
+        for (const code of picCodes) {
+          conditions.push(
+            `$${idx} = ANY(string_to_array(REPLACE(UPPER(pd.pic), ' ', ''), ','))`
+          );
+          values.push(code);
+          idx++;
+        }
+ 
+        // Match berdasarkan email di kolom `email` (untuk data baru)
+        conditions.push(`pd.email ILIKE $${idx}`);
+        values.push(`%${picParam}%`);
+        idx++;
+ 
+        query = `
+          SELECT pd.*,
+                 es.last_sent_at,
+                 es.scheduled_email_at
+          FROM procedure_documents pd
+          LEFT JOIN email_schedules es ON pd.nomor_dokumen = es.nomor_dokumen
+          WHERE ${conditions.join(' OR ')}
+          ORDER BY pd.created_at DESC
+        `;
+      } else {
+        // Login lama / filter langsung dengan kode PIC: ?pic=DP
+        // Gunakan logika exact match setelah split koma
+        query = `
+          SELECT pd.*,
+                 es.last_sent_at,
+                 es.scheduled_email_at
+          FROM procedure_documents pd
+          LEFT JOIN email_schedules es ON pd.nomor_dokumen = es.nomor_dokumen
+          WHERE $1 = ANY(string_to_array(REPLACE(pd.pic, ' ', ''), ','))
+          ORDER BY pd.created_at DESC
+        `;
+        values = [picParam];
+      }
+    } else {
+      // Tidak ada filter PIC — ambil semua
+      query = `
+        SELECT pd.*,
+               es.last_sent_at,
+               es.scheduled_email_at
+        FROM procedure_documents pd
+        LEFT JOIN email_schedules es ON pd.nomor_dokumen = es.nomor_dokumen
+        ORDER BY pd.created_at DESC
+      `;
+      values = [];
     }
-
-    query += ` ORDER BY pd.created_at DESC`;
-
+ 
     const result = await client.query(query, values);
-
+ 
     const procedures = await Promise.all(
       result.rows.map(async (row: any) => {
         const resolvedStatus = await runAutoStatusChain(
@@ -283,27 +287,27 @@ export async function GET(request: NextRequest) {
           row.tanggal_selesai_approval,
           row.status
         );
-
+ 
         return {
-          id: row.id,
-          namaDokumen: row.nama_dokumen,
-          nomorDokumen: row.nomor_dokumen,
-          levelDokumen: row.level_dokumen,
+          id:                     row.id,
+          namaDokumen:            row.nama_dokumen,
+          nomorDokumen:           row.nomor_dokumen,
+          levelDokumen:           row.level_dokumen,
           tanggalSelesaiApproval: row.tanggal_selesai_approval,
-          revisi: row.revisi,
-          owner: row.owner,
-          pic: row.pic,
-          email: row.email,
-          status: resolvedStatus,
-          isCustom: row.is_custom,
-          createdAt: row.created_at,
-          updatedAt: row.updated_at,
-          lastSentAt: row.last_sent_at ?? null,
-          scheduledEmailAt: row.scheduled_email_at ?? null,
+          revisi:                 row.revisi,
+          owner:                  row.owner,
+          pic:                    row.pic,
+          email:                  row.email,
+          status:                 resolvedStatus,
+          isCustom:               row.is_custom,
+          createdAt:              row.created_at,
+          updatedAt:              row.updated_at,
+          lastSentAt:             row.last_sent_at        ?? null,
+          scheduledEmailAt:       row.scheduled_email_at ?? null,
         };
       })
     );
-
+ 
     return NextResponse.json(procedures);
   } catch (error) {
     console.error('Error fetching procedures:', error);
@@ -322,9 +326,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const client = await pool.connect();
   try {
-    const body = await request.json();
-
-    // needsReview: dikirim dari frontend (null = auto, true = perlu review, false = langsung Relevan)
+    const body        = await request.json();
     const needsReview: boolean | null = body.needsReview ?? null;
 
     const status = await resolveInitialStatus(
@@ -357,11 +359,6 @@ export async function POST(request: NextRequest) {
 
     const row = result.rows[0];
 
-    // Buat jadwal HANYA jika:
-    // 1. Status dokumen = 'Belum dikirim' (perlu review), DAN
-    // 2. Sudah waktunya jadwal dikirim, DAN
-    // 3. Dokumen belum expired
-    // Dokumen Relevan (expired atau dormant atau pilihan admin) tidak perlu jadwal.
     if (
       status === 'Belum dikirim' &&
       isScheduleMonthReached(body.tanggalSelesaiApproval) &&
@@ -373,9 +370,6 @@ export async function POST(request: NextRequest) {
       );
 
       if (existingSched.rows.length === 0) {
-        // Kondisi 1: needsReview=true → kirim sekarang
-        // Kondisi 2: auto reached → kirim sekarang
-        // Kondisi 3: auto future → kirim pada tanggal otomatis
         const scheduledAt = resolveScheduledAt(body.tanggalSelesaiApproval, needsReview);
         await client.query(
           `INSERT INTO email_schedules (nomor_dokumen, scheduled_email_at, email_status)
@@ -386,26 +380,26 @@ export async function POST(request: NextRequest) {
     }
 
     await logActivity({
-      username: 'admin',
-      activityType: 'create',
+      username:            'admin',
+      activityType:        'create',
       activityDescription: `Tambah prosedur baru ${body.namaDokumen}`,
-      targetType: 'procedure',
-      targetId: body.nomorDokumen,
+      targetType:          'procedure',
+      targetId:            body.nomorDokumen,
     });
 
     return NextResponse.json(
       {
-        id: row.id,
-        namaDokumen: row.nama_dokumen,
-        nomorDokumen: row.nomor_dokumen,
-        levelDokumen: row.level_dokumen,
+        id:                     row.id,
+        namaDokumen:            row.nama_dokumen,
+        nomorDokumen:           row.nomor_dokumen,
+        levelDokumen:           row.level_dokumen,
         tanggalSelesaiApproval: row.tanggal_selesai_approval,
-        revisi: row.revisi,
-        owner: row.owner,
-        pic: row.pic,
-        email: row.email,
-        status: row.status,
-        isCustom: row.is_custom,
+        revisi:                 row.revisi,
+        owner:                  row.owner,
+        pic:                    row.pic,
+        email:                  row.email,
+        status:                 row.status,
+        isCustom:               row.is_custom,
       },
       { status: 201 }
     );

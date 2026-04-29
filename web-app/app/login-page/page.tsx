@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import Link from 'next/link';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
@@ -127,6 +128,13 @@ export default function LoginPage() {
                 <span>
                     Password: <code className="bg-white px-2 py-1 rounded">admin123</code>
                 </span>
+            </p>
+          </div>
+
+          {/* PIC Login Link */}
+          <div className="mt-6 pt-6 border-t border-slate-200">
+            <p className="text-center text-slate-600 text-sm">
+              Anda PIC? <Link href="/pic-login" className="text-blue-600 hover:text-blue-700 font-semibold">Login PIC</Link>
             </p>
           </div>
         </div>

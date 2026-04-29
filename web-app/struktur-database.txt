@@ -1,42 +1,23 @@
-procedure_management=# \d
-                     List of relations
- Schema |            Name            |   Type   |  Owner
---------+----------------------------+----------+----------
- public | active_procedure_files     | view     | postgres
- public | activity_logs              | table    | postgres
- public | activity_logs_id_seq       | sequence | postgres
- public | arsip_prosedur             | table    | postgres
- public | arsip_prosedur_id_seq      | sequence | postgres
- public | backup_schedules           | table    | postgres
- public | backup_schedules_id_seq    | sequence | postgres
- public | document_reviews           | table    | postgres
- public | document_reviews_id_seq    | sequence | postgres
- public | email_schedules            | table    | postgres
- public | email_schedules_id_seq     | sequence | postgres
- public | pic_otp                    | table    | postgres
- public | pic_otp_id_seq             | sequence | postgres
- public | procedure_documents        | table    | postgres
- public | procedure_documents_id_seq | sequence | postgres
- public | procedure_files            | table    | postgres
- public | procedure_files_id_seq     | sequence | postgres
- public | users                      | table    | postgres
- public | users_id_seq               | sequence | postgres
-(19 rows)
-
-
-procedure_management=# \d active_procedure_files
-                     View "public.active_procedure_files"
-    Column     |            Type             | Collation | Nullable | Default
----------------+-----------------------------+-----------+----------+---------
- id            | integer                     |           |          |
- nomor_dokumen | character varying(100)      |           |          |
- file_name     | character varying(500)      |           |          |
- file_path     | character varying(1000)     |           |          |
- file_size     | bigint                      |           |          |
- mime_type     | character varying(100)      |           |          |
- version       | integer                     |           |          |
- uploaded_by   | character varying(100)      |           |          |
- uploaded_at   | timestamp without time zone |           |          |
+procedure_management=# \dt
+                 List of relations
+ Schema |         Name          | Type  |  Owner
+--------+-----------------------+-------+----------
+ public | activity_logs         | table | postgres
+ public | arsip_prosedur        | table | postgres
+ public | backup_schedules      | table | postgres
+ public | document_reviews      | table | postgres
+ public | email_schedules       | table | postgres
+ public | pic_activities        | table | postgres
+ public | pic_document_requests | table | postgres
+ public | pic_documents         | table | postgres
+ public | pic_otp               | table | postgres
+ public | pic_requests          | table | postgres
+ public | pic_review_requests   | table | postgres
+ public | pic_users             | table | postgres
+ public | procedure_documents   | table | postgres
+ public | procedure_files       | table | postgres
+ public | users                 | table | postgres
+(15 rows)
 
 
 procedure_management=# \d activity_logs
@@ -85,8 +66,6 @@ Indexes:
     "idx_arsip_pic" btree (pic)
 
 
-procedure_management=# \d document_schedules
-Did not find any relation named "document_schedules".
 procedure_management=# \d document_reviews
                                              Table "public.document_reviews"
        Column        |            Type             | Collation | Nullable |                   Default
@@ -107,7 +86,7 @@ Triggers:
     update_document_reviews_updated_at BEFORE UPDATE ON document_reviews FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
 
 
-procedure_management=# \d email_schedules
+procedure_management=# \d email_schedules;
                                             Table "public.email_schedules"
        Column       |            Type             | Collation | Nullable |                   Default
 --------------------+-----------------------------+-----------+----------+---------------------------------------------
@@ -133,6 +112,71 @@ Triggers:
     update_email_schedules_updated_at BEFORE UPDATE ON email_schedules FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
 
 
+procedure_management=# \d pic_activities
+                                          Table "public.pic_activities"
+    Column     |            Type             | Collation | Nullable |                  Default
+---------------+-----------------------------+-----------+----------+--------------------------------------------
+ id            | integer                     |           | not null | nextval('pic_activities_id_seq'::regclass)
+ pic_id        | integer                     |           | not null |
+ activity_type | character varying(50)       |           | not null |
+ description   | character varying(500)      |           |          |
+ ip_address    | character varying(50)       |           |          |
+ user_agent    | text                        |           |          |
+ target_type   | character varying(50)       |           |          |
+ target_id     | character varying(100)      |           |          |
+ created_at    | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+Indexes:
+    "pic_activities_pkey" PRIMARY KEY, btree (id)
+Foreign-key constraints:
+    "pic_activities_pic_id_fkey" FOREIGN KEY (pic_id) REFERENCES pic_users(id)
+
+
+procedure_management=# \d pic_document_reviews
+Did not find any relation named "pic_document_reviews".
+procedure_management=# \d pic_document_requests
+                                           Table "public.pic_document_requests"
+     Column      |            Type             | Collation | Nullable |                      Default
+-----------------+-----------------------------+-----------+----------+---------------------------------------------------
+ id              | integer                     |           | not null | nextval('pic_document_requests_id_seq'::regclass)
+ pic_id          | integer                     |           | not null |
+ document_number | character varying(100)      |           | not null |
+ title           | character varying(500)      |           | not null |
+ description     | text                        |           |          |
+ reason          | text                        |           |          |
+ status          | character varying(50)       |           |          | 'pending'::character varying
+ created_at      | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+ updated_at      | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+ is_read         | boolean                     |           | not null | false
+ read_at         | timestamp without time zone |           |          |
+ read_by         | character varying(100)      |           |          |
+Indexes:
+    "pic_document_requests_pkey" PRIMARY KEY, btree (id)
+    "idx_pic_doc_req_is_read" btree (is_read, created_at DESC)
+Foreign-key constraints:
+    "pic_document_requests_pic_id_fkey" FOREIGN KEY (pic_id) REFERENCES pic_users(id)
+
+
+procedure_management=# \d pic_document
+Did not find any relation named "pic_document".
+procedure_management=# \d pic_documents
+                                           Table "public.pic_documents"
+     Column      |            Type             | Collation | Nullable |                  Default
+-----------------+-----------------------------+-----------+----------+-------------------------------------------
+ id              | integer                     |           | not null | nextval('pic_documents_id_seq'::regclass)
+ pic_id          | integer                     |           | not null |
+ document_number | character varying(100)      |           | not null |
+ title           | character varying(500)      |           | not null |
+ status          | character varying(50)       |           |          | 'pending'::character varying
+ created_at      | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+ updated_at      | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+Indexes:
+    "pic_documents_pkey" PRIMARY KEY, btree (id)
+Foreign-key constraints:
+    "pic_documents_pic_id_fkey" FOREIGN KEY (pic_id) REFERENCES pic_users(id)
+Referenced by:
+    TABLE "pic_requests" CONSTRAINT "pic_requests_document_id_fkey" FOREIGN KEY (document_id) REFERENCES pic_documents(id)
+
+
 procedure_management=# \d pic_otp
                                         Table "public.pic_otp"
    Column   |            Type             | Collation | Nullable |               Default
@@ -146,6 +190,72 @@ Indexes:
     "pic_otp_pkey" PRIMARY KEY, btree (id)
     "idx_pic_otp_expires" btree (expires_at)
     "idx_pic_otp_pic" btree (pic)
+
+
+procedure_management=# \d pic_requests
+                                         Table "public.pic_requests"
+   Column    |            Type             | Collation | Nullable |                 Default
+-------------+-----------------------------+-----------+----------+------------------------------------------
+ id          | integer                     |           | not null | nextval('pic_requests_id_seq'::regclass)
+ pic_id      | integer                     |           | not null |
+ document_id | integer                     |           | not null |
+ status      | character varying(50)       |           |          | 'pending'::character varying
+ notes       | text                        |           |          |
+ created_at  | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+ updated_at  | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+Indexes:
+    "pic_requests_pkey" PRIMARY KEY, btree (id)
+Foreign-key constraints:
+    "pic_requests_document_id_fkey" FOREIGN KEY (document_id) REFERENCES pic_documents(id)
+    "pic_requests_pic_id_fkey" FOREIGN KEY (pic_id) REFERENCES pic_users(id)
+
+
+procedure_management=# \d pic_review_requests
+                                          Table "public.pic_review_requests"
+    Column     |            Type             | Collation | Nullable |                     Default
+---------------+-----------------------------+-----------+----------+-------------------------------------------------
+ id            | integer                     |           | not null | nextval('pic_review_requests_id_seq'::regclass)
+ pic_id        | integer                     |           | not null |
+ nomor_dokumen | character varying(100)      |           | not null |
+ nama_dokumen  | character varying(500)      |           | not null |
+ notes         | text                        |           |          |
+ status        | character varying(50)       |           | not null | 'pending'::character varying
+ is_read       | boolean                     |           | not null | false
+ read_at       | timestamp without time zone |           |          |
+ read_by       | character varying(100)      |           |          |
+ created_at    | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+ updated_at    | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+Indexes:
+    "pic_review_requests_pkey" PRIMARY KEY, btree (id)
+    "idx_pic_review_req_is_read" btree (is_read, created_at DESC)
+    "idx_pic_review_req_nomor" btree (nomor_dokumen)
+    "idx_pic_review_req_pic_id" btree (pic_id)
+Foreign-key constraints:
+    "pic_review_requests_pic_id_fkey" FOREIGN KEY (pic_id) REFERENCES pic_users(id)
+
+
+procedure_management=# \d pic_users
+                                        Table "public.pic_users"
+   Column   |            Type             | Collation | Nullable |                Default
+------------+-----------------------------+-----------+----------+---------------------------------------
+ id         | integer                     |           | not null | nextval('pic_users_id_seq'::regclass)
+ email      | character varying(200)      |           | not null |
+ password   | character varying(255)      |           | not null |
+ full_name  | character varying(200)      |           | not null |
+ department | character varying(200)      |           |          |
+ is_active  | boolean                     |           |          | true
+ last_login | timestamp without time zone |           |          |
+ created_at | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+ updated_at | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+Indexes:
+    "pic_users_pkey" PRIMARY KEY, btree (id)
+    "pic_users_email_key" UNIQUE CONSTRAINT, btree (email)
+Referenced by:
+    TABLE "pic_activities" CONSTRAINT "pic_activities_pic_id_fkey" FOREIGN KEY (pic_id) REFERENCES pic_users(id)
+    TABLE "pic_document_requests" CONSTRAINT "pic_document_requests_pic_id_fkey" FOREIGN KEY (pic_id) REFERENCES pic_users(id)
+    TABLE "pic_documents" CONSTRAINT "pic_documents_pic_id_fkey" FOREIGN KEY (pic_id) REFERENCES pic_users(id)
+    TABLE "pic_requests" CONSTRAINT "pic_requests_pic_id_fkey" FOREIGN KEY (pic_id) REFERENCES pic_users(id)
+    TABLE "pic_review_requests" CONSTRAINT "pic_review_requests_pic_id_fkey" FOREIGN KEY (pic_id) REFERENCES pic_users(id)
 
 
 procedure_management=# \d procedure_documents
@@ -225,19 +335,27 @@ Triggers:
     update_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
 
 
+procedure_management=# select * from pic_documents;
+ id | pic_id | document_number | title | status | created_at | updated_at
+----+--------+-----------------+-------+--------+------------+------------
+(0 rows)
+
+
 procedure_management=# select * from procedure_documents;
- id  |                                     nama_dokumen                                     |        nomor_dokumen         | level_dokumen | tanggal_selesai_approval | revisi |         owner          |       pic       |     status     | is_custom |         created_at         |         updated_at         |                  email
------+--------------------------------------------------------------------------------------+------------------------------+---------------+--------------------------+--------+------------------------+-----------------+----------------+-----------+----------------------------+----------------------------+-----------------------------------------
- 773 | dokumen-januari                                                                      | 0091J                        | 1             | 2026-01-01               | 0      | DP                     | DP              | Relevan        | t         | 2026-03-27 08:34:51.574294 | 2026-03-27 10:29:15.644096 | daniarpriambodo11@gmail.com
+ id  |                                     nama_dokumen                                     |        nomor_dokumen         | level_dokumen | tanggal_selesai_approval | revisi |         owner          |       pic       |     status     | is_custom |         created_at         |         updated_at         |                         email    
+-----+--------------------------------------------------------------------------------------+------------------------------+---------------+--------------------------+--------+------------------------+-----------------+----------------+-----------+----------------------------+----------------------------+-------------------------------------------------------
  766 | QR_QA                                                                                | T-0909                       | 3             | 2026-03-05               | 0      | DP                     | DP              | Relevan        | t         | 2026-03-05 11:42:30.694821 | 2026-03-12 14:49:32.737675 | daniarpriambodo11@gmail.com
  788 | Test_April                                                                           | KJL-01                       | 1             | 2026-04-01               | 0      | DP                     | DP              | Relevan        | t         | 2026-04-01 00:51:09.281208 | 2026-04-01 01:01:29.095598 | untuksemua0309@gmail.com
  501 | Business Plan                                                                        | BPR-P-01                     | 2             | 2025-10-01               | 08     | QSA                    | ISR             | Relevan        | f         | 2026-02-18 09:08:32.000013 | 2026-03-13 08:49:51.41916  | 123ika.y@jai.co.id
  502 | Risk Analysis                                                                        | BPR-W-01                     | 3             | 2025-07-31               | 03     | QSA                    | ISR             | Relevan        | f         | 2026-02-18 09:08:32.000013 | 2026-03-13 08:49:51.41916  | 123ika.y@jai.co.id
  769 | Test Hari Ini 123                                                                    | 1                            | 1             | 2026-03-11               | 0      | DP                     | DP              | Relevan        | t         | 2026-03-12 10:03:43.82576  | 2026-04-09 03:49:20.039678 | daniarpriambodo11@gmail.com
+ 791 | TESTING_PROSEDUR_APRIL                                                               | AI_0912                      | 3             | 2026-04-21               | 0      | DP                     | DP              | Relevan        | t         | 2026-04-21 15:46:36.268055 | 2026-04-21 15:46:36.268055 | dp@jai.co.id
+ 773 | dokumen-januari                                                                      | 0091J                        | 1             | 2026-01-01               | 0      | DP                     | DP              | Belum dikirim  | t         | 2026-03-27 08:34:51.574294 | 2026-04-24 07:36:59.225425 | daniarpriambodo11@gmail.com
  785 | DK-98                                                                                | 09-LL                        | 3             | 2026-03-24               | 0      | DP                     | DP              | Relevan        | t         | 2026-03-31 04:15:32.28548  | 2026-03-31 04:15:32.28548  | daniarpriambodo11@gmail.com
  767 | QR_GA                                                                                | T-0900                       | 3             | 2026-03-05               | 0      | DP                     | DP              | Relevan        | t         | 2026-03-05 11:43:21.560862 | 2026-03-12 14:49:32.737675 | daniarpriambodo11@gmail.com
- 789 | Test_April_123_09                                                                    | 0909-DP                      | 3             | 2026-03-30               | 0      | DP                     | DP              | Telah terkirim | t         | 2026-04-01 16:00:34.245137 | 2026-04-10 13:45:42.535875 | daniarpriambodo11@gmail.com
  771 | test hari ini 2                                                                      | 09092                        | 2             | 2026-03-12               | 0      | DP                     | DP              | Relevan        | t         | 2026-03-12 10:05:37.430786 | 2026-03-12 14:52:57.00108  | daniarpriambodo11@gmail.com
+ 789 | Test April 00 Update                                                                 | 0909-DP                      | 3             | 2026-03-28               | 0      | DP                     | DP,US           | Telah terkirim | t         | 2026-04-01 16:00:34.245137 | 2026-04-15 03:10:13.66082  | daniarpriambodo11@gmail.com, untuksemua0309@gmail.com
+ 792 | TESTING_PROSEDUR_JULI                                                                | AI-0917                      | 3             | 2026-04-21               | 0      | DP                     | DP              | Telah dibaca   | t         | 2026-04-21 15:48:04.616931 | 2026-04-24 07:30:46.664277 | dp@jai.co.id
  555 | Risk Assessment                                                                      | PQP-W-06                     | 3             | 2007-10-09               | 02     | PP                     | LDA             | Relevan        | f         | 2026-02-18 09:08:32.000013 | 2026-03-05 11:32:57.084179 | 123lita.d@jai.co.id
  772 | 123                                                                                  | 13215                        | 2             | 2026-02-12               | 0      | DP                     | DP              | Relevan        | t         | 2026-03-12 10:07:10.367594 | 2026-03-27 08:22:33.086919 | daniarpriambodo11@gmail.com
  786 | TEST-02                                                                              | 3AQ                          | 3             | 2026-04-30               | 0      | DP                     | DP              | Relevan        | t         | 2026-03-31 04:16:14.983863 | 2026-03-31 04:16:14.983863 | daniarpriambodo11@gmail.com
@@ -490,13 +608,12 @@ procedure_management=# select * from procedure_documents;
  745 | Analisa Hasil Kalibrasi                                                              | CMD-W-02                     | 3             | 2025-11-07               | 06     | QC MSA                 | SFE             | Relevan        | f         | 2026-02-18 09:08:32.000013 | 2026-03-05 11:32:57.084179 | 123shinta.f@jai.co.id
  746 | Verifikasi Torque                                                                    | CMD-W-03                     | 3             | 2025-08-11               | 02     | PD, PE, QC MSA         | DAF,YHE,TWI     | Relevan        | f         | 2026-02-18 09:08:32.000013 | 2026-03-05 11:32:57.084179 | 123david.a@jai.co.id
  747 | Penaganan Kerusakan Atau Kehilangan Alat Ukur                                        | CMD-W-04                     | 3             | 2024-11-01               | 02     | QC MSA                 | SFE             | Relevan        | f         | 2026-02-18 09:08:32.000013 | 2026-03-05 11:32:57.084179 | 123shinta.f@jai.co.id
-(262 rows)
+(264 rows)
 
 
 procedure_management=#
-
-procedure_management=# select * from procedure_files
-procedure_management-# ;
+procedure_management=#
+procedure_management=# select * from procedure_files;
  id  | nomor_dokumen |                                         file_name                                         |                                                       file_path                                                       | file_size |    mime_type    | version | is_active | uploaded_by |        uploaded_at
 -----+---------------+-------------------------------------------------------------------------------------------+-----------------------------------------------------------------------------------------------------------------------+-----------+-----------------+---------+-----------+-------------+----------------------------
    3 | BPR-P-01      | BPR-P-01 Business Plan R08.pdf                                                            | /uploads/documents/BPR-P-01/BPR-P-01 Business Plan R08.pdf                                                            |    206161 | application/pdf |       1 | t         | system      | 2026-02-20 15:14:31.327466
@@ -747,3 +864,48 @@ procedure_management-# ;
 
 
 procedure_management=#
+procedure_management=#
+procedure_management=#
+procedure_management=#
+procedure_management=# select * from pic_users;
+ id |           email           |                           password                           |    full_name    |    department     | is_active | last_login |         created_at         |         updated_at
+----+---------------------------+--------------------------------------------------------------+-----------------+-------------------+-----------+------------+----------------------------+----------------------------
+  1 | hma@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Hma             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+  2 | vra, asw@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Vra, Asw        | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+  3 | hpu,twi,das,yfi@jai.co.id | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Hpu,Twi,Das,Yfi | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+  4 | dkr@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Dkr             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+  5 | mcb@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Mcb             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+  6 | dp@jai.co.id              | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Dp              | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+  7 | dhs@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Dhs             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+  8 | hpu@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Hpu             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+  9 | hsw@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Hsw             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 10 | yfi@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Yfi             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 11 | ain@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Ain             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 12 | wsu@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Wsu             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 13 | nia@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Nia             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 14 | isr@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Isr             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 15 | mcb, dhs@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Mcb, Dhs        | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 16 | mmr@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Mmr             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 17 | cha@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Cha             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 18 | dp,us@jai.co.id           | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Dp,Us           | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 19 | emu@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Emu             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 20 | rko@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Rko             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 21 | das@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Das             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 22 | yhe@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Yhe             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 23 | ens@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Ens             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 24 | asw@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Asw             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 25 | daf,yhe,twi@jai.co.id     | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Daf,Yhe,Twi     | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 26 | ens, twi@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Ens, Twi        | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 27 | wwi@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Wwi             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 28 | lda@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Lda             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 29 | vra@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Vra             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 30 | lse@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Lse             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 31 | aca@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Aca             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 32 | fs@jai.co.id              | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Fs              | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 33 | fir@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Fir             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 34 | isr, ain@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Isr, Ain        | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 35 | ath@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Ath             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 36 | twi@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Twi             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 37 | ase@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Ase             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+ 38 | sfe@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Sfe             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
+(38 rows)
