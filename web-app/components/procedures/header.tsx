@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import NotificationBell from '@/components/admin/NotificationBell';
 
 export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -12,12 +13,9 @@ export function Header() {
 
   const handleLogout = () => {
     const confirmed = window.confirm('Apakah Anda yakin ingin logout?');
-    if (confirmed) {
-      logout();
-    }
+    if (confirmed) logout();
   };
 
-  // Tentukan menu berdasarkan halaman saat ini
   const getNavigationMenu = () => {
     if (pathname === '/home') {
       return [
@@ -34,14 +32,12 @@ export function Header() {
         { label: 'Home', path: '/home' },
         { label: 'Status Prosedur', path: '/status-review' },
       ];
-    } else {
-      // Default untuk halaman lain
-      return [
-        { label: 'Home', path: '/home' },
-        { label: 'Status Prosedur', path: '/status-review' },
-        { label: 'Arsip Prosedur', path: '/arsip-prosedur' },
-      ];
     }
+    return [
+      { label: 'Home', path: '/home' },
+      { label: 'Status Prosedur', path: '/status-review' },
+      { label: 'Arsip Prosedur', path: '/arsip-prosedur' },
+    ];
   };
 
   const menuItems = getNavigationMenu();
@@ -52,13 +48,7 @@ export function Header() {
         {/* Logo */}
         <div className="flex items-center gap-3">
           <div className="bg-white/20 backdrop-blur-sm p-2 rounded-lg">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="white"
-              strokeWidth="2.5"
-              className="w-5 h-5"
-            >
+            <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" className="w-5 h-5">
               <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
@@ -76,18 +66,18 @@ export function Header() {
                 key={item.path}
                 href={item.path}
                 className={`text-sm font-medium transition-colors ${
-                  pathname === item.path
-                    ? 'text-white'
-                    : 'text-blue-50 hover:text-white'
+                  pathname === item.path ? 'text-white' : 'text-blue-50 hover:text-white'
                 }`}
               >
                 {item.label}
               </Link>
             ))}
           </nav>
-          
-          {/* User Info & Logout */}
+
           <div className="flex items-center gap-3 pl-6 border-l border-blue-500">
+            {/* ── Notification Bell — hanya tampil untuk admin ── */}
+            <NotificationBell />
+
             <div className="text-right">
               <p className="text-xs text-blue-100">Logged in as</p>
               <p className="text-sm font-semibold text-white">{user?.fullName || user?.username}</p>
@@ -101,27 +91,23 @@ export function Header() {
           </div>
         </div>
 
-        {/* Mobile Hamburger Button */}
-        <button
-          onClick={() => setIsMenuOpen(!isMenuOpen)}
-          className="md:hidden text-white p-2 hover:bg-white/10 rounded-lg transition-colors"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            className="w-6 h-6"
+        {/* Mobile Hamburger */}
+        <div className="md:hidden flex items-center gap-2">
+          {/* Bell di mobile juga */}
+          <NotificationBell />
+          <button
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
+            className="text-white p-2 hover:bg-white/10 rounded-lg transition-colors"
           >
-            {isMenuOpen ? (
-              <path d="M6 18L18 6M6 6l12 12" />
-            ) : (
-              <path d="M4 6h16M4 12h16M4 18h16" />
-            )}
-          </svg>
-        </button>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-6 h-6">
+              {isMenuOpen
+                ? <path d="M6 18L18 6M6 6l12 12" />
+                : <path d="M4 6h16M4 12h16M4 18h16" />}
+            </svg>
+          </button>
+        </div>
       </div>
-            
+
       {/* Mobile Menu */}
       {isMenuOpen && (
         <div className="md:hidden bg-blue-800 border-t border-blue-500">
@@ -141,8 +127,6 @@ export function Header() {
               </Link>
             ))}
           </nav>
-          
-          {/* Mobile User Info & Logout */}
           <div className="px-8 py-4 border-t border-blue-500">
             <div className="flex items-center justify-between mb-3">
               <div>

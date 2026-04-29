@@ -22,7 +22,7 @@ interface Activity {
   createdAt: string;
 }
 
-// ─── Status Badge — semua 8 status ───────────────────────────────────────────
+// ─── Status Badge ─────────────────────────────────────────────────────────────
 function StatusBadge({ status }: { status: StatusType }) {
   const styles: Record<StatusType, { bg: string; text: string; border: string; icon: string }> = {
     Relevan:          { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', icon: '✓'  },
@@ -42,7 +42,7 @@ function StatusBadge({ status }: { status: StatusType }) {
   );
 }
 
-// ─── Stat Card biasa ──────────────────────────────────────────────────────────
+// ─── Stat Card ────────────────────────────────────────────────────────────────
 function StatCard({
   title, value, icon, color,
 }: {
@@ -69,7 +69,7 @@ function StatCard({
   );
 }
 
-// ─── Card khusus ke-4: Belum Review (breakdown 3 sub-status) ─────────────────
+// ─── Card ke-4: Belum Review ──────────────────────────────────────────────────
 function PendingReviewCard({
   menunggu, terkirim, terbaca,
 }: {
@@ -125,26 +125,61 @@ function MonthFilter({
   );
 }
 
+// ─── Activity Type config (label + badge) ────────────────────────────────────
+// Urutan menentukan urutan di dropdown filter.
+//
+// Sumber data:
+//   activity_logs  → aktivitas admin  (login, upload, create, dll)
+//   pic_activities → aktivitas PIC, type-nya dinormalisasi oleh API sebelum dikirim:
+//                    'request'  → 'request_review'
+//                    'document' → 'request_document'
+//                    'view'     → 'download'
+//                    'approval' → 'review'
+const ACTIVITY_TYPE_CONFIG: Record<string, { label: string; badgeCls: string }> = {
+  // ── Admin ────────────────────────────────────────────────────────────────
+  login:            { label: '🔐 LOGIN',                 badgeCls: 'bg-blue-100 text-blue-700'      },
+  logout:           { label: '🚪 LOGOUT',                badgeCls: 'bg-slate-100 text-slate-700'    },
+  upload:           { label: '📤 UPLOAD',                badgeCls: 'bg-green-100 text-green-700'    },
+  download:         { label: '📥 DOWNLOAD',              badgeCls: 'bg-cyan-100 text-cyan-700'      },
+  review:           { label: '✅ REVIEW',                badgeCls: 'bg-purple-100 text-purple-700'  },
+  archive:          { label: '📦 ARCHIVE',               badgeCls: 'bg-amber-100 text-amber-700'    },
+  restore:          { label: '↺ RESTORE',                badgeCls: 'bg-emerald-100 text-emerald-700'},
+  delete:           { label: '🗑️ DELETE',                badgeCls: 'bg-red-100 text-red-700'        },
+  create:           { label: '➕ CREATE',                badgeCls: 'bg-indigo-100 text-indigo-700'  },
+  update:           { label: '✏️ UPDATE',                badgeCls: 'bg-orange-100 text-orange-700'  },
+  // ── PIC (dinormalisasi API dari pic_activities) ───────────────────────────
+  // pic_activities.activity_type = 'request' → API kirim sebagai 'request_review'
+  request_review:   { label: '📝 REQUEST REVIEW',        badgeCls: 'bg-teal-100 text-teal-700'      },
+  // pic_activities.activity_type = 'document' → API kirim sebagai 'request_document'
+  request_document: { label: '📄 REQUEST DOKUMEN BARU',  badgeCls: 'bg-sky-100 text-sky-700'        },
+};
+
+// ─── Normalisasi type (standalone — dipakai badge & filter) ─────────────────
+// "request_download" adalah nama lama keliru, dipetakan ke "request_document"
+function normalizeActivityType(t: string): string {
+  return t === 'request_download' ? 'request_document' : t;
+}
+
 // ─── Activity Type Badge ──────────────────────────────────────────────────────
 function ActivityTypeBadge({ type }: { type: string }) {
-  const styles: Record<string, string> = {
-    login: 'bg-blue-100 text-blue-700', logout: 'bg-slate-100 text-slate-700',
-    upload: 'bg-green-100 text-green-700', download: 'bg-cyan-100 text-cyan-700',
-    review: 'bg-purple-100 text-purple-700', archive: 'bg-amber-100 text-amber-700',
-    restore: 'bg-emerald-100 text-emerald-700', delete: 'bg-red-100 text-red-700',
-    create: 'bg-indigo-100 text-indigo-700', update: 'bg-orange-100 text-orange-700',
-  };
-  const typeLabels: Record<string, string> = {
-    login: '🔐 LOGIN', logout: '🚪 LOGOUT', upload: '📤 UPLOAD',
-    download: '📥 DOWNLOAD', review: '✅ REVIEW', archive: '📦 ARCHIVE',
-    restore: '↺ RESTORE', delete: '🗑️ DELETE', create: '➕ CREATE', update: '✏️ UPDATE',
-  };
+  const normalized = normalizeActivityType(type);
+  const cfg = ACTIVITY_TYPE_CONFIG[normalized];
   return (
-    <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${styles[type] || 'bg-slate-100 text-slate-700'}`}>
-      {typeLabels[type] || type.toUpperCase()}
+    <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${cfg?.badgeCls ?? 'bg-slate-100 text-slate-700'}`}>
+      {cfg?.label ?? normalized.toUpperCase()}
     </span>
   );
 }
+
+// ─── Dropdown helper — reusable select dengan style konsisten ─────────────────
+const dropdownStyle = {
+  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%231f2937' d='M6 8L2 4h8z'/%3E%3C/svg%3E")`,
+  backgroundRepeat: 'no-repeat' as const,
+  backgroundPosition: 'right 10px center',
+};
+const selectCls =
+  'pl-3 pr-8 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 ' +
+  'focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer appearance-none transition-all';
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function HomePage() {
@@ -153,6 +188,11 @@ export default function HomePage() {
   const [loading,          setLoading]          = useState(true);
   const [selectedMonth,    setSelectedMonth]    = useState<number>(new Date().getMonth());
   const [activityPage,     setActivityPage]     = useState(1);
+
+  // ── Filter aktivitas ──────────────────────────────────────────────────────
+  const [activityUserFilter, setActivityUserFilter] = useState<string>('');   // '' = semua
+  const [activityTypeFilter, setActivityTypeFilter] = useState<string>('');   // '' = semua
+
   const ACTIVITIES_PER_PAGE = 8;
 
   useEffect(() => {
@@ -160,7 +200,8 @@ export default function HomePage() {
       try {
         const procs = await getAllProcedures();
         setProcedures(procs);
-        const actRes = await fetch('/api/activities?limit=100');
+        // Ambil lebih banyak agar filter frontend tetap representatif
+        const actRes = await fetch('/api/activities?limit=200');
         if (actRes.ok) setRecentActivities(await actRes.json());
       } catch (err) {
         console.error('Error loading dashboard:', err);
@@ -171,7 +212,7 @@ export default function HomePage() {
     load();
   }, []);
 
-  // Bulan yang punya dokumen
+  // ── Bulan yang punya dokumen ──────────────────────────────────────────────
   const availableMonths = useMemo(() => {
     const months = new Set<number>();
     procedures.forEach(p => {
@@ -181,7 +222,7 @@ export default function HomePage() {
     return Array.from(months).sort((a, b) => a - b);
   }, [procedures]);
 
-  // Dokumen yang terfilter berdasarkan bulan yang dipilih
+  // ── Dokumen difilter bulan ────────────────────────────────────────────────
   const filteredDocs = useMemo(() =>
     procedures.filter(p => {
       const d = new Date(p.tanggalSelesaiApproval);
@@ -189,19 +230,16 @@ export default function HomePage() {
     }),
   [procedures, selectedMonth]);
 
-  // Semua stats mengikuti filter bulan
   const stats = useMemo(() => ({
     total:    filteredDocs.length,
     relevan:  filteredDocs.filter(p => p.status === 'Relevan').length,
     revisi:   filteredDocs.filter(p => p.status === 'Revisi').length,
     obsolete: filteredDocs.filter(p => p.status === 'Obsolete').length,
-    // Card ke-4: breakdown 3 sub-status "belum review"
-    menunggu:  filteredDocs.filter(p => ['Menunggu', 'Belum dikirim', '-'].includes(p.status)).length,
-    terkirim:  filteredDocs.filter(p => p.status === 'Telah terkirim').length,
-    terbaca:   filteredDocs.filter(p => p.status === 'Telah dibaca').length,
+    menunggu: filteredDocs.filter(p => ['Menunggu', 'Belum dikirim', '-'].includes(p.status)).length,
+    terkirim: filteredDocs.filter(p => p.status === 'Telah terkirim').length,
+    terbaca:  filteredDocs.filter(p => p.status === 'Telah dibaca').length,
   }), [filteredDocs]);
 
-  // Progress review
   const reviewProgress = useMemo(() => {
     if (filteredDocs.length === 0) return 0;
     if (filteredDocs.every(d => d.status === 'Relevan')) return 100;
@@ -210,11 +248,58 @@ export default function HomePage() {
     );
   }, [filteredDocs]);
 
-  // Pagination aktivitas
-  const totalActivityPages  = Math.ceil(recentActivities.length / ACTIVITIES_PER_PAGE);
-  const activityStart       = (activityPage - 1) * ACTIVITIES_PER_PAGE;
-  const activityEnd         = Math.min(activityStart + ACTIVITIES_PER_PAGE, recentActivities.length);
-  const paginatedActivities = recentActivities.slice(activityStart, activityEnd);
+  // ── Daftar unik username untuk dropdown User/PIC ──────────────────────────
+  const uniqueUsers = useMemo(() => {
+    const names = new Set<string>();
+    recentActivities.forEach(a => {
+      if (a.username) names.add(a.username);
+    });
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [recentActivities]);
+
+  // ── Daftar unik type untuk dropdown, diurutkan sesuai urutan ACTIVITY_TYPE_CONFIG ─
+  const uniqueTypes = useMemo(() => {
+    const types = new Set<string>();
+    recentActivities.forEach(a => {
+      if (a.activityType) types.add(normalizeActivityType(a.activityType));
+    });
+    const configKeys = Object.keys(ACTIVITY_TYPE_CONFIG);
+    return Array.from(types).sort((a, b) => {
+      const ia = configKeys.indexOf(a);
+      const ib = configKeys.indexOf(b);
+      if (ia === -1 && ib === -1) return a.localeCompare(b);
+      if (ia === -1) return 1;
+      if (ib === -1) return -1;
+      return ia - ib;
+    });
+  }, [recentActivities]);
+
+  // ── Aktivitas setelah filter user + type ─────────────────────────────────
+  const filteredActivities = useMemo(() => {
+    return recentActivities.filter(a => {
+      const matchUser = activityUserFilter === '' || a.username === activityUserFilter;
+      // normalizeType memastikan data lama (request_download) ikut terfilter
+      const matchType = activityTypeFilter === '' || normalizeActivityType(a.activityType) === activityTypeFilter;
+      return matchUser && matchType;
+    });
+  }, [recentActivities, activityUserFilter, activityTypeFilter]);
+
+  // ── Pagination aktivitas ──────────────────────────────────────────────────
+  const totalActivityPages  = Math.max(1, Math.ceil(filteredActivities.length / ACTIVITIES_PER_PAGE));
+  const safeActivityPage    = Math.min(activityPage, totalActivityPages);
+  const activityStart       = (safeActivityPage - 1) * ACTIVITIES_PER_PAGE;
+  const activityEnd         = Math.min(activityStart + ACTIVITIES_PER_PAGE, filteredActivities.length);
+  const paginatedActivities = filteredActivities.slice(activityStart, activityEnd);
+
+  // Reset ke halaman 1 saat filter berubah
+  const handleUserFilterChange = (v: string) => {
+    setActivityUserFilter(v);
+    setActivityPage(1);
+  };
+  const handleTypeFilterChange = (v: string) => {
+    setActivityTypeFilter(v);
+    setActivityPage(1);
+  };
 
   if (loading) {
     return (
@@ -230,6 +315,9 @@ export default function HomePage() {
   const selectedMonthName = MONTH_NAMES_ID[selectedMonth];
   const isCurrentMonth    = selectedMonth === new Date().getMonth();
 
+  // Apakah ada filter aktif
+  const hasActiveFilter = activityUserFilter !== '' || activityTypeFilter !== '';
+
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50">
@@ -237,13 +325,12 @@ export default function HomePage() {
 
         <div className="max-w-7xl mx-auto px-8 py-8">
 
-          {/* Welcome + filter bulan di sini — memengaruhi semua di bawahnya */}
+          {/* Welcome + filter bulan */}
           <div className="mb-8 flex items-end justify-between flex-wrap gap-4">
             <div>
               <h1 className="text-3xl font-bold text-slate-900 mb-1">Dashboard Admin</h1>
               <p className="text-slate-600">Selamat datang di sistem Review Prosedur Quality Management System</p>
             </div>
-            {/* Filter bulan utama — di sini, mempengaruhi SEMUA card & daftar */}
             <div className="flex items-center gap-3 bg-white border border-slate-200 rounded-xl px-5 py-3 shadow-sm">
               <svg className="w-5 h-5 text-blue-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -262,7 +349,7 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Stats — semua mengikuti filter bulan */}
+          {/* Stats */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             <StatCard
               title={`Total Dokumen · ${MONTH_NAMES_SHORT[selectedMonth]}`}
@@ -297,7 +384,6 @@ export default function HomePage() {
                 </svg>
               }
             />
-            {/* Card ke-4 — breakdown Menunggu + Telah terkirim + Telah dibaca */}
             <PendingReviewCard
               menunggu={stats.menunggu}
               terkirim={stats.terkirim}
@@ -305,7 +391,7 @@ export default function HomePage() {
             />
           </div>
 
-          {/* Daftar dokumen — mengikuti filter bulan */}
+          {/* Daftar dokumen */}
           <div className="mb-8">
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
               <div className="px-6 py-4 bg-gradient-to-r from-blue-50 to-blue-100 border-b border-slate-200">
@@ -376,11 +462,100 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Aktivitas terbaru */}
+          {/* ── Aktivitas Terbaru ── */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+
+            {/* Header + Filter */}
             <div className="px-6 py-4 bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200">
-              <h2 className="font-bold text-lg text-slate-900">🕐 Aktivitas Terbaru</h2>
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <h2 className="font-bold text-lg text-slate-900">🕐 Aktivitas Terbaru</h2>
+
+                {/* Filter row */}
+                <div className="flex items-center gap-2 flex-wrap">
+
+                  {/* Filter: User / PIC */}
+                  <div className="flex items-center gap-1.5">
+                    <svg className="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                    <select
+                      value={activityUserFilter}
+                      onChange={e => handleUserFilterChange(e.target.value)}
+                      className={selectCls}
+                      style={dropdownStyle}
+                      title="Filter berdasarkan user"
+                    >
+                      <option value="">Semua User</option>
+                      {uniqueUsers.map(u => (
+                        <option key={u} value={u}>{u}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Filter: Type */}
+                  <div className="flex items-center gap-1.5">
+                    <svg className="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                    </svg>
+                    <select
+                      value={activityTypeFilter}
+                      onChange={e => handleTypeFilterChange(e.target.value)}
+                      className={selectCls}
+                      style={dropdownStyle}
+                      title="Filter berdasarkan tipe aktivitas"
+                    >
+                      <option value="">Semua Tipe</option>
+                      {uniqueTypes.map(t => (
+                        <option key={t} value={t}>
+                          {ACTIVITY_TYPE_CONFIG[t]?.label ?? t.toUpperCase()}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Reset filter — hanya tampil jika ada filter aktif */}
+                  {hasActiveFilter && (
+                    <button
+                      onClick={() => {
+                        setActivityUserFilter('');
+                        setActivityTypeFilter('');
+                        setActivityPage(1);
+                      }}
+                      className="flex items-center gap-1 px-3 py-2 text-xs font-semibold text-red-600 hover:text-red-800 hover:bg-red-50 border border-red-200 rounded-lg transition-all active:scale-95"
+                      title="Reset semua filter"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                      Reset
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Info jumlah hasil filter */}
+              {hasActiveFilter && (
+                <p className="text-xs text-slate-500 mt-2">
+                  Menampilkan{' '}
+                  <span className="font-semibold text-slate-700">{filteredActivities.length}</span>{' '}
+                  aktivitas
+                  {activityUserFilter && (
+                    <> dari user <span className="font-semibold text-blue-600">{activityUserFilter}</span></>
+                  )}
+                  {activityTypeFilter && (
+                    <> · tipe{' '}
+                      <span className="font-semibold text-blue-600">
+                        {ACTIVITY_TYPE_CONFIG[activityTypeFilter]?.label ?? activityTypeFilter}
+                      </span>
+                    </>
+                  )}
+                </p>
+              )}
             </div>
+
+            {/* Tabel aktivitas */}
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-slate-50 border-b border-slate-200">
@@ -411,31 +586,35 @@ export default function HomePage() {
                         <svg className="w-16 h-16 mx-auto text-slate-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
-                        Belum ada aktivitas
+                        {hasActiveFilter
+                          ? 'Tidak ada aktivitas yang sesuai dengan filter'
+                          : 'Belum ada aktivitas'}
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
             </div>
+
+            {/* Pagination */}
             {totalActivityPages > 1 && (
               <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
                 <p className="text-sm text-slate-600">
-                  Menampilkan <span className="font-semibold">{activityStart + 1}</span>–
+                  Menampilkan <span className="font-semibold">{filteredActivities.length > 0 ? activityStart + 1 : 0}</span>–
                   <span className="font-semibold">{activityEnd}</span> dari{' '}
-                  <span className="font-semibold">{recentActivities.length}</span> aktivitas
+                  <span className="font-semibold">{filteredActivities.length}</span> aktivitas
                 </p>
                 <div className="flex gap-2">
                   <button onClick={() => setActivityPage(p => Math.max(1, p - 1))}
-                    disabled={activityPage === 1}
+                    disabled={safeActivityPage === 1}
                     className="px-4 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-95">
                     ← Sebelumnya
                   </button>
                   <span className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold">
-                    {activityPage} / {totalActivityPages}
+                    {safeActivityPage} / {totalActivityPages}
                   </span>
                   <button onClick={() => setActivityPage(p => Math.min(totalActivityPages, p + 1))}
-                    disabled={activityPage >= totalActivityPages}
+                    disabled={safeActivityPage >= totalActivityPages}
                     className="px-4 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-95">
                     Berikutnya →
                   </button>
