@@ -118,19 +118,6 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Info */}
-          <div className="mt-6 p-4 bg-blue-50 rounded-lg">
-            <p className="text-xs text-slate-600 text-center flex flex-col gap-3">
-                <span className="font-semibold">Demo Credentials:</span>
-                <span>
-                    Username: <code className="bg-white px-2 py-1 rounded">admin</code>
-                </span>
-                <span>
-                    Password: <code className="bg-white px-2 py-1 rounded">admin123</code>
-                </span>
-            </p>
-          </div>
-
           {/* PIC Login Link */}
           <div className="mt-6 pt-6 border-t border-slate-200">
             <p className="text-center text-slate-600 text-sm">

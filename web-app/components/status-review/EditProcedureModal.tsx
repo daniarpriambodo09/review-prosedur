@@ -176,7 +176,7 @@ export default function EditProcedureModal({
       const nomorBerubah  = values.nomorDokumen.trim() !== originalNomor.trim();
 
       const res = await fetch(
-        `/api/procedures/${encodeURIComponent(originalNomor)}`,
+        `/review-prosedur/api/procedures/${encodeURIComponent(originalNomor)}`,
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },

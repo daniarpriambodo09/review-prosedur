@@ -35,7 +35,7 @@ export default function PDFViewer({ filePath, fileName }: PDFViewerProps) {
         const cleanPath = filePath.startsWith('/') ? filePath.slice(1) : filePath;
         const encodedPath = encodeURIComponent(cleanPath);
 
-        const res = await fetch(`/api/files/serve?path=${encodedPath}`);
+        const res = await fetch(`/review-prosedur/api/files/serve?path=${encodedPath}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
         const blob = await res.blob();

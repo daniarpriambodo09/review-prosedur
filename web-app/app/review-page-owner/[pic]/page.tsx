@@ -420,7 +420,7 @@ export default function PicReviewPage() {
 
       await Promise.all(
         reviews.map(rv =>
-          fetch(`/api/email-schedules?nomorDokumen=${encodeURIComponent(rv.nomorDokumen)}`, {
+          fetch(`/review-prosedur/api/email-schedules?nomorDokumen=${encodeURIComponent(rv.nomorDokumen)}`, {
             method: 'DELETE',
           })
         )

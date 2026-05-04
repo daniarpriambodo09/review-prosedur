@@ -54,7 +54,7 @@ export default function FileUploader({
       formData.append('nomorDokumen', nomorDokumen);
       formData.append('uploadedBy', user?.username || 'admin');
 
-      const response = await fetch('/api/files/upload', {
+      const response = await fetch('/review-prosedur/api/files/upload', {
         method: 'POST',
         body: formData,
       });

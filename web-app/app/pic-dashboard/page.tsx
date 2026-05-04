@@ -1,7 +1,7 @@
 // app/pic-dashboard/page.tsx
 
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import PICDashboardHeader from '@/components/pic/PICDashboardHeader';
@@ -40,26 +40,38 @@ interface PICDashboardData {
   }>;
 }
 
+// Nilai filter yang dikirim ke API sebagai query param ?status=
+// 'all' berarti tidak ada filter → API mengembalikan semua dokumen
+type StatusFilter = 'all' | 'pending' | 'approved' | 'revision' | 'rejected';
+
 export default function PICDashboardPage() {
   const { user, isAuthenticated, logout } = useAuth();
   const router = useRouter();
-  const [dashboardData, setDashboardData] = useState<PICDashboardData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [showRequestReviewModal, setShowRequestReviewModal] = useState(false);
-  const [showNewDocumentModal, setShowNewDocumentModal] = useState(false);
+
+  const [dashboardData,   setDashboardData]   = useState<PICDashboardData | null>(null);
+  const [isLoading,       setIsLoading]       = useState(true);
+  const [error,           setError]           = useState('');
+
+  // State dokumen terpisah — di-update saat filter berubah tanpa re-fetch semua data
+  const [documents,       setDocuments]       = useState<PICDashboardData['documents']>([]);
+  const [isLoadingDocs,   setIsLoadingDocs]   = useState(false);
+  const [activeFilter,    setActiveFilter]    = useState<StatusFilter>('all');
+
+  const [showRequestReviewModal,  setShowRequestReviewModal]  = useState(false);
+  const [showNewDocumentModal,    setShowNewDocumentModal]    = useState(false);
 
   // Helper: buat header auth untuk semua API call PIC
-  const picHeaders = () => ({
+  const picHeaders = useCallback(() => ({
     'Content-Type': 'application/json',
     'x-pic-id':    String(user?.picId ?? user?.id ?? ''),
     'x-pic-email': user?.email ?? '',
-  });
+  }), [user]);
 
-  const fetchDashboard = async () => {
+  // ── Fetch dashboard lengkap (hanya sekali saat mount / setelah submit modal) ──
+  const fetchDashboard = useCallback(async () => {
     try {
       setIsLoading(true);
-      const response = await fetch('/api/pic/dashboard', {
+      const response = await fetch('/review-prosedur/api/pic/dashboard', {
         method: 'GET',
         headers: picHeaders(),
       });
@@ -69,14 +81,55 @@ export default function PICDashboardPage() {
         throw new Error(errData.error || 'Gagal mengambil data dashboard');
       }
 
-      const data = await response.json();
+      const data: PICDashboardData = await response.json();
       setDashboardData(data);
+      setDocuments(data.documents);   // inisialisasi daftar dokumen
+      setActiveFilter('all');          // reset filter ke "Semua" setelah refresh
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Terjadi kesalahan');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [picHeaders]);
+
+  // ── Fetch dokumen saja dengan filter status ────────────────────────────────
+  // Dipanggil saat user klik chip filter di PICDocumentsList.
+  // Menggunakan endpoint yang sama tapi dengan query param ?status=
+  // Stats dan activities TIDAK di-refresh — hanya daftar dokumen.
+  const fetchDocumentsByFilter = useCallback(async (filter: StatusFilter) => {
+    try {
+      setIsLoadingDocs(true);
+
+      const url = filter === 'all'
+        ? '/review-prosedur/api/pic/dashboard'
+        : `/review-prosedur/api/pic/dashboard?status=${encodeURIComponent(filter)}`;
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: picHeaders(),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || 'Gagal mengambil data dokumen');
+      }
+
+      const data: PICDashboardData = await response.json();
+      setDocuments(data.documents);
+    } catch (err) {
+      // Jika filter gagal, jangan tampilkan error global — cukup log
+      // dan biarkan daftar sebelumnya tetap tampil
+      console.error('fetchDocumentsByFilter error:', err);
+    } finally {
+      setIsLoadingDocs(false);
+    }
+  }, [picHeaders]);
+
+  // ── Handler yang dipanggil PICDocumentsList saat filter berubah ───────────
+  const handleFilterChange = useCallback((filter: StatusFilter) => {
+    setActiveFilter(filter);
+    fetchDocumentsByFilter(filter);
+  }, [fetchDocumentsByFilter]);
 
   useEffect(() => {
     if (!isAuthenticated || user?.role !== 'pic') {
@@ -84,13 +137,11 @@ export default function PICDashboardPage() {
       return;
     }
     fetchDashboard();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, user]);
+  }, [isAuthenticated, user, fetchDashboard, router]);
 
-  const handleLogout = () => {
-    logout();
-  };
+  const handleLogout = () => { logout(); };
 
+  // ── Loading & Error state ─────────────────────────────────────────────────
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -124,7 +175,6 @@ export default function PICDashboardPage() {
     );
   }
 
-  // picCode dipakai sebagai parameter route /review-page-owner/[pic]
   const picCode = dashboardData?.picUser.picCode
     ?? user?.email?.split('@')[0].toUpperCase()
     ?? '';
@@ -143,7 +193,6 @@ export default function PICDashboardPage() {
 
         {/* Action Buttons */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          {/* Tombol Review Dokumen — langsung ke halaman review PIC */}
           <Link
             href={`/review-page-owner/${picCode}`}
             className="bg-emerald-600 hover:bg-emerald-700 text-white py-3 px-6 rounded-lg font-semibold transition-all flex items-center justify-center gap-2"
@@ -180,9 +229,12 @@ export default function PICDashboardPage() {
         {/* Documents and Activity */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2">
-            {dashboardData && (
-              <PICDocumentsList documents={dashboardData.documents} />
-            )}
+            {/* documents & isLoadingDocs selalu di-pass — props baru tidak membreak interface lama */}
+            <PICDocumentsList
+              documents={documents}
+              isLoadingDocs={isLoadingDocs}
+              onFilterChange={handleFilterChange}
+            />
           </div>
           <div>
             {dashboardData && (
@@ -192,22 +244,16 @@ export default function PICDashboardPage() {
         </div>
       </main>
 
-      {/* Request Review Modal */}
+      {/* Modals */}
       <RequestReviewModal
         isOpen={showRequestReviewModal}
         onClose={() => setShowRequestReviewModal(false)}
-        onSubmit={async () => {
-          await fetchDashboard();
-        }}
+        onSubmit={async () => { await fetchDashboard(); }}
       />
-
-      {/* Request New Document Modal */}
       <RequestNewDocumentModal
         isOpen={showNewDocumentModal}
         onClose={() => setShowNewDocumentModal(false)}
-        onSubmit={async () => {
-          await fetchDashboard();
-        }}
+        onSubmit={async () => { await fetchDashboard(); }}
       />
     </div>
   );

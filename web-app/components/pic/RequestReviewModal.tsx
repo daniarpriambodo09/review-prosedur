@@ -66,7 +66,7 @@ export default function RequestReviewModal({
   const fetchDocuments = async () => {
     setIsFetching(true);
     try {
-      const res = await fetch('/api/pic/documents', { headers: picHeaders() });
+      const res = await fetch('/review-prosedur/api/pic/documents', { headers: picHeaders() });
       if (!res.ok) throw new Error('Gagal mengambil data dokumen');
       const data = await res.json();
       setDocuments(data.documents ?? []);
@@ -94,7 +94,7 @@ export default function RequestReviewModal({
     setIsSubmitting(true);
     try {
       // documentIds berisi id dari procedure_documents
-      const res = await fetch('/api/pic/requests/review', {
+      const res = await fetch('/review-prosedur/api/pic/requests/review', {
         method:  'POST',
         headers: picHeaders(),
         body:    JSON.stringify({ documentIds: selectedIds, notes }),

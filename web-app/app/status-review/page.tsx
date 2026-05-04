@@ -813,7 +813,7 @@ export default function StatusReviewPage() {
 
   const loadEmailSchedules = useCallback(async () => {
     try {
-      const response = await fetch('/api/email-schedules');
+      const response = await fetch('/review-prosedur/api/email-schedules');
       if (response.ok) {
         const schedules = await response.json();
         const scheduleMap: Record<string, EmailSchedule> = {};
@@ -954,7 +954,7 @@ export default function StatusReviewPage() {
     }
     try {
       setIsSaving(true);
-      const response = await fetch('/api/procedures', {
+      const response = await fetch('/review-prosedur/api/procedures', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...newProcedure, revisi: '0', needsReview }),

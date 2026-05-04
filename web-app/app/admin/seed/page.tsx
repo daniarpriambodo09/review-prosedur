@@ -10,7 +10,7 @@ export default function SeedPage() {
   const handleSeed = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/procedures/seed', {
+      const response = await fetch('/review-prosedur/api/procedures/seed', {
         method: 'POST',
       });
       const data = await response.json();
