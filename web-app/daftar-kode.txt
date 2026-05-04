@@ -297,229 +297,6 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
-// app/api/arsip/delete/route.ts
-
-import { NextRequest, NextResponse } from 'next/server';
-import pool from '@/lib/db';
-import { logActivity } from '@/lib/activityLogger';
-
-// DELETE - Hapus permanen archived procedure
-export async function DELETE(request: NextRequest) {
-  const client = await pool.connect();
-  
-  try {
-    const body = await request.json();
-    const { nomorDokumen } = body;
-
-    if (!nomorDokumen) {
-      return NextResponse.json(
-        { error: 'Nomor dokumen is required' },
-        { status: 400 }
-      );
-    }
-
-    // ✅ Ambil nama_dokumen sebelum delete
-    const selectQuery = `
-      SELECT nama_dokumen FROM arsip_prosedur
-      WHERE nomor_dokumen = $1
-    `;
-    const selectResult = await client.query(selectQuery, [nomorDokumen]);
-    
-    let namaDokumen = nomorDokumen; // Fallback ke nomor jika tidak ditemukan
-    if (selectResult.rows.length > 0) {
-      namaDokumen = selectResult.rows[0].nama_dokumen;
-    }
-
-    // Delete permanen dari arsip_prosedur
-    const deleteQuery = `
-      DELETE FROM arsip_prosedur
-      WHERE nomor_dokumen = $1
-      RETURNING *
-    `;
-    const result = await client.query(deleteQuery, [nomorDokumen]);
-
-    if (result.rowCount === 0) {
-      return NextResponse.json(
-        { error: 'Archived procedure not found' },
-        { status: 404 }
-      );
-    }
-
-    // ✅ Tambahkan logging setelah delete berhasil - GUNAKAN NAMA DOKUMEN
-    await logActivity({
-      username: 'admin',
-      activityType: 'delete',
-      activityDescription: `Hapus permanen prosedur ${namaDokumen}`,
-      targetType: 'procedure',
-      targetId: nomorDokumen,
-    });
-
-    return NextResponse.json({
-      success: true,
-      message: 'Procedure permanently deleted'
-    });
-  } catch (error) {
-    console.error('Error deleting procedure permanently:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete procedure permanently' },
-      { status: 500 }
-    );
-  } finally {
-    client.release();
-  }
-}
-
-// app/api/arsip/restore/route.ts
-
-import { NextRequest, NextResponse } from 'next/server';
-import pool from '@/lib/db';
-import { logActivity } from '@/lib/activityLogger';
-
-// POST - Restore archived procedure
-export async function POST(request: NextRequest) {
-  const client = await pool.connect();
-  
-  try {
-    const body = await request.json();
-    const { nomorDokumen } = body;
-
-    if (!nomorDokumen) {
-      return NextResponse.json(
-        { error: 'Nomor dokumen is required' },
-        { status: 400 }
-      );
-    }
-
-    await client.query('BEGIN');
-
-    // 1. Ambil data dari arsip_prosedur (inklusive nama_dokumen)
-    const selectQuery = `
-      SELECT nama_dokumen, * FROM arsip_prosedur 
-      WHERE nomor_dokumen = $1
-    `;
-    const selectResult = await client.query(selectQuery, [nomorDokumen]);
-
-    if (selectResult.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return NextResponse.json(
-        { error: 'Archived procedure not found' },
-        { status: 404 }
-      );
-    }
-
-    const row = selectResult.rows[0];
-    const namaDokumen = row.nama_dokumen; // ✅ SIMPAN NAMA DOKUMEN
-
-    // 2. Insert kembali ke procedure_documents
-    const insertQuery = `
-      INSERT INTO procedure_documents 
-      (nama_dokumen, nomor_dokumen, level_dokumen, tanggal_selesai_approval, 
-       revisi, owner, pic, email, status, is_custom, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)
-      RETURNING *
-    `;
-
-    const insertValues = [
-      row.nama_dokumen,
-      row.nomor_dokumen,
-      row.level_dokumen,
-      row.tanggal_selesai_approval,
-      row.revisi,
-      row.owner,
-      row.pic,
-      row.email,
-      row.status,
-      row.is_custom,
-      row.created_at
-    ];
-
-    await client.query(insertQuery, insertValues);
-
-    // 3. Delete dari arsip_prosedur
-    const deleteQuery = `
-      DELETE FROM arsip_prosedur 
-      WHERE nomor_dokumen = $1
-    `;
-    await client.query(deleteQuery, [nomorDokumen]);
-
-    await client.query('COMMIT');
-
-    // ✅ Tambahkan logging setelah restore berhasil - GUNAKAN NAMA DOKUMEN
-    await logActivity({
-      username: 'admin',
-      activityType: 'restore',
-      activityDescription: `Restore prosedur ${namaDokumen}`,
-      targetType: 'procedure',
-      targetId: nomorDokumen,
-    });
-
-    return NextResponse.json({ 
-      success: true, 
-      message: 'Procedure restored successfully' 
-    });
-  } catch (error: any) {
-    await client.query('ROLLBACK');
-    console.error('Error restoring procedure:', error);
-    
-    if (error.code === '23505') {
-      return NextResponse.json(
-        { error: 'Procedure already exists in active list' },
-        { status: 409 }
-      );
-    }
-    
-    return NextResponse.json(
-      { error: 'Failed to restore procedure' },
-      { status: 500 }
-    );
-  } finally {
-    client.release();
-  }
-}
-
-// app/api/arsip/route.ts
-
-import { NextRequest, NextResponse } from 'next/server';
-import pool from '@/lib/db';
-
-// GET - Ambil semua arsip prosedur
-export async function GET(request: NextRequest) {
-  const client = await pool.connect();
-  
-  try {
-    const query = 'SELECT * FROM arsip_prosedur ORDER BY deleted_at DESC';
-    const result = await client.query(query);
-
-    // Convert snake_case to camelCase (TAMBAHKAN email)
-    const arsip = result.rows.map((row: any) => ({
-      id: row.id,
-      namaDokumen: row.nama_dokumen,
-      nomorDokumen: row.nomor_dokumen,
-      levelDokumen: row.level_dokumen,
-      tanggalSelesaiApproval: row.tanggal_selesai_approval,
-      revisi: row.revisi,
-      owner: row.owner,
-      pic: row.pic,
-      email: row.email, // TAMBAHKAN INI
-      status: row.status,
-      isCustom: row.is_custom,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      deletedAt: row.deleted_at,
-    }));
-
-    return NextResponse.json(arsip);
-  } catch (error) {
-    console.error('Error fetching archived procedures:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch archived procedures' },
-      { status: 500 }
-    );
-  } finally {
-    client.release();
-  }
-}
-
 // app/api/auth/login/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -1505,6 +1282,9 @@ export async function POST(request: NextRequest) {
 }
 
 // app/api/pic/dashboard/route.ts
+// PERBAIKAN: Setelah perubahan login PIC menggunakan email asli (bukan format @jai.co.id),
+// picCode harus diekstrak dengan benar dari email, dan query harus mencakup
+// pencarian berdasarkan KEDUA kolom: pic (kode singkat) DAN email (email asli).
 
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
@@ -1513,8 +1293,6 @@ export async function GET(request: NextRequest) {
   const client = await pool.connect();
 
   try {
-    // ── Ambil picId dan email dari header yang dikirim client ─────────────────
-    // PICDashboardPage mengirim header x-pic-id (id) dan x-pic-email (email)
     const picId    = request.headers.get('x-pic-id');
     const picEmail = request.headers.get('x-pic-email');
 
@@ -1525,7 +1303,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // ── Ambil info PIC dari pic_users ─────────────────────────────────────────
+    // Ambil info PIC dari pic_users
     const picQuery = 'SELECT id, full_name, email FROM pic_users WHERE id = $1';
     const picResult = await client.query(picQuery, [picId]);
 
@@ -1535,17 +1313,51 @@ export async function GET(request: NextRequest) {
 
     const picUser = picResult.rows[0];
 
-    // ── Ekstrak nama singkat PIC dari email (sebelum @) ───────────────────────
-    // Email: "hma@jai.co.id" → picCode: "HMA"
-    // Dipakai untuk mencocokkan kolom `pic` di procedure_documents yang berisi
-    // nilai seperti "HMA", "DP", "ENS", dll (case-insensitive)
-    const picCode = picEmail.split('@')[0].toUpperCase();
+    // ── Ekstrak picCode dari email ────────────────────────────────────────────
+    // Email format: "dp@jai.co.id" → picCode: "DP"
+    // Email format: "vra, asw@jai.co.id" → picCode: "VRA, ASW" (multi-PIC)
+    // Email format: "mcb, dhs@jai.co.id" → picCode: "MCB, DHS"
+    //
+    // Ambil bagian sebelum "@", lalu uppercase
+    const emailLocalPart = picEmail.split('@')[0].trim().toUpperCase();
 
-    // ── Query procedure_documents yang memiliki PIC ini ───────────────────────
-    // Kolom `pic` di procedure_documents berisi nilai seperti "HMA", "DP", dll.
-    // Untuk PIC dengan email multi-user (cth: "vra, asw@jai.co.id"),
-    // full_name di pic_users sudah berisi semua nama: "Vra, Asw"
-    // Kita match dengan ILIKE (case-insensitive) agar "hma" cocok dengan "HMA"
+    // Untuk multi-PIC seperti "vra, asw@jai.co.id", emailLocalPart = "VRA, ASW"
+    // Kita perlu split lagi dan cari per individu
+    const picCodes = emailLocalPart
+      .split(',')
+      .map((c: string) => c.trim())
+      .filter((c: string) => c.length > 0);
+
+    // picCode utama (untuk display dan URL)
+    const picCode = picCodes[0];
+
+    // ── Query procedure_documents ─────────────────────────────────────────────
+    // FIX: Gunakan dual approach:
+    //   1. Match kolom `pic` (ILIKE) — untuk format lama dan format kode singkat
+    //   2. Match kolom `email` (ILIKE) — untuk format baru yang menggunakan email asli
+    //
+    // Ini memastikan backward compatibility dan forward compatibility
+
+    // Bangun kondisi WHERE yang mencakup semua picCodes
+    // Contoh: pic ILIKE '%DP%' OR pic ILIKE '%US%' OR email ILIKE '%dp@jai.co.id%'
+    const picConditions: string[] = [];
+    const queryParams: string[] = [];
+    let paramIndex = 1;
+
+    // Kondisi berdasarkan kode pic
+    for (const code of picCodes) {
+      picConditions.push(`pd.pic ILIKE $${paramIndex}`);
+      queryParams.push(`%${code}%`);
+      paramIndex++;
+    }
+
+    // Kondisi berdasarkan email (match exact email dari pic_users)
+    picConditions.push(`pd.email ILIKE $${paramIndex}`);
+    queryParams.push(`%${picEmail}%`);
+    paramIndex++;
+
+    const whereClause = picConditions.join(' OR ');
+
     const docsQuery = `
       SELECT
         id,
@@ -1559,14 +1371,12 @@ export async function GET(request: NextRequest) {
         email,
         status,
         updated_at AS created_at
-      FROM procedure_documents
-      WHERE pic ILIKE $1
+      FROM procedure_documents pd
+      WHERE ${whereClause}
       ORDER BY tanggal_selesai_approval DESC
     `;
 
-    // Gunakan pattern LIKE agar "HMA" cocok dengan kolom pic = "HMA"
-    // Jika ada multi-PIC seperti "VRA, ASW", match individual tiap nama
-    const docsResult = await client.query(docsQuery, [`%${picCode}%`]);
+    const docsResult = await client.query(docsQuery, queryParams);
     const documents  = docsResult.rows.map((row: any) => ({
       id:             row.id,
       documentNumber: row.nomor_dokumen,
@@ -1575,7 +1385,7 @@ export async function GET(request: NextRequest) {
       createdAt:      row.created_at,
     }));
 
-    // ── Hitung stats dari data nyata ──────────────────────────────────────────
+    // Hitung stats
     const totalDocuments  = documents.length;
     const pendingReview   = documents.filter((d: any) =>
       ['Menunggu', 'Belum dikirim', 'Telah terkirim', 'Telah dibaca', '-'].includes(d.status)
@@ -1584,8 +1394,6 @@ export async function GET(request: NextRequest) {
       ['Relevan', 'Revisi', 'Obsolete'].includes(d.status)
     ).length;
 
-    // Total requests = gabungan pic_review_requests + pic_document_requests
-    // (dua tabel baru yang dipakai setelah refactor — pic_requests lama tidak dipakai)
     const reviewReqResult = await client.query(
       `SELECT COUNT(*) as count FROM pic_review_requests WHERE pic_id = $1`,
       [picId]
@@ -1598,7 +1406,7 @@ export async function GET(request: NextRequest) {
       parseInt(reviewReqResult.rows[0].count) +
       parseInt(docReqResult.rows[0].count);
 
-    // ── Aktivitas terbaru PIC ─────────────────────────────────────────────────
+    // Aktivitas terbaru
     const activitiesQuery = `
       SELECT id, activity_type, description, created_at
       FROM pic_activities
@@ -1619,7 +1427,7 @@ export async function GET(request: NextRequest) {
         id:       picUser.id,
         fullName: picUser.full_name,
         email:    picUser.email,
-        picCode,
+        picCode,  // Kode singkat untuk URL /review-page-owner/[pic]
       },
       stats: {
         totalDocuments,
@@ -1643,6 +1451,7 @@ export async function GET(request: NextRequest) {
 }
 
 // app/api/pic/documents/route.ts
+// PERBAIKAN: Dual approach filtering - by pic code AND by email
 
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
@@ -1660,8 +1469,30 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Ekstrak kode PIC dari email: "hma@jai.co.id" → "HMA"
-    const picCode = picEmail.split('@')[0].toUpperCase();
+    // Ekstrak kode PIC dari email: "dp@jai.co.id" → ["DP"]
+    // "vra, asw@jai.co.id" → ["VRA", "ASW"]
+    const emailLocalPart = picEmail.split('@')[0].trim().toUpperCase();
+    const picCodes = emailLocalPart
+      .split(',')
+      .map((c: string) => c.trim())
+      .filter((c: string) => c.length > 0);
+
+    // Bangun kondisi WHERE dual: pic code + email
+    const picConditions: string[] = [];
+    const queryParams: string[] = [];
+    let paramIndex = 1;
+
+    for (const code of picCodes) {
+      picConditions.push(`pic ILIKE $${paramIndex}`);
+      queryParams.push(`%${code}%`);
+      paramIndex++;
+    }
+
+    picConditions.push(`email ILIKE $${paramIndex}`);
+    queryParams.push(`%${picEmail}%`);
+    paramIndex++;
+
+    const whereClause = picConditions.join(' OR ');
 
     const query = `
       SELECT
@@ -1677,11 +1508,11 @@ export async function GET(request: NextRequest) {
         status,
         updated_at AS created_at
       FROM procedure_documents
-      WHERE pic ILIKE $1
+      WHERE ${whereClause}
       ORDER BY tanggal_selesai_approval DESC
     `;
 
-    const result    = await client.query(query, [`%${picCode}%`]);
+    const result    = await client.query(query, queryParams);
     const documents = result.rows.map((row: any) => ({
       id:             row.id,
       documentNumber: row.nomor_dokumen,
@@ -1712,8 +1543,8 @@ export async function POST(request: NextRequest) {
   const client = await pool.connect();
 
   try {
-    const body                                    = await request.json();
-    const { documentNumber, title, description, reason } = body;
+    const body                                      = await request.json();
+    const { title, description, reason } = body;
 
     // Ambil picId dari header (dikirim oleh frontend)
     const picId = request.headers.get('x-pic-id');
@@ -1725,9 +1556,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!documentNumber || !title) {
+    if (!title) {
       return NextResponse.json(
-        { error: 'Nomor dokumen dan judul harus diisi' },
+        { error: 'Judul dokumen harus diisi' },
         { status: 400 }
       );
     }
@@ -1744,7 +1575,7 @@ export async function POST(request: NextRequest) {
     `;
     const result = await client.query(insertQuery, [
       picId,
-      documentNumber,
+      '',
       title,
       description || null,
       reason      || null,
@@ -1754,7 +1585,7 @@ export async function POST(request: NextRequest) {
     await client.query(`
       INSERT INTO pic_activities (pic_id, activity_type, description, created_at)
       VALUES ($1, 'document', $2, NOW())
-    `, [picId, `Membuat permintaan dokumen baru: ${documentNumber} - ${title}`]);
+    `, [picId, `Membuat permintaan dokumen baru: ${title}`]);
 
     await client.query('COMMIT');
 
@@ -2154,89 +1985,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// app/api/procedures/seed/route.ts
-
-import { NextResponse } from 'next/server';
-import pool from '@/lib/db';
-import { RAW_EXCEL_ROWS } from '@/data/data_review/all-data-table';
-
-function parseExcelDate(dateStr: string): string {
-  const [day, month, year] = dateStr.split('-');
-  const months: Record<string, string> = {
-    Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
-    Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12',
-  };
-  const paddedDay = day.padStart(2, '0');
-  const monthNum = months[month];
-  if (!monthNum) return '1970-01-01';
-  const fullYear = parseInt(year, 10) < 50 ? `20${year}` : `19${year}`;
-  return `${fullYear}-${monthNum}-${paddedDay}`;
-}
-
-export async function POST() {
-  const client = await pool.connect();
-  
-  try {
-    // Check if already seeded
-    const countResult = await client.query('SELECT COUNT(*) FROM procedure_documents');
-    const count = parseInt(countResult.rows[0].count);
-
-    if (count > 0) {
-      return NextResponse.json(
-        { message: 'Database already seeded', count },
-        { status: 200 }
-      );
-    }
-
-    // Begin transaction
-    await client.query('BEGIN');
-
-    // Insert data - AMBIL SEMUA PIC dan EMAIL (tidak di-split)
-    const insertQuery = `
-      INSERT INTO procedure_documents 
-      (nama_dokumen, nomor_dokumen, level_dokumen, tanggal_selesai_approval, revisi, owner, pic, email, status, is_custom)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-    `;
-
-    for (const row of RAW_EXCEL_ROWS) {
-      const values = [
-        row.nama,
-        row.nomorDokumen,
-        row.level,
-        parseExcelDate(row.tanggal),
-        row.revisi,
-        row.owner.trim(),
-        row.pic.trim(), // AMBIL SEMUA PIC (tidak di-split)
-        row.email.trim(), // AMBIL SEMUA EMAIL (tidak di-split)
-        '-',
-        false
-      ];
-
-      await client.query(insertQuery, values);
-    }
-
-    // Commit transaction
-    await client.query('COMMIT');
-
-    const newCountResult = await client.query('SELECT COUNT(*) FROM procedure_documents');
-    const newCount = parseInt(newCountResult.rows[0].count);
-
-    return NextResponse.json(
-      { message: 'Database seeded successfully', count: newCount },
-      { status: 201 }
-    );
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Error seeding database:', error);
-    return NextResponse.json(
-      { error: 'Failed to seed database' },
-      { status: 500 }
-    );
-  } finally {
-    client.release();
-  }
-}
-
 // app/api/procedures/route.ts
 //
 // PATCH untuk autoReactivate:
@@ -2440,33 +2188,84 @@ async function resolveInitialStatus(
   return 'Relevan';
 }
 
-// =============================================================================
-// GET
-// =============================================================================
+// ── GET ─────────────────────────────────────────────────────────────────────
 export async function GET(request: NextRequest) {
   const client = await pool.connect();
   try {
     const { searchParams } = new URL(request.url);
-    const pic = searchParams.get('pic');
-
-    let query = `
-      SELECT pd.*,
-             es.last_sent_at,
-             es.scheduled_email_at
-      FROM procedure_documents pd
-      LEFT JOIN email_schedules es ON pd.nomor_dokumen = es.nomor_dokumen
-    `;
+    const picParam = searchParams.get('pic');
+ 
+    let query: string;
     let values: any[] = [];
-
-    if (pic) {
-      query += ` WHERE $1 = ANY(string_to_array(REPLACE(pd.pic, ' ', ''), ','))`;
-      values = [pic];
+ 
+    if (picParam) {
+      // FIX: Deteksi apakah parameter adalah email (mengandung '@') atau kode PIC
+      if (picParam.includes('@')) {
+        // Login baru: parameter adalah email lengkap seperti "dp@jai.co.id"
+        // Ekstrak kode dari email: "dp@jai.co.id" → "DP"
+        // Juga cari di kolom email untuk backward compat
+        const emailLocalPart = picParam.split('@')[0].trim().toUpperCase();
+        const picCodes = emailLocalPart
+          .split(',')
+          .map((c: string) => c.trim())
+          .filter((c: string) => c.length > 0);
+ 
+        const conditions: string[] = [];
+        values = [];
+        let idx = 1;
+ 
+        // Match berdasarkan kode pic di kolom `pic`
+        for (const code of picCodes) {
+          conditions.push(
+            `$${idx} = ANY(string_to_array(REPLACE(UPPER(pd.pic), ' ', ''), ','))`
+          );
+          values.push(code);
+          idx++;
+        }
+ 
+        // Match berdasarkan email di kolom `email` (untuk data baru)
+        conditions.push(`pd.email ILIKE $${idx}`);
+        values.push(`%${picParam}%`);
+        idx++;
+ 
+        query = `
+          SELECT pd.*,
+                 es.last_sent_at,
+                 es.scheduled_email_at
+          FROM procedure_documents pd
+          LEFT JOIN email_schedules es ON pd.nomor_dokumen = es.nomor_dokumen
+          WHERE ${conditions.join(' OR ')}
+          ORDER BY pd.created_at DESC
+        `;
+      } else {
+        // Login lama / filter langsung dengan kode PIC: ?pic=DP
+        // Gunakan logika exact match setelah split koma
+        query = `
+          SELECT pd.*,
+                 es.last_sent_at,
+                 es.scheduled_email_at
+          FROM procedure_documents pd
+          LEFT JOIN email_schedules es ON pd.nomor_dokumen = es.nomor_dokumen
+          WHERE $1 = ANY(string_to_array(REPLACE(pd.pic, ' ', ''), ','))
+          ORDER BY pd.created_at DESC
+        `;
+        values = [picParam];
+      }
+    } else {
+      // Tidak ada filter PIC — ambil semua
+      query = `
+        SELECT pd.*,
+               es.last_sent_at,
+               es.scheduled_email_at
+        FROM procedure_documents pd
+        LEFT JOIN email_schedules es ON pd.nomor_dokumen = es.nomor_dokumen
+        ORDER BY pd.created_at DESC
+      `;
+      values = [];
     }
-
-    query += ` ORDER BY pd.created_at DESC`;
-
+ 
     const result = await client.query(query, values);
-
+ 
     const procedures = await Promise.all(
       result.rows.map(async (row: any) => {
         const resolvedStatus = await runAutoStatusChain(
@@ -2475,7 +2274,7 @@ export async function GET(request: NextRequest) {
           row.tanggal_selesai_approval,
           row.status
         );
-
+ 
         return {
           id:                     row.id,
           namaDokumen:            row.nama_dokumen,
@@ -2490,12 +2289,12 @@ export async function GET(request: NextRequest) {
           isCustom:               row.is_custom,
           createdAt:              row.created_at,
           updatedAt:              row.updated_at,
-          lastSentAt:             row.last_sent_at             ?? null,
-          scheduledEmailAt:       row.scheduled_email_at      ?? null,
+          lastSentAt:             row.last_sent_at        ?? null,
+          scheduledEmailAt:       row.scheduled_email_at ?? null,
         };
       })
     );
-
+ 
     return NextResponse.json(procedures);
   } catch (error) {
     console.error('Error fetching procedures:', error);
@@ -2802,7 +2601,7 @@ export async function PATCH(request: NextRequest) {
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error batch updating reviews:', error);
-    return NextResponse.json( 
+    return NextResponse.json(
       { error: 'Failed to batch update reviews' },
       { status: 500 }
     );

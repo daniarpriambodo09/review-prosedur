@@ -41,7 +41,7 @@ export default function RequestNewDocumentModal({
 
     setIsLoading(true);
     try {
-      const response = await fetch('/api/pic/requests/new-document', {
+      const response = await fetch('/review-prosedur/api/pic/requests/new-document', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -60,7 +60,7 @@ export default function DocumentModal({
     if (!nomorDokumen) return;
     try {
       setLoading(true);
-      const res = await fetch(`/api/files/get?nomorDokumen=${encodeURIComponent(nomorDokumen)}`);
+      const res = await fetch(`/review-prosedur/api/files/get?nomorDokumen=${encodeURIComponent(nomorDokumen)}`);
       if (!res.ok) throw new Error('Gagal mengambil metadata');
       const data = await res.json();
       setFileInfo(data.file || null);
@@ -78,7 +78,7 @@ export default function DocumentModal({
   const fetchBlobForDownload = useCallback(async (filePath: string) => {
     try {
       const cleanPath = filePath.startsWith('/') ? filePath.slice(1) : filePath;
-      const res = await fetch(`/api/files/serve?path=${encodeURIComponent(cleanPath)}`);
+      const res = await fetch(`/review-prosedur/api/files/serve?path=${encodeURIComponent(cleanPath)}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
       const url = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));

@@ -30,7 +30,7 @@ export async function logActivity(log: ActivityLog): Promise<void> {
                       'unknown';
     const userAgent = headersList.get('user-agent') || 'unknown';
 
-    const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3090'}/api/activities`, {
+    const response = await fetch(`${process.env.INTERNAL_API_URL}/review-prosedur/api/activities`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

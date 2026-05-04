@@ -94,7 +94,7 @@ export default function EmailScheduleModal({
 
       await Promise.all(
         Array.from(selectedDocs).map(nomorDokumen =>
-          fetch('/api/email-schedules', {
+          fetch('/review-prosedur/api/email-schedules', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ nomorDokumen, scheduledEmailAt: scheduledDateTime }),

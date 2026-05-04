@@ -27,7 +27,7 @@ export interface ProcedureDocument {
 // Fetch all procedures from API
 export async function getAllProcedures(): Promise<ProcedureDocument[]> {
   try {
-    const response = await fetch('/api/procedures', {
+    const response = await fetch('/review-prosedur/api/procedures', {
       cache: 'no-store',
     });
 
@@ -45,7 +45,7 @@ export async function getAllProcedures(): Promise<ProcedureDocument[]> {
 // Add new procedure
 export async function addProcedure(doc: Omit<ProcedureDocument, 'status' | 'id'>): Promise<void> {
   try {
-    const response = await fetch('/api/procedures', {
+    const response = await fetch('/review-prosedur/api/procedures', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -65,7 +65,7 @@ export async function addProcedure(doc: Omit<ProcedureDocument, 'status' | 'id'>
 // Get procedures by PIC
 export async function getProceduresByPic(pic: string): Promise<ProcedureDocument[]> {
   try {
-    const response = await fetch(`/api/procedures?pic=${encodeURIComponent(pic)}`, {
+    const response = await fetch(`/review-prosedur/api/procedures?pic=${encodeURIComponent(pic)}`, {
       cache: 'no-store',
     });
 
@@ -88,7 +88,7 @@ export async function saveDocumentReview(
   lastReviewedMonth: number
 ): Promise<void> {
   try {
-    const response = await fetch('/api/reviews', {
+    const response = await fetch('/review-prosedur/api/reviews', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -117,7 +117,7 @@ export async function getDocumentReview(
 ): Promise<{ status: StatusType; revisi: string } | null> {
   try {
     const response = await fetch(
-      `/api/reviews?nomorDokumen=${encodeURIComponent(nomorDokumen)}&month=${month}`,
+      `/review-prosedur/api/reviews?nomorDokumen=${encodeURIComponent(nomorDokumen)}&month=${month}`,
       { cache: 'no-store' }
     );
 
@@ -144,7 +144,7 @@ export async function batchSaveReviews(
   username?: string
 ): Promise<void> {
   try {
-    const response = await fetch('/api/reviews', {
+    const response = await fetch('/review-prosedur/api/reviews', {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -166,7 +166,7 @@ export async function batchSaveReviews(
 // Archive (soft delete) procedure
 export async function archiveProcedure(nomorDokumen: string): Promise<void> {
   try {
-    const response = await fetch('/api/procedures/archive', {
+    const response = await fetch('/review-prosedur/api/procedures/archive', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -187,7 +187,7 @@ export async function archiveProcedure(nomorDokumen: string): Promise<void> {
 // Get all archived procedures
 export async function getArchivedProcedures(): Promise<ProcedureDocument[]> {
   try {
-    const response = await fetch('/api/arsip', {
+    const response = await fetch('/review-prosedur/api/arsip', {
       cache: 'no-store',
     });
 
@@ -205,7 +205,7 @@ export async function getArchivedProcedures(): Promise<ProcedureDocument[]> {
 // Restore archived procedure
 export async function restoreProcedure(nomorDokumen: string): Promise<void> {
   try {
-    const response = await fetch('/api/arsip/restore', {
+    const response = await fetch('/review-prosedur/api/arsip/restore', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -226,7 +226,7 @@ export async function restoreProcedure(nomorDokumen: string): Promise<void> {
 // Delete procedure permanently
 export async function deleteProcedurePermanently(nomorDokumen: string): Promise<void> {
   try {
-    const response = await fetch('/api/arsip/delete', {
+    const response = await fetch('/review-prosedur/api/arsip/delete', {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
@@ -250,7 +250,7 @@ export async function markDocumentAsRead(
   pic: string
 ): Promise<void> {
   try {
-    const response = await fetch('/api/document-read', {
+    const response = await fetch('/review-prosedur/api/document-read', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

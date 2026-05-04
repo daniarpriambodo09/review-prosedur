@@ -201,7 +201,7 @@ export default function HomePage() {
         const procs = await getAllProcedures();
         setProcedures(procs);
         // Ambil lebih banyak agar filter frontend tetap representatif
-        const actRes = await fetch('/api/activities?limit=200');
+        const actRes = await fetch('/review-prosedur/api/activities?limit=200');
         if (actRes.ok) setRecentActivities(await actRes.json());
       } catch (err) {
         console.error('Error loading dashboard:', err);

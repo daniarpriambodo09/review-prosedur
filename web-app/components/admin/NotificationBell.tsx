@@ -240,7 +240,7 @@ export default function NotificationBell() {
   // ── Fetch ─────────────────────────────────────────────────────────────────
   const fetchNotifications = useCallback(async () => {
     try {
-      const res = await fetch('/api/admin/notifications');
+      const res = await fetch('/review-prosedur/api/admin/notifications');
       if (!res.ok) return;
       const data = await res.json();
       setNotifications(data.notifications ?? []);
@@ -273,7 +273,7 @@ export default function NotificationBell() {
   const markAsRead = async (notif: Notification) => {
     if (notif.isRead) return;
     try {
-      await fetch('/api/admin/notifications', {
+      await fetch('/review-prosedur/api/admin/notifications', {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ id: notif.id, type: notif.type, readBy: 'admin' }),
@@ -294,7 +294,7 @@ export default function NotificationBell() {
     if (unreadCount === 0 || isMarking) return;
     setIsMarking(true);
     try {
-      await fetch('/api/admin/notifications', {
+      await fetch('/review-prosedur/api/admin/notifications', {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ markAllRead: true, readBy: 'admin' }),
