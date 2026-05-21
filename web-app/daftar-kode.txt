@@ -297,6 +297,229 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
+// app/api/arsip/delete/route.ts
+
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/lib/db';
+import { logActivity } from '@/lib/activityLogger';
+
+// DELETE - Hapus permanen archived procedure
+export async function DELETE(request: NextRequest) {
+  const client = await pool.connect();
+  
+  try {
+    const body = await request.json();
+    const { nomorDokumen } = body;
+
+    if (!nomorDokumen) {
+      return NextResponse.json(
+        { error: 'Nomor dokumen is required' },
+        { status: 400 }
+      );
+    }
+
+    // ✅ Ambil nama_dokumen sebelum delete
+    const selectQuery = `
+      SELECT nama_dokumen FROM arsip_prosedur
+      WHERE nomor_dokumen = $1
+    `;
+    const selectResult = await client.query(selectQuery, [nomorDokumen]);
+    
+    let namaDokumen = nomorDokumen; // Fallback ke nomor jika tidak ditemukan
+    if (selectResult.rows.length > 0) {
+      namaDokumen = selectResult.rows[0].nama_dokumen;
+    }
+
+    // Delete permanen dari arsip_prosedur
+    const deleteQuery = `
+      DELETE FROM arsip_prosedur
+      WHERE nomor_dokumen = $1
+      RETURNING *
+    `;
+    const result = await client.query(deleteQuery, [nomorDokumen]);
+
+    if (result.rowCount === 0) {
+      return NextResponse.json(
+        { error: 'Archived procedure not found' },
+        { status: 404 }
+      );
+    }
+
+    // ✅ Tambahkan logging setelah delete berhasil - GUNAKAN NAMA DOKUMEN
+    await logActivity({
+      username: 'admin',
+      activityType: 'delete',
+      activityDescription: `Hapus permanen prosedur ${namaDokumen}`,
+      targetType: 'procedure',
+      targetId: nomorDokumen,
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: 'Procedure permanently deleted'
+    });
+  } catch (error) {
+    console.error('Error deleting procedure permanently:', error);
+    return NextResponse.json(
+      { error: 'Failed to delete procedure permanently' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+// app/api/arsip/restore/route.ts
+
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/lib/db';
+import { logActivity } from '@/lib/activityLogger';
+
+// POST - Restore archived procedure
+export async function POST(request: NextRequest) {
+  const client = await pool.connect();
+  
+  try {
+    const body = await request.json();
+    const { nomorDokumen } = body;
+
+    if (!nomorDokumen) {
+      return NextResponse.json(
+        { error: 'Nomor dokumen is required' },
+        { status: 400 }
+      );
+    }
+
+    await client.query('BEGIN');
+
+    // 1. Ambil data dari arsip_prosedur (inklusive nama_dokumen)
+    const selectQuery = `
+      SELECT nama_dokumen, * FROM arsip_prosedur 
+      WHERE nomor_dokumen = $1
+    `;
+    const selectResult = await client.query(selectQuery, [nomorDokumen]);
+
+    if (selectResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return NextResponse.json(
+        { error: 'Archived procedure not found' },
+        { status: 404 }
+      );
+    }
+
+    const row = selectResult.rows[0];
+    const namaDokumen = row.nama_dokumen; // ✅ SIMPAN NAMA DOKUMEN
+
+    // 2. Insert kembali ke procedure_documents
+    const insertQuery = `
+      INSERT INTO procedure_documents 
+      (nama_dokumen, nomor_dokumen, level_dokumen, tanggal_selesai_approval, 
+       revisi, owner, pic, email, status, is_custom, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)
+      RETURNING *
+    `;
+
+    const insertValues = [
+      row.nama_dokumen,
+      row.nomor_dokumen,
+      row.level_dokumen,
+      row.tanggal_selesai_approval,
+      row.revisi,
+      row.owner,
+      row.pic,
+      row.email,
+      row.status,
+      row.is_custom,
+      row.created_at
+    ];
+
+    await client.query(insertQuery, insertValues);
+
+    // 3. Delete dari arsip_prosedur
+    const deleteQuery = `
+      DELETE FROM arsip_prosedur 
+      WHERE nomor_dokumen = $1
+    `;
+    await client.query(deleteQuery, [nomorDokumen]);
+
+    await client.query('COMMIT');
+
+    // ✅ Tambahkan logging setelah restore berhasil - GUNAKAN NAMA DOKUMEN
+    await logActivity({
+      username: 'admin',
+      activityType: 'restore',
+      activityDescription: `Restore prosedur ${namaDokumen}`,
+      targetType: 'procedure',
+      targetId: nomorDokumen,
+    });
+
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Procedure restored successfully' 
+    });
+  } catch (error: any) {
+    await client.query('ROLLBACK');
+    console.error('Error restoring procedure:', error);
+    
+    if (error.code === '23505') {
+      return NextResponse.json(
+        { error: 'Procedure already exists in active list' },
+        { status: 409 }
+      );
+    }
+    
+    return NextResponse.json(
+      { error: 'Failed to restore procedure' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+// app/api/arsip/route.ts
+
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/lib/db';
+
+// GET - Ambil semua arsip prosedur
+export async function GET(request: NextRequest) {
+  const client = await pool.connect();
+  
+  try {
+    const query = 'SELECT * FROM arsip_prosedur ORDER BY deleted_at DESC';
+    const result = await client.query(query);
+
+    // Convert snake_case to camelCase (TAMBAHKAN email)
+    const arsip = result.rows.map((row: any) => ({
+      id: row.id,
+      namaDokumen: row.nama_dokumen,
+      nomorDokumen: row.nomor_dokumen,
+      levelDokumen: row.level_dokumen,
+      tanggalSelesaiApproval: row.tanggal_selesai_approval,
+      revisi: row.revisi,
+      owner: row.owner,
+      pic: row.pic,
+      email: row.email, // TAMBAHKAN INI
+      status: row.status,
+      isCustom: row.is_custom,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      deletedAt: row.deleted_at,
+    }));
+
+    return NextResponse.json(arsip);
+  } catch (error) {
+    console.error('Error fetching archived procedures:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch archived procedures' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
 // app/api/auth/login/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -385,6 +608,8 @@ export async function POST(request: NextRequest) {
     client.release();
   }
 }
+
+// app/api/auth/pic-login/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
@@ -491,6 +716,77 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       { error: 'Terjadi kesalahan saat login' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+// app/api/auth/register/route.ts
+
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/lib/db';
+import { hashPassword } from '@/lib/auth';
+
+export async function POST(request: NextRequest) {
+  const client = await pool.connect();
+  
+  try {
+    const body = await request.json();
+    const { username, password, fullName, email, role = 'admin' } = body;
+
+    // Validasi input
+    if (!username || !password || !fullName) {
+      return NextResponse.json(
+        { error: 'Username, password, dan nama lengkap harus diisi' },
+        { status: 400 }
+      );
+    }
+
+    // Cek apakah username sudah ada
+    const checkQuery = 'SELECT id FROM users WHERE username = $1';
+    const checkResult = await client.query(checkQuery, [username]);
+
+    if (checkResult.rows.length > 0) {
+      return NextResponse.json(
+        { error: 'Username sudah digunakan' },
+        { status: 409 }
+      );
+    }
+
+    // Hash password
+    const hashedPassword = await hashPassword(password);
+
+    // Insert user baru
+    const insertQuery = `
+      INSERT INTO users (username, password, full_name, email, role)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING id, username, full_name, email, role
+    `;
+
+    const result = await client.query(insertQuery, [
+      username,
+      hashedPassword,
+      fullName,
+      email || null,
+      role
+    ]);
+
+    return NextResponse.json({
+      success: true,
+      user: {
+        id: result.rows[0].id,
+        username: result.rows[0].username,
+        fullName: result.rows[0].full_name,
+        email: result.rows[0].email,
+        role: result.rows[0].role,
+      }
+    }, { status: 201 });
+  } catch (error) {
+    console.error('Error creating user:', error);
+    return NextResponse.json(
+      { error: 'Terjadi kesalahan saat membuat user' },
       { status: 500 }
     );
   } finally {
@@ -1285,9 +1581,25 @@ export async function POST(request: NextRequest) {
 // PERBAIKAN: Setelah perubahan login PIC menggunakan email asli (bukan format @jai.co.id),
 // picCode harus diekstrak dengan benar dari email, dan query harus mencakup
 // pencarian berdasarkan KEDUA kolom: pic (kode singkat) DAN email (email asli).
+//
+// UPDATE: Support query param ?status= untuk filter dokumen dari PICDocumentsList.
+// Jika ?status tidak ada atau 'all', kembalikan semua dokumen.
 
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
+
+// Status yang valid diterima dari query param
+const VALID_STATUSES = ['all', 'pending', 'approved', 'revision', 'rejected'] as const;
+type ValidStatus = (typeof VALID_STATUSES)[number];
+
+// Pemetaan status filter (dari chip UI) → nilai status di database
+// Sesuaikan value-nya jika kolom `status` di DB menggunakan label berbeda
+const STATUS_MAP: Record<Exclude<ValidStatus, 'all'>, string[]> = {
+  pending:  ['Menunggu', 'Belum dikirim', 'Telah terkirim', 'Telah dibaca', '-'],
+  approved: ['Relevan'],
+  revision: ['Revisi'],
+  rejected: ['Obsolete'],
+};
 
 export async function GET(request: NextRequest) {
   const client = await pool.connect();
@@ -1303,6 +1615,13 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // ── Baca query param ?status= ─────────────────────────────────────────────
+    const { searchParams } = new URL(request.url);
+    const rawStatus = searchParams.get('status') ?? 'all';
+    const statusFilter: ValidStatus = VALID_STATUSES.includes(rawStatus as ValidStatus)
+      ? (rawStatus as ValidStatus)
+      : 'all';
+
     // Ambil info PIC dari pic_users
     const picQuery = 'SELECT id, full_name, email FROM pic_users WHERE id = $1';
     const picResult = await client.query(picQuery, [picId]);
@@ -1316,47 +1635,48 @@ export async function GET(request: NextRequest) {
     // ── Ekstrak picCode dari email ────────────────────────────────────────────
     // Email format: "dp@jai.co.id" → picCode: "DP"
     // Email format: "vra, asw@jai.co.id" → picCode: "VRA, ASW" (multi-PIC)
-    // Email format: "mcb, dhs@jai.co.id" → picCode: "MCB, DHS"
-    //
-    // Ambil bagian sebelum "@", lalu uppercase
     const emailLocalPart = picEmail.split('@')[0].trim().toUpperCase();
-
-    // Untuk multi-PIC seperti "vra, asw@jai.co.id", emailLocalPart = "VRA, ASW"
-    // Kita perlu split lagi dan cari per individu
     const picCodes = emailLocalPart
       .split(',')
       .map((c: string) => c.trim())
       .filter((c: string) => c.length > 0);
 
-    // picCode utama (untuk display dan URL)
     const picCode = picCodes[0];
 
-    // ── Query procedure_documents ─────────────────────────────────────────────
-    // FIX: Gunakan dual approach:
-    //   1. Match kolom `pic` (ILIKE) — untuk format lama dan format kode singkat
-    //   2. Match kolom `email` (ILIKE) — untuk format baru yang menggunakan email asli
-    //
-    // Ini memastikan backward compatibility dan forward compatibility
-
-    // Bangun kondisi WHERE yang mencakup semua picCodes
-    // Contoh: pic ILIKE '%DP%' OR pic ILIKE '%US%' OR email ILIKE '%dp@jai.co.id%'
+    // ── Bangun WHERE clause untuk PIC ─────────────────────────────────────────
+    // picParams dan picWhereClause dipakai oleh DUA query berbeda:
+    //   1. docsQuery  — dengan status filter opsional
+    //   2. statsQuery — SELALU tanpa status filter
+    // Keduanya TIDAK boleh berbagi array params yang sama agar tidak terjadi
+    // mismatch "bind message supplies X parameters, but prepared statement requires Y".
     const picConditions: string[] = [];
-    const queryParams: string[] = [];
-    let paramIndex = 1;
+    const picParams: string[] = [];   // params khusus untuk WHERE pic/email — tidak pernah diubah
+    let   picParamIndex = 1;
 
-    // Kondisi berdasarkan kode pic
     for (const code of picCodes) {
-      picConditions.push(`pd.pic ILIKE $${paramIndex}`);
-      queryParams.push(`%${code}%`);
-      paramIndex++;
+      picConditions.push(`pd.pic ILIKE $${picParamIndex}`);
+      picParams.push(`%${code}%`);
+      picParamIndex++;
     }
 
-    // Kondisi berdasarkan email (match exact email dari pic_users)
-    picConditions.push(`pd.email ILIKE $${paramIndex}`);
-    queryParams.push(`%${picEmail}%`);
-    paramIndex++;
+    picConditions.push(`pd.email ILIKE $${picParamIndex}`);
+    picParams.push(`%${picEmail}%`);
+    picParamIndex++;
 
-    const whereClause = picConditions.join(' OR ');
+    const picWhereClause = picConditions.join(' OR ');
+
+    // ── docsQuery: picParams + status filter opsional ─────────────────────────
+    // Copy picParams ke array terpisah — jangan mutasi picParams langsung
+    const docsParams: (string | string[])[] = [...picParams];
+    let   docsParamIndex = picParamIndex;   // lanjutkan dari indeks setelah picParams
+    let   statusClause   = '';
+
+    if (statusFilter !== 'all') {
+      const dbStatuses = STATUS_MAP[statusFilter];
+      statusClause  = ` AND pd.status = ANY($${docsParamIndex})`;
+      docsParams.push(dbStatuses as unknown as string);  // pg driver terima array
+      docsParamIndex++;
+    }
 
     const docsQuery = `
       SELECT
@@ -1372,11 +1692,11 @@ export async function GET(request: NextRequest) {
         status,
         updated_at AS created_at
       FROM procedure_documents pd
-      WHERE ${whereClause}
+      WHERE (${picWhereClause})${statusClause}
       ORDER BY tanggal_selesai_approval DESC
     `;
 
-    const docsResult = await client.query(docsQuery, queryParams);
+    const docsResult = await client.query(docsQuery, docsParams);
     const documents  = docsResult.rows.map((row: any) => ({
       id:             row.id,
       documentNumber: row.nomor_dokumen,
@@ -1385,12 +1705,23 @@ export async function GET(request: NextRequest) {
       createdAt:      row.created_at,
     }));
 
-    // Hitung stats
-    const totalDocuments  = documents.length;
-    const pendingReview   = documents.filter((d: any) =>
+    // ── statsQuery: SELALU tanpa filter status — pakai picParams langsung ─────
+    // Tujuan: angka di StatsCards tidak berubah saat user mengaktifkan filter.
+    // picParams tidak pernah mengandung status param, jadi aman dipakai di sini.
+    let statsDocuments = documents;   // default: reuse hasil docs jika tidak ada filter
+    if (statusFilter !== 'all') {
+      const statsResult = await client.query(
+        `SELECT status FROM procedure_documents pd WHERE (${picWhereClause})`,
+        picParams   // ← picParams murni, tidak ada status param di dalamnya
+      );
+      statsDocuments = statsResult.rows;
+    }
+
+    const totalDocuments  = statsDocuments.length;
+    const pendingReview   = statsDocuments.filter((d: any) =>
       ['Menunggu', 'Belum dikirim', 'Telah terkirim', 'Telah dibaca', '-'].includes(d.status)
     ).length;
-    const completedReview = documents.filter((d: any) =>
+    const completedReview = statsDocuments.filter((d: any) =>
       ['Relevan', 'Revisi', 'Obsolete'].includes(d.status)
     ).length;
 
@@ -1427,7 +1758,7 @@ export async function GET(request: NextRequest) {
         id:       picUser.id,
         fullName: picUser.full_name,
         email:    picUser.email,
-        picCode,  // Kode singkat untuk URL /review-page-owner/[pic]
+        picCode,
       },
       stats: {
         totalDocuments,
@@ -1527,6 +1858,458 @@ export async function GET(request: NextRequest) {
     console.error('Error fetching PIC documents:', error);
     return NextResponse.json(
       { error: 'Terjadi kesalahan saat mengambil data dokumen' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+// app/api/pic/notifications/route.ts
+
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/lib/db';
+
+// ── Helper: format waktu relatif ──────────────────────────────────────────────
+function formatRelativeTime(date: Date): string {
+  const diffMs    = Date.now() - date.getTime();
+  const diffMins  = Math.floor(diffMs / 60_000);
+  const diffHours = Math.floor(diffMs / 3_600_000);
+  const diffDays  = Math.floor(diffMs / 86_400_000);
+
+  if (diffMins  <  1) return 'Baru saja';
+  if (diffMins  < 60) return `${diffMins} menit lalu`;
+  if (diffHours < 24) return `${diffHours} jam lalu`;
+  if (diffDays  <  7) return `${diffDays} hari lalu`;
+
+  return date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+// ── Helper: validasi header auth ──────────────────────────────────────────────
+function getAuthHeaders(request: NextRequest): { picId: string; picEmail: string } | null {
+  const picId    = request.headers.get('x-pic-id');
+  const picEmail = request.headers.get('x-pic-email');
+  if (!picId || !picEmail) return null;
+  return { picId, picEmail };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/pic/notifications
+// ─────────────────────────────────────────────────────────────────────────────
+export async function GET(request: NextRequest) {
+  const auth = getAuthHeaders(request);
+  if (!auth) {
+    return NextResponse.json(
+      { error: 'Header x-pic-id dan x-pic-email wajib ada' },
+      { status: 400 }
+    );
+  }
+  const { picId, picEmail } = auth;
+
+  const client = await pool.connect();
+  try {
+    const emailLocalPart = picEmail.split('@')[0].trim().toUpperCase();
+    const picCodes = emailLocalPart
+      .split(',')
+      .map((c: string) => c.trim())
+      .filter((c: string) => c.length > 0);
+
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
+    let idx = 1;
+
+    for (const code of picCodes) {
+      conditions.push(`pic ILIKE $${idx}`);
+      params.push(`%${code}%`);
+      idx++;
+    }
+    conditions.push(`email ILIKE $${idx}`);
+    params.push(`%${picEmail}%`);
+
+    const whereClause = conditions.join(' OR ');
+
+    const docsResult = await client.query(
+      `SELECT id, nomor_dokumen, nama_dokumen, status, updated_at
+       FROM procedure_documents
+       WHERE (${whereClause})
+       ORDER BY updated_at DESC
+       LIMIT 20`,
+      params
+    );
+
+    // ── Ambil read & deleted IDs — cast eksplisit ke BIGINT di query ──────────
+    // Casting ::bigint di sisi SQL memastikan pg driver mengembalikan string
+    // representasi angka besar yang konsisten, lalu kita konversi ke number JS
+    // dengan Number(). Untuk ID sangat besar, gunakan BigInt() — tapi dalam
+    // kasus ini row.id * 10 + 2 masih aman selama row.id < 200_000_000.
+    const [readsResult, deletesResult] = await Promise.all([
+      client.query(
+        'SELECT notification_id::bigint AS notification_id FROM pic_notification_reads   WHERE pic_id = $1',
+        [picId]
+      ),
+      client.query(
+        'SELECT notification_id::bigint AS notification_id FROM pic_notification_deletes WHERE pic_id = $1',
+        [picId]
+      ),
+    ]);
+
+    // Konversi ke number — pg mengembalikan bigint sebagai string di Node.js
+    const readIds    = new Set<number>(readsResult.rows.map((r: any)   => Number(r.notification_id)));
+    const deletedIds = new Set<number>(deletesResult.rows.map((r: any) => Number(r.notification_id)));
+
+// ─── Types (shared shape antara GET response dan NotificationBell) ────────────
+// CATATAN: interface ini harus konsisten dengan Notification di NotificationBell.tsx
+// Field tambahan: nomorDokumen dan absoluteTime untuk UX clarity
+interface RawNotif {
+  id:            number;
+  type:          'document' | 'review' | 'request' | 'info';
+  title:         string;
+  description:   string;
+  nomorDokumen:  string;   // ditampilkan sebagai badge monospace di frontend
+  time:          string;   // relatif: "5 menit lalu"
+  absoluteTime:  string;   // absolut: "07 Mei 2026 • 14:32" — untuk tooltip/sub-label
+  isRead:        boolean;
+  sortDate:      Date;
+}
+
+    // Helper: format timestamp absolut untuk label sekunder di notifikasi
+    const formatAbsoluteTime = (date: Date): string =>
+      date.toLocaleDateString('id-ID', {
+        day: '2-digit', month: 'short', year: 'numeric',
+      }) + ' • ' + date.toLocaleTimeString('id-ID', {
+        hour: '2-digit', minute: '2-digit', hour12: false,
+      });
+
+    const SENT_STATUSES = ['Telah terkirim', 'Belum dikirim'];
+    const rawNotifs: RawNotif[] = [];
+
+    for (const row of docsResult.rows) {
+      const updatedAt   = new Date(row.updated_at);
+      const namaDokumen = row.nama_dokumen as string;
+      const nomorDoc    = row.nomor_dokumen as string;
+      const status      = row.status as string;
+
+      const rowId = Number(row.id);
+      const id1   = rowId * 10 + 1;
+      const id2   = rowId * 10 + 2;
+
+      if (!Number.isSafeInteger(id1)) continue;
+
+      if (!deletedIds.has(id1)) {
+        rawNotifs.push({
+          id:           id1,
+          type:         'document',
+          title:        'Dokumen Baru Tersedia',
+          description:  `${namaDokumen} telah ditambahkan dan memerlukan perhatian Anda.`,
+          nomorDokumen: nomorDoc,
+          time:         formatRelativeTime(updatedAt),
+          absoluteTime: formatAbsoluteTime(updatedAt),
+          isRead:       readIds.has(id1),
+          sortDate:     updatedAt,
+        });
+      }
+
+      if (SENT_STATUSES.includes(status)) {
+        if (!Number.isSafeInteger(id2)) continue;
+        if (!deletedIds.has(id2)) {
+          rawNotifs.push({
+            id:           id2,
+            type:         'document',
+            title:        'Dokumen Telah Dikirim',
+            description:  `${namaDokumen} telah dikirim kepada Anda.`,
+            nomorDokumen: nomorDoc,
+            time:         formatRelativeTime(updatedAt),
+            absoluteTime: formatAbsoluteTime(updatedAt),
+            isRead:       readIds.has(id2),
+            sortDate:     updatedAt,
+          });
+        }
+      }
+    }
+
+    const notifications = rawNotifs
+      .sort((a, b) => b.sortDate.getTime() - a.sortDate.getTime())
+      .slice(0, 10)
+      .map(({ sortDate, ...rest }) => rest);
+
+    return NextResponse.json({ notifications });
+
+  } catch (error) {
+    console.error('GET /api/pic/notifications error:', error);
+    return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 });
+  } finally {
+    client.release();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/pic/notifications
+// Body: { notificationId: number } | { all: true }
+// Tandai satu atau semua notifikasi sebagai dibaca.
+// ─────────────────────────────────────────────────────────────────────────────
+export async function POST(request: NextRequest) {
+  const auth = getAuthHeaders(request);
+  if (!auth) {
+    return NextResponse.json(
+      { error: 'Header x-pic-id dan x-pic-email wajib ada' },
+      { status: 400 }
+    );
+  }
+  const { picId, picEmail } = auth;
+
+  const client = await pool.connect();
+  try {
+    const body = await request.json().catch(() => ({}));
+    const { notificationId, all } = body as { notificationId?: number; all?: boolean };
+
+    if (all) {
+      // Re-generate semua ID aktif untuk PIC, lalu insert semuanya
+      const emailLocalPart = picEmail.split('@')[0].trim().toUpperCase();
+      const picCodes = emailLocalPart.split(',').map((c: string) => c.trim()).filter(Boolean);
+
+      const conds: string[] = [];
+      const p: (string | number)[] = [];
+      let i = 1;
+      for (const code of picCodes) { conds.push(`pic ILIKE $${i}`); p.push(`%${code}%`); i++; }
+      conds.push(`email ILIKE $${i}`); p.push(`%${picEmail}%`);
+
+      const docsResult = await client.query(
+        `SELECT id, status FROM procedure_documents WHERE (${conds.join(' OR ')}) LIMIT 20`,
+        p
+      );
+
+      const SENT_STATUSES = ['Telah terkirim', 'Belum dikirim'];
+      const allIds: number[] = [];
+      for (const row of docsResult.rows) {
+        allIds.push(row.id * 10 + 1);
+        if (SENT_STATUSES.includes(row.status)) allIds.push(row.id * 10 + 2);
+      }
+
+      if (allIds.length > 0) {
+        const values = allIds.map((_, i) => `($1, $${i + 2})`).join(', ');
+        await client.query(
+          `INSERT INTO pic_notification_reads (pic_id, notification_id) VALUES ${values} ON CONFLICT DO NOTHING`,
+          [picId, ...allIds]
+        );
+      }
+
+      return NextResponse.json({ ok: true, markedCount: allIds.length });
+    }
+
+    if (typeof notificationId !== 'number') {
+      return NextResponse.json(
+        { error: 'notificationId (number) atau all (boolean) wajib diisi' },
+        { status: 400 }
+      );
+    }
+
+    await client.query(
+      `INSERT INTO pic_notification_reads (pic_id, notification_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [picId, notificationId]
+    );
+
+    return NextResponse.json({ ok: true });
+
+  } catch (error) {
+    console.error('POST /api/pic/notifications error:', error);
+    return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 });
+  } finally {
+    client.release();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE /api/pic/notifications
+// Body: { notificationId: number }
+// Saat delete 1 notifikasi, otomatis delete SEMUA notifikasi dari dokumen
+// yang sama (id1 = baseId*10+1 dan id2 = baseId*10+2) dalam satu INSERT.
+// ─────────────────────────────────────────────────────────────────────────────
+export async function DELETE(request: NextRequest) {
+  const auth = getAuthHeaders(request);
+  if (!auth) {
+    return NextResponse.json(
+      { error: 'Header x-pic-id dan x-pic-email wajib ada' },
+      { status: 400 }
+    );
+  }
+  const { picId } = auth;
+
+  const client = await pool.connect();
+  try {
+    const body = await request.json().catch(() => ({}));
+    const { notificationId } = body as { notificationId?: unknown };
+
+    const notifIdNum = Number(notificationId);
+
+    if (!Number.isFinite(notifIdNum) || !Number.isSafeInteger(notifIdNum)) {
+      return NextResponse.json(
+        { error: 'notificationId harus berupa integer yang valid' },
+        { status: 400 }
+      );
+    }
+
+    // ── Derive baseId dan kedua ID dari dokumen yang sama ────────────────────
+    // Formula generate: id = row.id * 10 + suffix (1 atau 2)
+    // Kebalikannya: baseId = Math.floor(notificationId / 10)
+    const baseId = Math.floor(notifIdNum / 10);
+    const id1    = baseId * 10 + 1;
+    const id2    = baseId * 10 + 2;
+
+    // Insert keduanya sekaligus — ON CONFLICT DO NOTHING aman jika sudah ada
+    await client.query(
+      `INSERT INTO pic_notification_deletes (pic_id, notification_id)
+       VALUES ($1, $2::bigint), ($1, $3::bigint)
+       ON CONFLICT DO NOTHING`,
+      [picId, id1, id2]
+    );
+
+    return NextResponse.json({ ok: true, deletedIds: [id1, id2] });
+
+  } catch (error) {
+    console.error('DELETE /api/pic/notifications error:', error);
+    return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 });
+  } finally {
+    client.release();
+  }
+}
+
+// app/api/pic/profile/change-password/route.ts
+
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/lib/db';
+import bcryptjs from 'bcryptjs';
+
+export async function POST(request: NextRequest) {
+  const client = await pool.connect();
+
+  try {
+    const picId    = request.headers.get('x-pic-id');
+    const picEmail = request.headers.get('x-pic-email');
+
+    if (!picId || !picEmail) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { oldPassword, newPassword, confirmPassword } = await request.json();
+
+    // ── Validasi input ────────────────────────────────────────────────────────
+    if (!oldPassword || !newPassword || !confirmPassword) {
+      return NextResponse.json(
+        { error: 'Semua field harus diisi' },
+        { status: 400 }
+      );
+    }
+
+    if (newPassword.length < 8) {
+      return NextResponse.json(
+        { error: 'Password baru minimal 8 karakter' },
+        { status: 400 }
+      );
+    }
+
+    if (newPassword !== confirmPassword) {
+      return NextResponse.json(
+        { error: 'Konfirmasi password tidak cocok' },
+        { status: 400 }
+      );
+    }
+
+    // ── Ambil password hash dari DB ───────────────────────────────────────────
+    const { rows } = await client.query(
+      'SELECT password FROM pic_users WHERE id = $1 AND email = $2',
+      [picId, picEmail]
+    );
+
+    if (rows.length === 0) {
+      return NextResponse.json({ error: 'User tidak ditemukan' }, { status: 404 });
+    }
+
+    // ── Verifikasi password lama ───────────────────────────────────────────────
+    const isValid = await bcryptjs.compare(oldPassword, rows[0].password);
+    if (!isValid) {
+      return NextResponse.json(
+        { error: 'Password lama tidak sesuai' },
+        { status: 400 }
+      );
+    }
+
+    // ── Hash password baru & simpan ───────────────────────────────────────────
+    const hashed = await bcryptjs.hash(newPassword, 12);
+
+    await client.query(
+      `UPDATE pic_users
+         SET password = $1, updated_at = NOW()
+       WHERE id = $2`,
+      [hashed, picId]
+    );
+
+    return NextResponse.json({ success: true, message: 'Password berhasil diubah' });
+
+  } catch (error) {
+    console.error('change-password error:', error);
+    return NextResponse.json(
+      { error: 'Terjadi kesalahan server' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+// app/api/pic/profile/update-name/route.ts
+
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/lib/db';
+
+export async function PATCH(request: NextRequest) {
+  const client = await pool.connect();
+
+  try {
+    const picId    = request.headers.get('x-pic-id');
+    const picEmail = request.headers.get('x-pic-email');
+
+    if (!picId || !picEmail) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { fullName } = await request.json();
+
+    if (!fullName || fullName.trim().length === 0) {
+      return NextResponse.json(
+        { error: 'Nama lengkap tidak boleh kosong' },
+        { status: 400 }
+      );
+    }
+
+    if (fullName.trim().length > 200) {
+      return NextResponse.json(
+        { error: 'Nama terlalu panjang (maks 200 karakter)' },
+        { status: 400 }
+      );
+    }
+
+    const { rows } = await client.query(
+      `UPDATE pic_users
+          SET full_name = $1, updated_at = NOW()
+        WHERE id = $2 AND email = $3
+        RETURNING full_name`,
+      [fullName.trim(), picId, picEmail]
+    );
+
+    if (rows.length === 0) {
+      return NextResponse.json({ error: 'User tidak ditemukan' }, { status: 404 });
+    }
+
+    return NextResponse.json({
+      success:  true,
+      message:  'Nama berhasil diperbarui',
+      fullName: rows[0].full_name,
+    });
+
+  } catch (error) {
+    console.error('update-name error:', error);
+    return NextResponse.json(
+      { error: 'Terjadi kesalahan server' },
       { status: 500 }
     );
   } finally {
@@ -1978,6 +2761,89 @@ export async function POST(request: NextRequest) {
     console.error('Error archiving procedure:', error);
     return NextResponse.json(
       { error: 'Failed to archive procedure' },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+// app/api/procedures/seed/route.ts
+
+import { NextResponse } from 'next/server';
+import pool from '@/lib/db';
+import { RAW_EXCEL_ROWS } from '@/data/data_review/all-data-table';
+
+function parseExcelDate(dateStr: string): string {
+  const [day, month, year] = dateStr.split('-');
+  const months: Record<string, string> = {
+    Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+    Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12',
+  };
+  const paddedDay = day.padStart(2, '0');
+  const monthNum = months[month];
+  if (!monthNum) return '1970-01-01';
+  const fullYear = parseInt(year, 10) < 50 ? `20${year}` : `19${year}`;
+  return `${fullYear}-${monthNum}-${paddedDay}`;
+}
+
+export async function POST() {
+  const client = await pool.connect();
+  
+  try {
+    // Check if already seeded
+    const countResult = await client.query('SELECT COUNT(*) FROM procedure_documents');
+    const count = parseInt(countResult.rows[0].count);
+
+    if (count > 0) {
+      return NextResponse.json(
+        { message: 'Database already seeded', count },
+        { status: 200 }
+      );
+    }
+
+    // Begin transaction
+    await client.query('BEGIN');
+
+    // Insert data - AMBIL SEMUA PIC dan EMAIL (tidak di-split)
+    const insertQuery = `
+      INSERT INTO procedure_documents 
+      (nama_dokumen, nomor_dokumen, level_dokumen, tanggal_selesai_approval, revisi, owner, pic, email, status, is_custom)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    `;
+
+    for (const row of RAW_EXCEL_ROWS) {
+      const values = [
+        row.nama,
+        row.nomorDokumen,
+        row.level,
+        parseExcelDate(row.tanggal),
+        row.revisi,
+        row.owner.trim(),
+        row.pic.trim(), // AMBIL SEMUA PIC (tidak di-split)
+        row.email.trim(), // AMBIL SEMUA EMAIL (tidak di-split)
+        '-',
+        false
+      ];
+
+      await client.query(insertQuery, values);
+    }
+
+    // Commit transaction
+    await client.query('COMMIT');
+
+    const newCountResult = await client.query('SELECT COUNT(*) FROM procedure_documents');
+    const newCount = parseInt(newCountResult.rows[0].count);
+
+    return NextResponse.json(
+      { message: 'Database seeded successfully', count: newCount },
+      { status: 201 }
+    );
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error seeding database:', error);
+    return NextResponse.json(
+      { error: 'Failed to seed database' },
       { status: 500 }
     );
   } finally {
@@ -2609,3 +3475,4 @@ export async function PATCH(request: NextRequest) {
     client.release();
   }
 }
+

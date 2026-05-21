@@ -54,6 +54,9 @@ export default function PICDashboardPage() {
 
   // State dokumen terpisah — di-update saat filter berubah tanpa re-fetch semua data
   const [documents,       setDocuments]       = useState<PICDashboardData['documents']>([]);
+  // allDocuments menyimpan seluruh dokumen tanpa filter — dipakai chip count di PICDocumentsList
+  // agar angka per-status selalu akurat meski filter sedang aktif
+  const [allDocuments,    setAllDocuments]    = useState<PICDashboardData['documents']>([]);
   const [isLoadingDocs,   setIsLoadingDocs]   = useState(false);
   const [activeFilter,    setActiveFilter]    = useState<StatusFilter>('all');
 
@@ -83,8 +86,9 @@ export default function PICDashboardPage() {
 
       const data: PICDashboardData = await response.json();
       setDashboardData(data);
-      setDocuments(data.documents);   // inisialisasi daftar dokumen
-      setActiveFilter('all');          // reset filter ke "Semua" setelah refresh
+      setDocuments(data.documents);    // inisialisasi daftar dokumen
+      setAllDocuments(data.documents); // simpan salinan unfiltered untuk chip count
+      setActiveFilter('all');           // reset filter ke "Semua" setelah refresh
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Terjadi kesalahan');
     } finally {
@@ -93,9 +97,6 @@ export default function PICDashboardPage() {
   }, [picHeaders]);
 
   // ── Fetch dokumen saja dengan filter status ────────────────────────────────
-  // Dipanggil saat user klik chip filter di PICDocumentsList.
-  // Menggunakan endpoint yang sama tapi dengan query param ?status=
-  // Stats dan activities TIDAK di-refresh — hanya daftar dokumen.
   const fetchDocumentsByFilter = useCallback(async (filter: StatusFilter) => {
     try {
       setIsLoadingDocs(true);
@@ -117,8 +118,6 @@ export default function PICDashboardPage() {
       const data: PICDashboardData = await response.json();
       setDocuments(data.documents);
     } catch (err) {
-      // Jika filter gagal, jangan tampilkan error global — cukup log
-      // dan biarkan daftar sebelumnya tetap tampil
       console.error('fetchDocumentsByFilter error:', err);
     } finally {
       setIsLoadingDocs(false);
@@ -146,13 +145,13 @@ export default function PICDashboardPage() {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="inline-flex items-center justify-center w-12 h-12 bg-emerald-100 rounded-full mb-4">
-            <svg className="animate-spin h-6 w-6 text-emerald-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <div className="inline-flex items-center justify-center w-10 h-10 bg-emerald-100 rounded-full mb-3">
+            <svg className="animate-spin h-5 w-5 text-emerald-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
             </svg>
           </div>
-          <p className="text-slate-600 font-medium">Memuat dashboard...</p>
+          <p className="text-slate-600 text-sm font-medium">Memuat dashboard...</p>
         </div>
       </div>
     );
@@ -161,12 +160,12 @@ export default function PICDashboardPage() {
   if (error) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <div className="bg-red-50 border border-red-200 rounded-lg p-6 max-w-md">
-          <h3 className="text-red-800 font-semibold mb-2">Terjadi Kesalahan</h3>
-          <p className="text-red-700 text-sm">{error}</p>
+        <div className="bg-red-50 border border-red-200 rounded-lg p-5 max-w-md">
+          <h3 className="text-red-800 font-semibold text-sm mb-1.5">Terjadi Kesalahan</h3>
+          <p className="text-red-700 text-xs">{error}</p>
           <button
             onClick={fetchDashboard}
-            className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors"
+            className="mt-3 px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-700 transition-colors"
           >
             Coba Lagi
           </button>
@@ -186,18 +185,19 @@ export default function PICDashboardPage() {
         onLogout={handleLogout}
       />
 
-      <main className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
+      {/* CHANGED: max-w-screen-xl (lebih lebar dari 7xl), py-8→py-5, px tetap */}
+      <main className="max-w-screen-xl mx-auto px-4 py-5 sm:px-6 lg:px-8">
 
         {/* Stats */}
         {dashboardData && <PICStatsCards stats={dashboardData.stats} />}
 
-        {/* Action Buttons */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        {/* Action Buttons — CHANGED: gap-4→gap-3, mb-8→mb-5, py-3→py-2, text-sm ditambah */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
           <Link
             href={`/review-page-owner/${picCode}`}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white py-3 px-6 rounded-lg font-semibold transition-all flex items-center justify-center gap-2"
+            className="bg-emerald-600 hover:bg-emerald-700 text-white py-2 px-5 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                 d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
             </svg>
@@ -206,9 +206,9 @@ export default function PICDashboardPage() {
 
           <button
             onClick={() => setShowRequestReviewModal(true)}
-            className="bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 rounded-lg font-semibold transition-all flex items-center justify-center gap-2"
+            className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-5 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                 d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
             </svg>
@@ -217,21 +217,21 @@ export default function PICDashboardPage() {
 
           <button
             onClick={() => setShowNewDocumentModal(true)}
-            className="bg-slate-600 hover:bg-slate-700 text-white py-3 px-6 rounded-lg font-semibold transition-all flex items-center justify-center gap-2"
+            className="bg-slate-600 hover:bg-slate-700 text-white py-2 px-5 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
             Dokumen Baru
           </button>
         </div>
 
-        {/* Documents and Activity */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Documents and Activity — CHANGED: gap-8→gap-5 */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           <div className="lg:col-span-2">
-            {/* documents & isLoadingDocs selalu di-pass — props baru tidak membreak interface lama */}
             <PICDocumentsList
               documents={documents}
+              allDocuments={allDocuments}
               isLoadingDocs={isLoadingDocs}
               onFilterChange={handleFilterChange}
             />

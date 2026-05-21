@@ -1,4 +1,4 @@
-// app/components/pic/PICStatsCards.tsx
+// components/pic/PICStatsCards.tsx
 
 interface Stats {
   totalDocuments: number;
@@ -54,7 +54,7 @@ const VARIANT_CONFIG: Record<
 > = {
   default: {
     card:        'bg-white border border-slate-200 shadow-sm hover:shadow-md',
-    iconWrapper: '',   // diberikan per-kartu di bawah
+    iconWrapper: '',
     valueText:   'text-slate-900',
   },
   urgent: {
@@ -87,27 +87,26 @@ function StatCard({
   icon: React.ReactNode;
   color: 'emerald' | 'blue' | 'amber' | 'slate';
   variant?: CardVariant;
-  urgencyLabel?: string;           // mis. "Perlu tindakan"
+  urgencyLabel?: string;
 }) {
   const isUrgent = variant === 'urgent';
   const { card, valueText } = VARIANT_CONFIG[variant];
   const iconClass = COLOR_ICON_CLASSES[color];
 
   return (
-    <div
-      className={`relative rounded-xl p-6 transition-all duration-200 ${card}`}
-    >
+    // CHANGED: rounded-xl→rounded-xl, p-6→p-4
+    <div className={`relative rounded-xl p-4 transition-all duration-200 ${card}`}>
+
       {/* Badge urgency */}
       {isUrgent && urgencyLabel && (
         <span
           className={
             'pic-urgent-badge absolute -top-2.5 left-4 ' +
             'inline-flex items-center gap-1 ' +
-            'px-2.5 py-0.5 rounded-full ' +
+            'px-2 py-0.5 rounded-full ' +
             'bg-amber-500 text-white text-[10px] font-bold tracking-wide uppercase shadow-sm'
           }
         >
-          {/* dot animasi */}
           <span className="relative flex h-1.5 w-1.5">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
             <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-white" />
@@ -119,14 +118,17 @@ function StatCard({
       <div className="flex items-center justify-between">
         {/* Nilai & label */}
         <div>
-          <p className="text-sm text-slate-500 mb-1 font-medium">{title}</p>
-          <p className={`text-3xl font-bold pic-stat-value ${valueText}`}>
+          {/* CHANGED: text-sm→text-xs, mb-1→mb-0.5 */}
+          <p className="text-xs text-slate-500 mb-0.5 font-medium">{title}</p>
+          {/* CHANGED: text-3xl→text-2xl */}
+          <p className={`text-2xl font-bold pic-stat-value ${valueText}`}>
             {value}
           </p>
 
-          {/* Progress bar ringan — hanya untuk pending */}
+          {/* Progress bar — hanya untuk pending */}
           {isUrgent && value > 0 && (
-            <div className="mt-3 w-28 h-1.5 bg-amber-100 rounded-full overflow-hidden">
+            // CHANGED: mt-3→mt-2, w-28→w-24, h-1.5→h-1
+            <div className="mt-2 w-24 h-1 bg-amber-100 rounded-full overflow-hidden">
               <div
                 className="h-full bg-amber-400 rounded-full transition-all duration-700"
                 style={{ width: `${Math.min(value * 10, 100)}%` }}
@@ -135,10 +137,10 @@ function StatCard({
           )}
         </div>
 
-        {/* Icon */}
+        {/* Icon — CHANGED: p-3→p-2.5, rounded-xl→rounded-lg */}
         <div
           className={`
-            p-3 rounded-xl flex-shrink-0
+            p-2.5 rounded-lg flex-shrink-0
             ${iconClass}
             ${isUrgent ? 'ring-2 ring-amber-300 ring-offset-1' : ''}
           `}
@@ -150,12 +152,13 @@ function StatCard({
   );
 }
 
-// ─── PICStatsCards (export utama — props tidak berubah) ───────────────────────
+// ─── PICStatsCards (export utama) ─────────────────────────────────────────────
 export default function PICStatsCards({ stats }: PICStatsCardsProps) {
   const hasPending = stats.pendingReview > 0;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+    // CHANGED: gap-6→gap-4, mb-8→mb-5
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
 
       {/* Total Dokumen */}
       <StatCard
@@ -163,7 +166,8 @@ export default function PICStatsCards({ stats }: PICStatsCardsProps) {
         value={stats.totalDocuments}
         color="emerald"
         icon={
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          // CHANGED: w-6 h-6→w-5 h-5
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
               d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
@@ -178,7 +182,7 @@ export default function PICStatsCards({ stats }: PICStatsCardsProps) {
         variant={hasPending ? 'urgent' : 'default'}
         urgencyLabel={hasPending ? 'Perlu tindakan' : undefined}
         icon={
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
               d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
@@ -191,7 +195,7 @@ export default function PICStatsCards({ stats }: PICStatsCardsProps) {
         value={stats.completedReview}
         color="emerald"
         icon={
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
               d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
@@ -204,7 +208,7 @@ export default function PICStatsCards({ stats }: PICStatsCardsProps) {
         value={stats.totalRequests}
         color="blue"
         icon={
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
               d="M13 10V3L4 14h7v7l9-11h-7z" />
           </svg>
@@ -213,4 +217,4 @@ export default function PICStatsCards({ stats }: PICStatsCardsProps) {
 
     </div>
   );
-}
+} 

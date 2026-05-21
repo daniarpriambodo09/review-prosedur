@@ -1,4 +1,4 @@
-// app/components/pic/RequestReviewModal.tsx
+// components/pic/RequestReviewModal.tsx
 
 'use client';
 import { useState, useEffect } from 'react';

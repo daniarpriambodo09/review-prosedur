@@ -68,8 +68,6 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 // ── Detail Modal ──────────────────────────────────────────────────────────────
-// Komponen ini TIDAK mengubah struktur atau behavior NotificationBell sama sekali.
-// Ia hanya menerima data notif yang sudah di-fetch dan menampilkannya.
 function DetailModal({
   notif,
   onClose,
@@ -81,7 +79,6 @@ function DetailModal({
   const stCls = STATUS_CONFIG[notif.status] ?? STATUS_CONFIG['pending'];
   const stLbl = STATUS_LABEL[notif.status]  ?? notif.status;
 
-  // Escape untuk tutup
   useEffect(() => {
     const fn = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', fn);
@@ -117,7 +114,6 @@ function DetailModal({
               </svg>
             </button>
           </div>
-          {/* Status chip */}
           <div className="flex items-center gap-2 mt-3">
             <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold border ${stCls}`}>
               {stLbl}
@@ -132,15 +128,12 @@ function DetailModal({
 
         {/* Body */}
         <div className="px-6 py-5 space-y-4 max-h-[55vh] overflow-y-auto">
-
-          {/* PIC */}
           <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Dari PIC</p>
             <p className="text-sm font-bold text-slate-900">{notif.picFullName}</p>
             <p className="text-xs text-slate-500">{notif.picEmail}</p>
           </div>
 
-          {/* Grid info */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Nomor Dokumen</p>
@@ -152,7 +145,6 @@ function DetailModal({
             </div>
           </div>
 
-          {/* Nama / judul */}
           {(notif.namaDokumen || notif.title) && (
             <div>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
@@ -163,14 +155,10 @@ function DetailModal({
               </p>
             </div>
           )}
-
-          {/* Tanggal lengkap */}
           <div>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Tanggal &amp; Waktu Lengkap</p>
             <p className="text-sm text-slate-600">{formatDatetime(notif.createdAt)}</p>
           </div>
-
-          {/* Deskripsi */}
           {notif.description && (
             <div>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Deskripsi</p>
@@ -179,8 +167,6 @@ function DetailModal({
               </p>
             </div>
           )}
-
-          {/* Alasan */}
           {notif.reason && (
             <div>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Alasan Permintaan</p>
@@ -189,8 +175,6 @@ function DetailModal({
               </p>
             </div>
           )}
-
-          {/* Catatan */}
           {notif.notes && (
             <div>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Catatan dari PIC</p>
@@ -199,8 +183,6 @@ function DetailModal({
               </p>
             </div>
           )}
-
-          {/* Sudah dibaca */}
           {notif.isRead && notif.readAt && (
             <p className="text-xs text-slate-400 flex items-center gap-1.5">
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -231,10 +213,10 @@ export default function NotificationBell() {
   const [unreadCount,   setUnreadCount]   = useState(0);
   const [isOpen,        setIsOpen]        = useState(false);
   const [isMarking,     setIsMarking]     = useState(false);
-  // Filter tab: 'all' | 'new_document' | 'review_request'
-  const [activeTab, setActiveTab] = useState<'all' | 'new_document' | 'review_request'>('all');
-  // ── SATU-SATUNYA state baru: untuk modal detail ──
+  const [activeTab,     setActiveTab]     = useState<'all' | 'new_document' | 'review_request'>('all');
   const [selectedNotif, setSelectedNotif] = useState<Notification | null>(null);
+  // ── State baru: set ID yang sedang dalam proses delete (untuk spinner) ──
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<string>>(new Set());
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // ── Fetch ─────────────────────────────────────────────────────────────────
@@ -258,7 +240,6 @@ export default function NotificationBell() {
   }, [fetchNotifications]);
 
   // Tutup saat klik di luar
-  // IDENTIK dengan versi asli — tidak ada perubahan
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
@@ -305,6 +286,61 @@ export default function NotificationBell() {
       console.error('Error marking all as read:', err);
     } finally {
       setIsMarking(false);
+    }
+  };
+
+  // ── Delete satu notifikasi (soft-delete) ──────────────────────────────────
+  // Key unik: `${type}-${id}` — sama dengan key di render list
+  const deleteOne = async (notif: Notification, e: React.MouseEvent) => {
+    // Hentikan propagasi agar tidak membuka detail modal
+    e.stopPropagation();
+
+    const key = `${notif.type}-${notif.id}`;
+    if (pendingDeleteIds.has(key)) return; // sudah dalam proses
+
+    // Optimistic update: langsung hilangkan dari UI
+    const wasUnread = !notif.isRead;
+    setNotifications(prev => prev.filter(n => !(n.id === notif.id && n.type === notif.type)));
+    if (wasUnread) setUnreadCount(prev => Math.max(0, prev - 1));
+
+    // Tandai sedang loading (untuk spinner)
+    setPendingDeleteIds(prev => new Set(prev).add(key));
+
+    try {
+      const res = await fetch('/review-prosedur/api/admin/notifications', {
+        method:  'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ id: notif.id, type: notif.type, adminId: 'admin' }),
+      });
+      if (!res.ok) {
+        // Rollback jika backend gagal
+        console.error('Delete failed, rolling back');
+        setNotifications(prev => {
+          const exists = prev.some(n => n.id === notif.id && n.type === notif.type);
+          if (exists) return prev;
+          return [...prev, notif].sort(
+            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          );
+        });
+        if (wasUnread) setUnreadCount(prev => prev + 1);
+      }
+    } catch (err) {
+      // Rollback jika network error
+      console.error('Error deleting notification:', err);
+      setNotifications(prev => {
+        const exists = prev.some(n => n.id === notif.id && n.type === notif.type);
+        if (exists) return prev;
+        return [...prev, notif].sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+      });
+      if (wasUnread) setUnreadCount(prev => prev + 1);
+    } finally {
+      setPendingDeleteIds(prev => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
     }
   };
 
@@ -410,14 +446,49 @@ export default function NotificationBell() {
             ) : (
               displayed.map(notif => {
                 const cfg = TYPE_CONFIG[notif.type];
+                const key = `${notif.type}-${notif.id}`;
+                const isDeleting = pendingDeleteIds.has(key);
+
                 return (
                   <div
-                    key={`${notif.type}-${notif.id}`}
+                    key={key}
                     onClick={() => handleNotifClick(notif)}
-                    className={`px-4 py-3 transition-colors cursor-pointer group hover:bg-slate-50 ${
+                    className={`relative px-4 py-3 transition-colors cursor-pointer group hover:bg-slate-50 ${
                       !notif.isRead ? 'bg-blue-50/50' : ''
                     }`}
                   >
+                    {/* ── Tombol X (hapus) — muncul saat hover ── */}
+                    <button
+                      onClick={(e) => deleteOne(notif, e)}
+                      disabled={isDeleting}
+                      title="Hapus notifikasi"
+                      className="absolute top-2 right-2 z-10
+                                 w-5 h-5 rounded-full
+                                 flex items-center justify-center
+                                 opacity-0 group-hover:opacity-100
+                                 bg-slate-100 hover:bg-red-100
+                                 text-slate-400 hover:text-red-500
+                                 transition-all duration-150
+                                 disabled:cursor-not-allowed"
+                    >
+                      {isDeleting ? (
+                        /* Spinner kecil saat proses delete */
+                        <svg
+                          className="w-3 h-3 animate-spin text-slate-400"
+                          fill="none" viewBox="0 0 24 24"
+                        >
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                      ) : (
+                        /* Ikon X */
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      )}
+                    </button>
+
                     <div className="flex items-start gap-3">
                       {/* Unread dot */}
                       <div className="flex-shrink-0 mt-2">
@@ -427,7 +498,7 @@ export default function NotificationBell() {
                       </div>
 
                       <div className="flex-1 min-w-0">
-                        {/* Baris atas: nama PIC + waktu + chevron hint */}
+                        {/* Baris atas: nama PIC + waktu + chevron */}
                         <div className="flex items-center justify-between gap-2 mb-1">
                           <span className={`text-sm font-semibold truncate ${
                             !notif.isRead ? 'text-slate-900' : 'text-slate-600'
