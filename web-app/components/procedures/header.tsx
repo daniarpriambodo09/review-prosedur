@@ -43,29 +43,35 @@ export function Header() {
   const menuItems = getNavigationMenu();
 
   return (
+    // ── CHANGE: py-5 → py-3, px-8 → px-6 (header lebih slim)
     <header className="sticky top-0 z-50 bg-gradient-to-r from-blue-600 to-blue-700 shadow-lg">
-      <div className="px-8 py-5 flex justify-between items-center">
+      <div className="px-6 py-3 flex justify-between items-center">
         {/* Logo */}
-        <div className="flex items-center gap-3">
-          <div className="bg-white/20 backdrop-blur-sm p-2 rounded-lg">
-            <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" className="w-5 h-5">
+        <div className="flex items-center gap-2.5">
+          {/* CHANGE: p-2 → p-1.5, rounded-lg → rounded-md, w-5 h-5 → w-4 h-4 */}
+          <div className="bg-white/20 backdrop-blur-sm p-1.5 rounded-md">
+            <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" className="w-4 h-4">
               <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
           <div>
-            <h1 className="text-xl font-bold text-white tracking-tight">Review Prosedur</h1>
-            <p className="text-xs text-blue-100">Quality Management System</p>
+            {/* CHANGE: text-xl → text-base, text-xs → text-[11px] */}
+            <h1 className="text-base font-bold text-white tracking-tight">Review Prosedur</h1>
+            <p className="text-[11px] text-blue-100">Quality Management System</p>
           </div>
         </div>
 
         {/* Desktop Navigation */}
-        <div className="hidden md:flex items-center gap-6">
-          <nav className="flex gap-6">
+        {/* CHANGE: gap-6 → gap-4 */}
+        <div className="hidden md:flex items-center gap-4">
+          {/* CHANGE: gap-6 → gap-4 */}
+          <nav className="flex gap-4">
             {menuItems.map((item) => (
               <Link
                 key={item.path}
                 href={item.path}
-                className={`text-sm font-medium transition-colors ${
+                // CHANGE: text-sm → text-xs
+                className={`text-xs font-medium transition-colors ${
                   pathname === item.path ? 'text-white' : 'text-blue-50 hover:text-white'
                 }`}
               >
@@ -74,17 +80,19 @@ export function Header() {
             ))}
           </nav>
 
-          <div className="flex items-center gap-3 pl-6 border-l border-blue-500">
+          <div className="flex items-center gap-3 pl-4 border-l border-blue-500">
             {/* ── Notification Bell — hanya tampil untuk admin ── */}
             <NotificationBell />
 
             <div className="text-right">
-              <p className="text-xs text-blue-100">Logged in as</p>
-              <p className="text-sm font-semibold text-white">{user?.fullName || user?.username}</p>
+              {/* CHANGE: text-xs → text-[10px], text-sm → text-xs */}
+              <p className="text-[10px] text-blue-100">Logged in as</p>
+              <p className="text-xs font-semibold text-white">{user?.fullName || user?.username}</p>
             </div>
+            {/* CHANGE: px-4 py-2 → px-3 py-1.5, rounded-lg → rounded-md, text-sm → text-xs */}
             <button
               onClick={handleLogout}
-              className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg text-sm font-medium transition-all active:scale-95"
+              className="bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-md text-xs font-medium transition-all active:scale-95"
             >
               Logout
             </button>
@@ -99,7 +107,7 @@ export function Header() {
             onClick={() => setIsMenuOpen(!isMenuOpen)}
             className="text-white p-2 hover:bg-white/10 rounded-lg transition-colors"
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-6 h-6">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-5 h-5">
               {isMenuOpen
                 ? <path d="M6 18L18 6M6 6l12 12" />
                 : <path d="M4 6h16M4 12h16M4 18h16" />}
@@ -111,13 +119,13 @@ export function Header() {
       {/* Mobile Menu */}
       {isMenuOpen && (
         <div className="md:hidden bg-blue-800 border-t border-blue-500">
-          <nav className="px-8 py-4 space-y-2">
+          <nav className="px-6 py-3 space-y-1">
             {menuItems.map((item) => (
               <Link
                 key={item.path}
                 href={item.path}
                 onClick={() => setIsMenuOpen(false)}
-                className={`block px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+                className={`block px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
                   pathname === item.path
                     ? 'bg-white/20 text-white'
                     : 'text-blue-50 hover:bg-white/10 hover:text-white'
@@ -127,16 +135,16 @@ export function Header() {
               </Link>
             ))}
           </nav>
-          <div className="px-8 py-4 border-t border-blue-500">
-            <div className="flex items-center justify-between mb-3">
+          <div className="px-6 py-3 border-t border-blue-500">
+            <div className="flex items-center justify-between mb-2">
               <div>
-                <p className="text-xs text-blue-200">Logged in as</p>
-                <p className="text-sm font-semibold text-white">{user?.fullName || user?.username}</p>
+                <p className="text-[10px] text-blue-200">Logged in as</p>
+                <p className="text-xs font-semibold text-white">{user?.fullName || user?.username}</p>
               </div>
             </div>
             <button
               onClick={handleLogout}
-              className="w-full bg-white/20 hover:bg-white/30 text-white px-4 py-3 rounded-lg text-sm font-semibold transition-all active:scale-95"
+              className="w-full bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg text-xs font-semibold transition-all active:scale-95"
             >
               Logout
             </button>

@@ -1,4 +1,4 @@
-// app/components/pic/RequestNewDocumentModal.tsx
+// components/pic/RequestNewDocumentModal.tsx
 
 'use client';
 import { useState } from 'react';

@@ -20,6 +20,7 @@ interface AuthContextType {
   picLogin: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   isLoading: boolean;
+  updateUser: (partial: Partial<User>) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -174,8 +175,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     router.push('/login-page');
   };
 
+  const updateUser = (partial: Partial<User>) => {
+    setUser(prev => {
+      if (!prev) return prev;
+      const updated = { ...prev, ...partial };
+      localStorage.setItem('user', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
   return (
-    <AuthContext.Provider value={{ isAuthenticated, user, login, picLogin, logout, isLoading }}>
+    <AuthContext.Provider value={{ isAuthenticated, user, login, picLogin, logout, isLoading, updateUser }}>
       {children}
     </AuthContext.Provider>
   );
