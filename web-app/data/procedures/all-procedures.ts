@@ -1,4 +1,5 @@
 // data/procedures/all-procedures.ts
+
 export type StatusType =
   | 'Revisi'
   | 'Relevan'
@@ -22,9 +23,15 @@ export interface ProcedureDocument {
   status: StatusType;
   isCustom?: boolean;
   deletedAt?: string;
+  /**
+   * Timestamp terakhir PIC submit review (status apapun: Relevan, Revisi, Obsolete).
+   * Null jika belum pernah direview.
+   * Digunakan untuk indikator "Baru Direview" — muncul selama 3 hari setelah review.
+   */
+  lastReviewedAt?: string | null;
 }
 
-// Fetch all procedures from API
+// ─── Fetch all procedures from API ───────────────────────────────────────────
 export async function getAllProcedures(): Promise<ProcedureDocument[]> {
   try {
     const response = await fetch('/review-prosedur/api/procedures', {
@@ -42,7 +49,7 @@ export async function getAllProcedures(): Promise<ProcedureDocument[]> {
   }
 }
 
-// Add new procedure
+// ─── Add new procedure ────────────────────────────────────────────────────────
 export async function addProcedure(doc: Omit<ProcedureDocument, 'status' | 'id'>): Promise<void> {
   try {
     const response = await fetch('/review-prosedur/api/procedures', {
@@ -62,12 +69,13 @@ export async function addProcedure(doc: Omit<ProcedureDocument, 'status' | 'id'>
   }
 }
 
-// Get procedures by PIC
+// ─── Get procedures by PIC ────────────────────────────────────────────────────
 export async function getProceduresByPic(pic: string): Promise<ProcedureDocument[]> {
   try {
-    const response = await fetch(`/review-prosedur/api/procedures?pic=${encodeURIComponent(pic)}`, {
-      cache: 'no-store',
-    });
+    const response = await fetch(
+      `/review-prosedur/api/procedures?pic=${encodeURIComponent(pic)}`,
+      { cache: 'no-store' }
+    );
 
     if (!response.ok) {
       throw new Error('Failed to fetch procedures by PIC');
@@ -80,7 +88,7 @@ export async function getProceduresByPic(pic: string): Promise<ProcedureDocument
   }
 }
 
-// Save document review
+// ─── Save document review (single) ───────────────────────────────────────────
 export async function saveDocumentReview(
   nomorDokumen: string,
   status: StatusType,
@@ -110,7 +118,7 @@ export async function saveDocumentReview(
   }
 }
 
-// Get document review
+// ─── Get document review ──────────────────────────────────────────────────────
 export async function getDocumentReview(
   nomorDokumen: string,
   month: number
@@ -133,7 +141,7 @@ export async function getDocumentReview(
   }
 }
 
-// Batch save reviews
+// ─── Batch save reviews ───────────────────────────────────────────────────────
 export async function batchSaveReviews(
   reviews: Array<{
     nomorDokumen: string;
@@ -163,7 +171,7 @@ export async function batchSaveReviews(
   }
 }
 
-// Archive (soft delete) procedure
+// ─── Archive (soft delete) procedure ─────────────────────────────────────────
 export async function archiveProcedure(nomorDokumen: string): Promise<void> {
   try {
     const response = await fetch('/review-prosedur/api/procedures/archive', {
@@ -184,7 +192,7 @@ export async function archiveProcedure(nomorDokumen: string): Promise<void> {
   }
 }
 
-// Get all archived procedures
+// ─── Get all archived procedures ─────────────────────────────────────────────
 export async function getArchivedProcedures(): Promise<ProcedureDocument[]> {
   try {
     const response = await fetch('/review-prosedur/api/arsip', {
@@ -202,7 +210,7 @@ export async function getArchivedProcedures(): Promise<ProcedureDocument[]> {
   }
 }
 
-// Restore archived procedure
+// ─── Restore archived procedure ───────────────────────────────────────────────
 export async function restoreProcedure(nomorDokumen: string): Promise<void> {
   try {
     const response = await fetch('/review-prosedur/api/arsip/restore', {
@@ -223,7 +231,7 @@ export async function restoreProcedure(nomorDokumen: string): Promise<void> {
   }
 }
 
-// Delete procedure permanently
+// ─── Delete procedure permanently ─────────────────────────────────────────────
 export async function deleteProcedurePermanently(nomorDokumen: string): Promise<void> {
   try {
     const response = await fetch('/review-prosedur/api/arsip/delete', {
@@ -244,7 +252,7 @@ export async function deleteProcedurePermanently(nomorDokumen: string): Promise<
   }
 }
 
-// Tandai dokumen telah dibaca oleh PIC
+// ─── Tandai dokumen telah dibaca oleh PIC ─────────────────────────────────────
 export async function markDocumentAsRead(
   nomorDokumen: string,
   pic: string
