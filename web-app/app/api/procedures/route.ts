@@ -1,14 +1,9 @@
 // app/api/procedures/route.ts
 //
-// PATCH untuk autoReactivate:
-// Fungsi ini hanya mengubah bagian autoReactivate dan runAutoStatusChain.
-// Salin seluruh isi file ini menggantikan app/api/procedures/route.ts yang lama.
-//
-// Root cause bug dokumen lama muncul:
-// autoReactivate tidak punya guard "apakah approval sudah lewat 2 bulan?".
-// Dokumen approval Feb/Mar yang sudah Relevan akan terus di-reactivate → Menunggu
-// karena isScheduleMonthReached(Feb) = true (jadwal Des sudah jauh lewat).
-// Fix: tambahkan guard isPast2Months sebelum reactivate.
+// Perubahan dari versi sebelumnya:
+// — GET: expose `lastReviewedAt` (dari kolom last_reviewed_at) di setiap row response
+//   sehingga frontend bisa menampilkan indikator "Baru Direview".
+// — Semua logic auto-expire, auto-reactivate, auto-schedule TIDAK berubah.
 
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
@@ -76,17 +71,8 @@ async function autoExpire(
 }
 
 // ─── Langkah 2: auto-reactivate → Menunggu ───────────────────────────────────
-// FIX: tambahkan guard isPast2Months.
-// Dokumen yang approval-nya sudah lewat lebih dari 2 bulan (Feb, Mar, dst)
-// TIDAK boleh di-reactivate, walaupun isScheduleMonthReached = true,
-// karena window review-nya sudah selesai.
-//
-// Contoh yang HARUS di-reactivate:
-//   Sekarang 22 Apr, approval 15 Jun → jadwal 15 Apr → reached, belum expired → reactivate ✓
-//
-// Contoh yang TIDAK boleh di-reactivate:
-//   Sekarang 22 Apr, approval 22 Feb → isPast2Months = true → SKIP ✗
-//   Sekarang 22 Apr, approval 11 Mar → isPast2Months = true → SKIP ✗
+// GUARD: dokumen yang approval-nya sudah lewat lebih dari 2 bulan TIDAK di-reactivate.
+// Window review-nya sudah selesai → tetap Relevan.
 async function autoReactivate(
   client: any,
   nomorDokumen: string,
@@ -95,8 +81,7 @@ async function autoReactivate(
 ): Promise<string> {
   if (status !== 'Relevan') return status;
 
-  // ✅ GUARD BARU: jika approval sudah lewat lebih dari 2 bulan → jangan reactivate
-  // Window review sudah selesai, dokumen harus tetap Relevan
+  // Jika approval sudah lewat lebih dari 2 bulan → jangan reactivate
   if (isPast2Months(tanggal)) return status;
 
   // Aktifkan hanya jika sudah masuk jadwal kirim (2 bulan sebelum approval)
@@ -201,32 +186,30 @@ async function resolveInitialStatus(
   return 'Relevan';
 }
 
-// ── GET ─────────────────────────────────────────────────────────────────────
+// ── GET ───────────────────────────────────────────────────────────────────────
 export async function GET(request: NextRequest) {
   const client = await pool.connect();
   try {
     const { searchParams } = new URL(request.url);
     const picParam = searchParams.get('pic');
- 
-    let query: string;
+
+    let query:  string;
     let values: any[] = [];
- 
+
     if (picParam) {
-      // FIX: Deteksi apakah parameter adalah email (mengandung '@') atau kode PIC
       if (picParam.includes('@')) {
         // Login baru: parameter adalah email lengkap seperti "dp@jai.co.id"
         // Ekstrak kode dari email: "dp@jai.co.id" → "DP"
-        // Juga cari di kolom email untuk backward compat
         const emailLocalPart = picParam.split('@')[0].trim().toUpperCase();
         const picCodes = emailLocalPart
           .split(',')
           .map((c: string) => c.trim())
           .filter((c: string) => c.length > 0);
- 
+
         const conditions: string[] = [];
         values = [];
         let idx = 1;
- 
+
         // Match berdasarkan kode pic di kolom `pic`
         for (const code of picCodes) {
           conditions.push(
@@ -235,12 +218,12 @@ export async function GET(request: NextRequest) {
           values.push(code);
           idx++;
         }
- 
+
         // Match berdasarkan email di kolom `email` (untuk data baru)
         conditions.push(`pd.email ILIKE $${idx}`);
         values.push(`%${picParam}%`);
         idx++;
- 
+
         query = `
           SELECT pd.*,
                  es.last_sent_at,
@@ -252,7 +235,6 @@ export async function GET(request: NextRequest) {
         `;
       } else {
         // Login lama / filter langsung dengan kode PIC: ?pic=DP
-        // Gunakan logika exact match setelah split koma
         query = `
           SELECT pd.*,
                  es.last_sent_at,
@@ -276,9 +258,9 @@ export async function GET(request: NextRequest) {
       `;
       values = [];
     }
- 
+
     const result = await client.query(query, values);
- 
+
     const procedures = await Promise.all(
       result.rows.map(async (row: any) => {
         const resolvedStatus = await runAutoStatusChain(
@@ -287,7 +269,7 @@ export async function GET(request: NextRequest) {
           row.tanggal_selesai_approval,
           row.status
         );
- 
+
         return {
           id:                     row.id,
           namaDokumen:            row.nama_dokumen,
@@ -303,11 +285,14 @@ export async function GET(request: NextRequest) {
           createdAt:              row.created_at,
           updatedAt:              row.updated_at,
           lastSentAt:             row.last_sent_at        ?? null,
-          scheduledEmailAt:       row.scheduled_email_at ?? null,
+          scheduledEmailAt:       row.scheduled_email_at  ?? null,
+          // ✅ Field baru: digunakan frontend untuk indikator "Baru Direview"
+          // Kolom ini diisi oleh api/reviews setiap kali PIC submit review
+          lastReviewedAt:         row.last_reviewed_at    ?? null,
         };
       })
     );
- 
+
     return NextResponse.json(procedures);
   } catch (error) {
     console.error('Error fetching procedures:', error);
@@ -320,14 +305,12 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// =============================================================================
-// POST — Tambah dokumen baru
-// =============================================================================
+// ── POST — Tambah dokumen baru ────────────────────────────────────────────────
 export async function POST(request: NextRequest) {
   const client = await pool.connect();
   try {
-    const body        = await request.json();
-    const needsReview: boolean | null = body.needsReview ?? null;
+    const body                      = await request.json();
+    const needsReview: boolean|null = body.needsReview ?? null;
 
     const status = await resolveInitialStatus(
       client,
@@ -400,6 +383,8 @@ export async function POST(request: NextRequest) {
         email:                  row.email,
         status:                 row.status,
         isCustom:               row.is_custom,
+        // last_reviewed_at null untuk dokumen baru (belum pernah direview)
+        lastReviewedAt:         null,
       },
       { status: 201 }
     );

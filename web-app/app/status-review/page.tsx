@@ -7,7 +7,7 @@ import {
   StatusType,
   getAllProcedures,
   getDocumentReview,
-  archiveProcedure  
+  archiveProcedure,
 } from '@/data/procedures/all-procedures';
 import Link from 'next/link';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
@@ -17,7 +17,6 @@ import EditProcedureModal from '@/components/status-review/EditProcedureModal';
 
 function Breadcrumb() {
   return (
-    // CHANGE: text-sm → text-xs, mb-4 → mb-2
     <div className="flex items-center gap-2 text-xs text-slate-600 mb-2">
       <Link href="/home" className="hover:text-blue-600 transition-colors">
         Dashboard Admin
@@ -41,7 +40,6 @@ function StatusBadge({ status }: { status: StatusType }) {
   };
   const { bg, text, border, icon } = styles[status] || styles['-'];
   return (
-    // CHANGE: px-3 py-1.5 rounded-lg text-sm → px-2 py-0.5 rounded-md text-xs, gap-1.5 → gap-1
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold whitespace-nowrap border ${bg} ${text} ${border}`}>
       {icon} {status}
     </span>
@@ -111,6 +109,71 @@ function resolveDisplayStatus(
   return doc.status;
 }
 
+// =============================================================================
+// isRecentlyReviewed
+// True jika PIC telah submit review dalam RECENTLY_REVIEWED_DAYS hari terakhir.
+// Hanya berlaku untuk status hasil review: Relevan, Revisi, Obsolete.
+// =============================================================================
+const RECENTLY_REVIEWED_DAYS = 3;
+
+function isRecentlyReviewed(doc: ProcedureDocument): boolean {
+  if (!doc.lastReviewedAt) return false;
+  // Hanya tampil untuk status yang merupakan hasil review PIC
+  if (!['Relevan', 'Revisi', 'Obsolete'].includes(doc.status)) return false;
+  const reviewedAt = new Date(doc.lastReviewedAt);
+  if (isNaN(reviewedAt.getTime())) return false;
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - RECENTLY_REVIEWED_DAYS);
+  return reviewedAt >= cutoff;
+}
+
+// =============================================================================
+// RecentlyReviewedBadge
+// Badge visual "Baru Direview" dengan animated pulse dot + waktu relatif.
+// Ditampilkan di bawah StatusBadge pada kolom Status.
+// =============================================================================
+function RecentlyReviewedBadge({ lastReviewedAt }: { lastReviewedAt: string }) {
+  const reviewedAt = new Date(lastReviewedAt);
+
+  function formatRelative(date: Date): string {
+    const diffMs   = Date.now() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60_000);
+    const diffHrs  = Math.floor(diffMs / 3_600_000);
+    const diffDays = Math.floor(diffMs / 86_400_000);
+
+    if (diffMins < 1)   return 'baru saja';
+    if (diffMins < 60)  return `${diffMins} menit lalu`;
+    if (diffHrs  < 24)  return `${diffHrs} jam lalu`;
+    return `${diffDays} hari lalu`;
+  }
+
+  const tooltipText = `Direview oleh PIC: ${reviewedAt.toLocaleString('id-ID', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })}`;
+
+  return (
+    <span
+      title={tooltipText}
+      className="
+        inline-flex items-center gap-1
+        px-1.5 py-0.5
+        rounded-md
+        text-[10px] font-semibold
+        bg-violet-50 text-violet-700 border border-violet-200
+        whitespace-nowrap cursor-default select-none
+      "
+    >
+      {/* Animated pulse dot */}
+      <span className="relative flex h-1.5 w-1.5 shrink-0">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75" />
+        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-violet-500" />
+      </span>
+      Baru direview · {formatRelative(reviewedAt)}
+    </span>
+  );
+}
+
 // ── Highlight component ───────────────────────────────────────────────────────
 function Highlight({ text, keyword }: { text: string; keyword: string }) {
   if (!keyword.trim()) return <>{text}</>;
@@ -163,7 +226,6 @@ function SortableTh({
   return (
     <th
       onClick={() => onSort(colKey)}
-      // CHANGE: px-5 py-4 text-xs → px-4 py-2.5 text-[11px]
       className="px-4 py-2.5 text-left text-[11px] font-bold text-slate-700 uppercase tracking-wider
                  cursor-pointer select-none group hover:bg-slate-100 transition-colors"
       title="Klik 1× → A→Z, klik 2× → Z→A, klik 3× → reset"
@@ -176,7 +238,7 @@ function SortableTh({
   );
 }
 
-// ── ProceduresTable (tanpa inline-edit) ──────────────────────────────────────
+// ── ProceduresTable ───────────────────────────────────────────────────────────
 function ProceduresTable({
   data,
   onDelete,
@@ -202,7 +264,6 @@ function ProceduresTable({
     <SortableTh label={label} colKey={colKey}
       currentSort={sortKey} currentDir={sortDir} onSort={onSort} />
   );
-  // CHANGE: px-5 py-4 text-xs → px-4 py-2.5 text-[11px]
   const plainTh = (label: string) => (
     <th className="px-4 py-2.5 text-left text-[11px] font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">
       {label}
@@ -237,7 +298,6 @@ function ProceduresTable({
                 className="transition-colors hover:bg-blue-50/40"
               >
                 {/* Nama Dokumen */}
-                {/* CHANGE: px-5 py-3 → px-4 py-2 */}
                 <td className="px-4 py-2">
                   <button
                     onClick={() => onDocumentClick(row.nomorDokumen, row.namaDokumen)}
@@ -280,9 +340,16 @@ function ProceduresTable({
                   <Highlight text={row.email || '-'} keyword={searchKeyword} />
                 </td>
 
-                {/* Status */}
+                {/* ── Status ── */}
+                {/* StatusBadge tetap di atas, RecentlyReviewedBadge muncul di bawahnya */}
+                {/* jika PIC baru review dalam 3 hari terakhir                           */}
                 <td className="px-4 py-2">
-                  <StatusBadge status={row.status} />
+                  <div className="flex flex-col gap-1 items-start">
+                    <StatusBadge status={row.status} />
+                    {isRecentlyReviewed(row) && row.lastReviewedAt && (
+                      <RecentlyReviewedBadge lastReviewedAt={row.lastReviewedAt} />
+                    )}
+                  </div>
                 </td>
 
                 {/* Jadwal Email */}
@@ -328,7 +395,7 @@ function ProceduresTable({
                 {/* Aksi */}
                 <td className="px-4 py-2">
                   <div className="flex items-center gap-1">
-                    {/* Tombol Edit — membuka modal */}
+                    {/* Tombol Edit */}
                     <button
                       onClick={() => onEditClick(row)}
                       className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md
@@ -342,7 +409,6 @@ function ProceduresTable({
                     </button>
 
                     {/* Tombol Hapus / Arsip */}
-                    {/* CHANGE: px-3 py-1.5 text-sm → px-2 py-1 text-xs */}
                     <button
                       onClick={() => onDelete(row.nomorDokumen)}
                       className="px-2 py-1 text-red-600 hover:text-red-800 hover:bg-red-50
@@ -379,7 +445,6 @@ function Pagination({
   endIndex: number; totalItems: number; onPrevious: () => void; onNext: () => void;
 }) {
   return (
-    // CHANGE: px-6 py-4 → px-5 py-2.5, text-sm → text-xs
     <div className="px-5 py-2.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
       <div className="text-xs text-slate-600">
         Menampilkan <span className="font-semibold">{startIndex}</span> sampai{' '}
@@ -387,7 +452,6 @@ function Pagination({
         <span className="font-semibold">{totalItems}</span> entri
       </div>
       <div className="flex gap-1.5">
-        {/* CHANGE: px-3 py-2 text-sm → px-3 py-1.5 text-xs */}
         <button onClick={onPrevious} disabled={currentPage === 1}
           className="px-3 py-1.5 border border-slate-300 bg-white rounded-md text-xs font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-400 disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-95">
           ← Sebelumnya
@@ -423,7 +487,7 @@ function Controls({
   return (
     <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
 
-      {/* ── LEFT: filters ───────────────────────────────────────────── */}
+      {/* ── LEFT: filters ─────────────────────────────────────────── */}
       <div className="flex items-center gap-2 flex-wrap">
 
         {/* Search */}
@@ -489,14 +553,14 @@ function Controls({
         </select>
       </div>
 
-      {/* ── RIGHT: actions ──────────────────────────────────────────── */}
+      {/* ── RIGHT: actions ────────────────────────────────────────── */}
       <div className="flex items-center gap-1.5">
 
-        {/* TERTIARY — Arsip Prosedur: ghost/subtle */}
+        {/* Arsip Prosedur */}
         <Link href="/arsip-prosedur">
           <button
-            className="bg-slate-600 hover:bg-slate-700 h-[30px] px-3 rounded-lg text-xs font-medium text-white 
-                      border border-transparent hover:border-slate-700
+            className="bg-slate-600 hover:bg-slate-700 h-[30px] px-3 rounded-lg text-xs font-medium text-white
+                       border border-transparent hover:border-slate-700
                        flex items-center gap-1.5 transition-all active:scale-95"
             title="Lihat arsip prosedur"
           >
@@ -507,7 +571,7 @@ function Controls({
           </button>
         </Link>
 
-        {/* SECONDARY — Atur Jadwal: outline blue */}
+        {/* Atur Jadwal */}
         <button
           onClick={onOpenEmailSchedule}
           className="h-[30px] px-3 rounded-lg text-xs font-medium text-blue-600 hover:text-blue-700
@@ -523,7 +587,7 @@ function Controls({
           Atur Jadwal
         </button>
 
-        {/* SECONDARY — Download Excel: solid green */}
+        {/* Download Excel */}
         <button
           onClick={onDownloadExcel}
           className="h-[30px] px-3 rounded-lg text-xs font-medium text-white
@@ -538,10 +602,10 @@ function Controls({
           Excel
         </button>
 
-        {/* Divider before primary CTA */}
+        {/* Divider */}
         <div className="w-px h-5 bg-slate-200" />
 
-        {/* PRIMARY — Tambah Prosedur */}
+        {/* Tambah Prosedur */}
         <button
           onClick={onAddProcedure}
           className="h-[30px] px-3.5 rounded-lg text-xs font-semibold text-white
@@ -561,9 +625,7 @@ function Controls({
 
 const ROWS_PER_PAGE = 10;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// AutoResizeTextarea — tinggi mengikuti konten secara otomatis
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── AutoResizeTextarea ───────────────────────────────────────────────────────
 interface AutoResizeTextareaProps {
   value: string;
   onChange: (v: string) => void;
@@ -654,15 +716,13 @@ function AddProcedureModal({
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl w-full max-w-2xl shadow-2xl">
-        {/* CHANGE: px-6 py-4 → px-5 py-3 */}
         <div className="px-5 py-3 border-b border-slate-200 bg-gradient-to-r from-blue-50 to-blue-100">
           <h3 className="text-base font-bold text-slate-900">Tambah Prosedur Baru</h3>
           <p className="text-xs text-slate-600 mt-0.5">Isi semua kolom dengan informasi yang akurat</p>
         </div>
-        {/* CHANGE: p-6 gap-4 → p-5 gap-3 */}
         <div className="p-5 grid grid-cols-2 gap-3">
 
-          {/* Nama Dokumen — textarea auto-resize, selalu full width */}
+          {/* Nama Dokumen */}
           <div className="col-span-2">
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
               Nama Dokumen
@@ -704,7 +764,7 @@ function AddProcedureModal({
             />
           </div>
 
-          {/* Owner — textarea: nama unit bisa panjang */}
+          {/* Owner */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">Owner</label>
             <AutoResizeTextarea
@@ -827,7 +887,6 @@ function AddProcedureModal({
             </div>
           )}
         </div>
-        {/* CHANGE: px-6 py-4 → px-5 py-3 */}
         <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex justify-end gap-2">
           <button onClick={onClose} disabled={isSaving}
             className="px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-200 rounded-lg transition-all active:scale-95">
@@ -858,6 +917,9 @@ function formatToDDMonYYYY(iso: string): string {
   return `${d.getDate()}-${MONTH_NAMES[d.getMonth()]}-${d.getFullYear()}`;
 }
 
+// =============================================================================
+// StatusReviewPage — halaman utama
+// =============================================================================
 export default function StatusReviewPage() {
   const [searchValue,      setSearchValue]      = useState('');
   const [debouncedSearch,  setDebouncedSearch]  = useState('');
@@ -914,9 +976,9 @@ export default function StatusReviewPage() {
       const withReviews = await Promise.all(
         procedures.map(async (doc) => {
           if (workflowStatuses.includes(doc.status)) return doc;
-          const docDate = new Date(doc.tanggalSelesaiApproval);
+          const docDate      = new Date(doc.tanggalSelesaiApproval);
           const approvalMonth = isNaN(docDate.getTime()) ? new Date().getMonth() : docDate.getMonth();
-          const review = await getDocumentReview(doc.nomorDokumen, approvalMonth);
+          const review       = await getDocumentReview(doc.nomorDokumen, approvalMonth);
           if (review && ['Relevan', 'Revisi', 'Obsolete'].includes(review.status)) {
             return { ...doc, status: review.status as StatusType, revisi: review.revisi };
           }
@@ -978,7 +1040,6 @@ export default function StatusReviewPage() {
 
   const handleEditClose = () => {
     setIsEditModalOpen(false);
-    // Delay clearing procedure so exit animation can play
     setTimeout(() => setEditingProcedure(null), 250);
   };
 
@@ -1149,15 +1210,10 @@ export default function StatusReviewPage() {
     <ProtectedRoute>
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50">
         <Header />
-        {/* CHANGE: px-8 py-8 → px-6 py-4 */}
         <div className="max-w-[1600px] mx-auto px-6 py-4">
           <Breadcrumb />
-          {/* CHANGE: mb-8 → mb-4, text-4xl → text-2xl, mb-3 → mb-1, text-base → text-sm */}
           <div className="mb-4">
             <h1 className="text-2xl font-bold text-slate-900 mb-1">Status Prosedur</h1>
-            {/* <p className="text-sm text-slate-600 max-w-2xl">
-              Memantau perkembangan review, status relevansi, dan riwayat revisi dokumen.
-            </p> */}
           </div>
 
           <Controls
@@ -1171,7 +1227,6 @@ export default function StatusReviewPage() {
           />
 
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            {/* CHANGE: px-6 py-5 → px-5 py-3, text-lg → text-sm, mt-1 → mt-0.5 */}
             <div className="px-5 py-3 bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200">
               <h2 className="font-bold text-sm text-slate-900">Daftar Dokumen Prosedur</h2>
               <p className="text-xs text-slate-600 mt-0.5">Total: {filteredData.length} dokumen</p>
@@ -1210,7 +1265,7 @@ export default function StatusReviewPage() {
           isSaving={isSaving}
         />
 
-        {/* ── Edit Prosedur Modal (card-based, menggantikan inline edit) ── */}
+        {/* ── Edit Prosedur Modal ── */}
         <EditProcedureModal
           isOpen={isEditModalOpen}
           onClose={handleEditClose}

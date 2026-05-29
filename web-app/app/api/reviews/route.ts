@@ -4,14 +4,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { logActivity } from '@/lib/activityLogger';
 
-// GET - Ambil review berdasarkan nomorDokumen dan bulan
+// ─── GET — Ambil review berdasarkan nomorDokumen dan bulan ────────────────────
 export async function GET(request: NextRequest) {
   const client = await pool.connect();
-  
+
   try {
     const { searchParams } = new URL(request.url);
     const nomorDokumen = searchParams.get('nomorDokumen');
-    const month = searchParams.get('month');
+    const month        = searchParams.get('month');
 
     if (!nomorDokumen || !month) {
       return NextResponse.json(
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     }
 
     const query = `
-      SELECT * FROM document_reviews 
+      SELECT * FROM document_reviews
       WHERE nomor_dokumen = $1 AND last_reviewed_month = $2
     `;
 
@@ -31,15 +31,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(null);
     }
 
-    const row = result.rows[0];
+    const row    = result.rows[0];
     const review = {
-      id: row.id,
-      nomorDokumen: row.nomor_dokumen,
-      status: row.status,
-      revisi: row.revisi,
+      id:                row.id,
+      nomorDokumen:      row.nomor_dokumen,
+      status:            row.status,
+      revisi:            row.revisi,
       lastReviewedMonth: row.last_reviewed_month,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
+      createdAt:         row.created_at,
+      updatedAt:         row.updated_at,
     };
 
     return NextResponse.json(review);
@@ -54,30 +54,30 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - Simpan/update review
+// ─── POST — Simpan/update review (single) ─────────────────────────────────────
 export async function POST(request: NextRequest) {
   const client = await pool.connect();
-  
+
   try {
     const body = await request.json();
     const { nomorDokumen, status, revisi, lastReviewedMonth } = body;
 
-    // Ambil nama dokumen dari database
-    const docQuery = 'SELECT nama_dokumen FROM procedure_documents WHERE nomor_dokumen = $1';
+    // Ambil nama dokumen untuk keperluan log activity
+    const docQuery  = 'SELECT nama_dokumen FROM procedure_documents WHERE nomor_dokumen = $1';
     const docResult = await client.query(docQuery, [nomorDokumen]);
     const namaDokumen = docResult.rows[0]?.nama_dokumen || nomorDokumen;
 
     await client.query('BEGIN');
 
-    // Upsert review
+    // Upsert ke tabel document_reviews
     const upsertQuery = `
       INSERT INTO document_reviews (nomor_dokumen, status, revisi, last_reviewed_month)
       VALUES ($1, $2, $3, $4)
       ON CONFLICT (nomor_dokumen, last_reviewed_month)
-      DO UPDATE SET 
-        status = EXCLUDED.status,
-        revisi = EXCLUDED.revisi,
-        updated_at = CURRENT_TIMESTAMP
+      DO UPDATE SET
+        status             = EXCLUDED.status,
+        revisi             = EXCLUDED.revisi,
+        updated_at         = CURRENT_TIMESTAMP
       RETURNING *
     `;
 
@@ -85,35 +85,38 @@ export async function POST(request: NextRequest) {
       nomorDokumen,
       status,
       revisi,
-      lastReviewedMonth
+      lastReviewedMonth,
     ]);
 
-    // Update procedure document
+    // Update procedure_documents — selalu set last_reviewed_at = NOW()
+    // agar indikator "Baru Direview" bisa ditampilkan di halaman admin
     const updateProcedureQuery = `
-      UPDATE procedure_documents 
-      SET status = $1, revisi = $2, updated_at = CURRENT_TIMESTAMP
-      WHERE nomor_dokumen = $3
+      UPDATE procedure_documents
+      SET status           = $1,
+          revisi           = $2,
+          last_reviewed_at = NOW(),
+          updated_at       = CURRENT_TIMESTAMP
+      WHERE nomor_dokumen  = $3
     `;
 
     await client.query(updateProcedureQuery, [status, revisi, nomorDokumen]);
 
     await client.query('COMMIT');
 
-    // ✅ Tambahkan log activity setelah review berhasil disimpan
     await logActivity({
-      username: 'user', // bisa diganti dengan username dari session
-      activityType: 'review',
+      username:            'user',
+      activityType:        'review',
       activityDescription: `Review ${status} untuk ${namaDokumen}`,
-      targetType: 'review',
-      targetId: nomorDokumen,
+      targetType:          'review',
+      targetId:            nomorDokumen,
     });
 
-    const row = reviewResult.rows[0];
+    const row    = reviewResult.rows[0];
     const review = {
-      id: row.id,
-      nomorDokumen: row.nomor_dokumen,
-      status: row.status,
-      revisi: row.revisi,
+      id:                row.id,
+      nomorDokumen:      row.nomor_dokumen,
+      status:            row.status,
+      revisi:            row.revisi,
       lastReviewedMonth: row.last_reviewed_month,
     };
 
@@ -130,19 +133,19 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PATCH - Batch update reviews
+// ─── PATCH — Batch update reviews ────────────────────────────────────────────
 export async function PATCH(request: NextRequest) {
   const client = await pool.connect();
-  
+
   try {
-    const body = await request.json();
-    const { reviews, username } = body; // ✅ AMBIL username dari request
+    const body             = await request.json();
+    const { reviews, username } = body;
 
     await client.query('BEGIN');
 
     for (const review of reviews) {
-      // Ambil nama dokumen dari database
-      const docQuery = 'SELECT nama_dokumen FROM procedure_documents WHERE nomor_dokumen = $1';
+      // Ambil nama dokumen untuk keperluan log activity
+      const docQuery  = 'SELECT nama_dokumen FROM procedure_documents WHERE nomor_dokumen = $1';
       const docResult = await client.query(docQuery, [review.nomorDokumen]);
       const namaDokumen = docResult.rows[0]?.nama_dokumen || review.nomorDokumen;
 
@@ -150,9 +153,9 @@ export async function PATCH(request: NextRequest) {
         INSERT INTO document_reviews (nomor_dokumen, status, revisi, last_reviewed_month)
         VALUES ($1, $2, $3, $4)
         ON CONFLICT (nomor_dokumen, last_reviewed_month)
-        DO UPDATE SET 
-          status = EXCLUDED.status,
-          revisi = EXCLUDED.revisi,
+        DO UPDATE SET
+          status     = EXCLUDED.status,
+          revisi     = EXCLUDED.revisi,
           updated_at = CURRENT_TIMESTAMP
       `;
 
@@ -160,29 +163,33 @@ export async function PATCH(request: NextRequest) {
         review.nomorDokumen,
         review.status,
         review.revisi,
-        review.lastReviewedMonth
+        review.lastReviewedMonth,
       ]);
 
+      // Update procedure_documents — selalu set last_reviewed_at = NOW()
+      // agar indikator "Baru Direview" bisa ditampilkan di halaman admin
       const updateProcedureQuery = `
-        UPDATE procedure_documents 
-        SET status = $1, revisi = $2, updated_at = CURRENT_TIMESTAMP
-        WHERE nomor_dokumen = $3
+        UPDATE procedure_documents
+        SET status           = $1,
+            revisi           = $2,
+            last_reviewed_at = NOW(),
+            updated_at       = CURRENT_TIMESTAMP
+        WHERE nomor_dokumen  = $3
       `;
 
       await client.query(updateProcedureQuery, [
         review.status,
         review.revisi,
-        review.nomorDokumen
+        review.nomorDokumen,
       ]);
 
-      // ✅ GUNAKAN USERNAME YANG DIKIRIM (PIC atau admin)
       const actorUsername = username || 'user';
       await logActivity({
-        username: actorUsername,
-        activityType: 'review',
+        username:            actorUsername,
+        activityType:        'review',
         activityDescription: `Batch review ${review.status} untuk ${namaDokumen}`,
-        targetType: 'review',
-        targetId: review.nomorDokumen,
+        targetType:          'review',
+        targetId:            review.nomorDokumen,
       });
     }
 

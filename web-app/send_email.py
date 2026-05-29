@@ -21,7 +21,7 @@ DB_CONFIG = {
 # KONFIGURASI EMAIL (SMTP INTERNAL)
 # ==============================
 
-SMTP_SERVER = "IP_SMTP_KAMU"   # contoh: 192.168.1.10
+SMTP_SERVER = "10.62.231.17"   # contoh: 192.168.1.10
 SMTP_PORT   = 25
 
 EMAIL_SENDER = "noreply.pens@jai.co.id"
