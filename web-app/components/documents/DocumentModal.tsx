@@ -4,6 +4,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import PDFViewer from './PDFViewer';
 import FileUploader from './FileUploader';
+import { markReviewAsSeen } from '@/data/procedures/all-procedures';
 
 interface FileInfo {
   id: number;
@@ -24,6 +25,18 @@ interface DocumentModalProps {
   namaDokumen: string;
   /** Jika true, tombol "Upload Versi Baru" disembunyikan (untuk halaman PIC) */
   hideUpload?: boolean;
+  /**
+   * Jika true, modal ini dibuka dari halaman admin dan perlu menandai
+   * review sebagai sudah dilihat (review_seen_at = NOW()).
+   * Default: false — halaman PIC tidak perlu menandai.
+   */
+  markSeenOnOpen?: boolean;
+  /**
+   * Callback opsional setelah review berhasil ditandai sudah dilihat.
+   * Gunakan ini untuk refresh state di parent component
+   * (misalnya update badge di tabel tanpa full reload).
+   */
+  onReviewSeen?: (nomorDokumen: string) => void;
 }
 
 function formatFileSize(bytes: number): string {
@@ -37,7 +50,7 @@ function formatDate(iso: string): string {
   if (!iso) return '';
   try {
     return new Date(iso).toLocaleDateString('id-ID', {
-      day: '2-digit', month: 'short', year: 'numeric'
+      day: '2-digit', month: 'short', year: 'numeric',
     });
   } catch { return iso; }
 }
@@ -47,20 +60,24 @@ export default function DocumentModal({
   onClose,
   nomorDokumen,
   namaDokumen,
-  hideUpload = false,
+  hideUpload    = false,
+  markSeenOnOpen = false,
+  onReviewSeen,
 }: DocumentModalProps) {
-  const [fileInfo,      setFileInfo]      = useState<FileInfo | null>(null);
-  const [loading,       setLoading]       = useState(false);
-  const [showUploader,  setShowUploader]  = useState(false);
-  const [blobUrl,       setBlobUrl]       = useState<string | null>(null);
+  const [fileInfo,     setFileInfo]     = useState<FileInfo | null>(null);
+  const [loading,      setLoading]      = useState(false);
+  const [showUploader, setShowUploader] = useState(false);
+  const [blobUrl,      setBlobUrl]      = useState<string | null>(null);
   const blobRef = useRef<string | null>(null);
 
-  // Fetch metadata file
+  // ── Fetch metadata file ───────────────────────────────────────────────────
   const fetchFileInfo = useCallback(async () => {
     if (!nomorDokumen) return;
     try {
       setLoading(true);
-      const res = await fetch(`/review-prosedur/api/files/get?nomorDokumen=${encodeURIComponent(nomorDokumen)}`);
+      const res = await fetch(
+        `/review-prosedur/api/files/get?nomorDokumen=${encodeURIComponent(nomorDokumen)}`
+      );
       if (!res.ok) throw new Error('Gagal mengambil metadata');
       const data = await res.json();
       setFileInfo(data.file || null);
@@ -72,17 +89,16 @@ export default function DocumentModal({
     }
   }, [nomorDokumen]);
 
-  // Buat blob URL untuk download (tombol Download PDF)
-  // PDFViewer sudah membuat blob URL-nya sendiri untuk tampilan,
-  // tapi kita butuh blob URL terpisah untuk tombol download.
+  // ── Buat blob URL untuk tombol Download PDF ───────────────────────────────
   const fetchBlobForDownload = useCallback(async (filePath: string) => {
     try {
       const cleanPath = filePath.startsWith('/') ? filePath.slice(1) : filePath;
-      const res = await fetch(`/review-prosedur/api/files/serve?path=${encodeURIComponent(cleanPath)}`);
+      const res = await fetch(
+        `/review-prosedur/api/files/serve?path=${encodeURIComponent(cleanPath)}`
+      );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
-      const url = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
-      // Revoke yang lama kalau ada
+      const url  = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
       if (blobRef.current) URL.revokeObjectURL(blobRef.current);
       blobRef.current = url;
       setBlobUrl(url);
@@ -91,12 +107,22 @@ export default function DocumentModal({
     }
   }, []);
 
+  // ── Effect saat modal dibuka ──────────────────────────────────────────────
   useEffect(() => {
     if (isOpen && nomorDokumen) {
       setShowUploader(false);
       setBlobUrl(null);
       fetchFileInfo();
+
+      // Tandai review sudah dilihat admin jika prop markSeenOnOpen aktif.
+      // Fire-and-forget: tidak perlu await agar tidak memblokir modal render.
+      if (markSeenOnOpen) {
+        markReviewAsSeen(nomorDokumen).then(() => {
+          onReviewSeen?.(nomorDokumen);
+        });
+      }
     }
+
     // Cleanup blob URL saat modal ditutup
     return () => {
       if (blobRef.current) {
@@ -105,16 +131,16 @@ export default function DocumentModal({
         setBlobUrl(null);
       }
     };
-  }, [isOpen, nomorDokumen, fetchFileInfo]);
+  }, [isOpen, nomorDokumen, fetchFileInfo, markSeenOnOpen, onReviewSeen]);
 
-  // Setelah fileInfo tersedia, siapkan blob URL untuk tombol download
+  // ── Siapkan blob URL untuk tombol download setelah fileInfo tersedia ──────
   useEffect(() => {
     if (fileInfo?.filePath) {
       fetchBlobForDownload(fileInfo.filePath);
     }
   }, [fileInfo, fetchBlobForDownload]);
 
-  // Tutup dengan Escape
+  // ── Tutup dengan Escape ───────────────────────────────────────────────────
   useEffect(() => {
     if (!isOpen) return;
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -124,15 +150,14 @@ export default function DocumentModal({
 
   const handleDownload = () => {
     if (!blobUrl || !fileInfo) return;
-    const a = document.createElement('a');
-    a.href = blobUrl;
-    a.download = fileInfo.fileName || `${nomorDokumen}.pdf`;
+    const a      = document.createElement('a');
+    a.href       = blobUrl;
+    a.download   = fileInfo.fileName || `${nomorDokumen}.pdf`;
     a.click();
   };
 
   const handleUploadSuccess = () => {
     setShowUploader(false);
-    // Revoke blob lama
     if (blobRef.current) {
       URL.revokeObjectURL(blobRef.current);
       blobRef.current = null;
@@ -219,7 +244,6 @@ export default function DocumentModal({
           )}
 
           {!loading && fileInfo && !showUploader && (
-            /* PDFViewer membuat blob URL-nya sendiri secara internal */
             <PDFViewer
               filePath={fileInfo.filePath}
               fileName={fileInfo.fileName}
@@ -247,7 +271,6 @@ export default function DocumentModal({
               : 'Belum ada dokumen yang diupload'}
           </p>
           <div className="flex gap-3">
-            {/* Tombol download menggunakan blob URL — IDM tidak bisa mengintersep */}
             {fileInfo && blobUrl && !showUploader && (
               <button
                 onClick={handleDownload}

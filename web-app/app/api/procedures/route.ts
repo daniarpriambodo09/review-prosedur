@@ -1,22 +1,19 @@
 // app/api/procedures/route.ts
 //
 // Perubahan dari versi sebelumnya:
-// — GET: expose `lastReviewedAt` (dari kolom last_reviewed_at) di setiap row response
-//   sehingga frontend bisa menampilkan indikator "Baru Direview".
-// — Semua logic auto-expire, auto-reactivate, auto-schedule TIDAK berubah.
+// — GET: expose `reviewSeenAt` (dari kolom review_seen_at) di setiap row response
+//   sehingga frontend bisa menentukan apakah badge "Baru Direview" perlu ditampilkan.
+//
+// Kondisi badge tampil di frontend:
+//   lastReviewedAt !== null  &&  reviewSeenAt === null
+//
+// Semua logika auto-expire, auto-reactivate, auto-schedule TIDAK berubah.
 
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { logActivity } from '@/lib/activityLogger';
 
 const PROTECTED_STATUSES = ['Revisi', 'Obsolete', 'Relevan', 'Telah dibaca'];
-
-function isSameMonthYear(tanggal: string): boolean {
-  const d = new Date(tanggal);
-  if (isNaN(d.getTime())) return false;
-  const now = new Date();
-  return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-}
 
 function isPast2Months(tanggal: string): boolean {
   const d = new Date(tanggal);
@@ -35,7 +32,7 @@ function getScheduledSendDate(tanggalApproval: string): Date {
 }
 
 function resolveScheduledAt(tanggalApproval: string, needsReview: boolean | null): Date {
-  const now = new Date();
+  const now      = new Date();
   if (needsReview === true) return now;
   const autoDate = getScheduledSendDate(tanggalApproval);
   if (now >= autoDate) return now;
@@ -43,8 +40,7 @@ function resolveScheduledAt(tanggalApproval: string, needsReview: boolean | null
 }
 
 function isScheduleDateReached(tanggalApproval: string): boolean {
-  const scheduledDate = getScheduledSendDate(tanggalApproval);
-  return new Date() >= scheduledDate;
+  return new Date() >= getScheduledSendDate(tanggalApproval);
 }
 
 function isScheduleMonthReached(tanggalApproval: string): boolean {
@@ -60,7 +56,6 @@ async function autoExpire(
 ): Promise<string> {
   if (status !== '-') return status;
   if (!isPast2Months(tanggal)) return status;
-
   await client.query(
     `UPDATE procedure_documents
      SET status = 'Relevan', updated_at = CURRENT_TIMESTAMP
@@ -71,8 +66,7 @@ async function autoExpire(
 }
 
 // ─── Langkah 2: auto-reactivate → Menunggu ───────────────────────────────────
-// GUARD: dokumen yang approval-nya sudah lewat lebih dari 2 bulan TIDAK di-reactivate.
-// Window review-nya sudah selesai → tetap Relevan.
+// GUARD: dokumen yang approval-nya sudah > 2 bulan lewat TIDAK di-reactivate.
 async function autoReactivate(
   client: any,
   nomorDokumen: string,
@@ -80,13 +74,8 @@ async function autoReactivate(
   status: string
 ): Promise<string> {
   if (status !== 'Relevan') return status;
-
-  // Jika approval sudah lewat lebih dari 2 bulan → jangan reactivate
   if (isPast2Months(tanggal)) return status;
-
-  // Aktifkan hanya jika sudah masuk jadwal kirim (2 bulan sebelum approval)
   if (!isScheduleMonthReached(tanggal)) return status;
-
   await client.query(
     `UPDATE procedure_documents
      SET status = 'Menunggu', updated_at = CURRENT_TIMESTAMP
@@ -104,12 +93,10 @@ async function autoScheduleAndActivate(
   status: string
 ): Promise<string> {
   if (status !== 'Menunggu') return status;
-
   const check = await client.query(
     `SELECT id FROM email_schedules WHERE nomor_dokumen = $1 LIMIT 1`,
     [nomorDokumen]
   );
-
   if (check.rows.length > 0) {
     await client.query(
       `UPDATE procedure_documents
@@ -119,26 +106,21 @@ async function autoScheduleAndActivate(
     );
     return 'Belum dikirim';
   }
-
   const docDate = new Date(tanggal);
   if (isNaN(docDate.getTime())) return status;
-
   const scheduledAt = resolveScheduledAt(tanggal, null);
-
   await client.query(
     `INSERT INTO email_schedules (nomor_dokumen, scheduled_email_at, email_status)
      VALUES ($1, $2, 'pending')
      ON CONFLICT DO NOTHING`,
     [nomorDokumen, scheduledAt]
   );
-
   await client.query(
     `UPDATE procedure_documents
      SET status = 'Belum dikirim', updated_at = CURRENT_TIMESTAMP
      WHERE nomor_dokumen = $1 AND status = 'Menunggu'`,
     [nomorDokumen]
   );
-
   return 'Belum dikirim';
 }
 
@@ -151,13 +133,10 @@ async function runAutoStatusChain(
 ): Promise<string> {
   if (PROTECTED_STATUSES.includes(dbStatus)) return dbStatus;
   if (['Belum dikirim', 'Telah terkirim'].includes(dbStatus)) return dbStatus;
-
   const afterExpire     = await autoExpire(client, nomorDokumen, tanggal, dbStatus);
   if (afterExpire !== dbStatus) return afterExpire;
-
   const afterReactivate = await autoReactivate(client, nomorDokumen, tanggal, afterExpire);
   const afterSchedule   = await autoScheduleAndActivate(client, nomorDokumen, tanggal, afterReactivate);
-
   return afterSchedule;
 }
 
@@ -171,7 +150,6 @@ async function resolveInitialStatus(
   if (needsReview === false) return 'Relevan';
   if (isExpiredForReview(tanggal)) return 'Relevan';
   if (!isScheduleMonthReached(tanggal)) return 'Relevan';
-
   if (needsReview === true || needsReview === null) {
     const schedResult = await client.query(
       `SELECT email_status FROM email_schedules WHERE nomor_dokumen = $1 LIMIT 1`,
@@ -182,7 +160,6 @@ async function resolveInitialStatus(
     }
     return 'Belum dikirim';
   }
-
   return 'Relevan';
 }
 
@@ -199,9 +176,8 @@ export async function GET(request: NextRequest) {
     if (picParam) {
       if (picParam.includes('@')) {
         // Login baru: parameter adalah email lengkap seperti "dp@jai.co.id"
-        // Ekstrak kode dari email: "dp@jai.co.id" → "DP"
         const emailLocalPart = picParam.split('@')[0].trim().toUpperCase();
-        const picCodes = emailLocalPart
+        const picCodes       = emailLocalPart
           .split(',')
           .map((c: string) => c.trim())
           .filter((c: string) => c.length > 0);
@@ -210,7 +186,6 @@ export async function GET(request: NextRequest) {
         values = [];
         let idx = 1;
 
-        // Match berdasarkan kode pic di kolom `pic`
         for (const code of picCodes) {
           conditions.push(
             `$${idx} = ANY(string_to_array(REPLACE(UPPER(pd.pic), ' ', ''), ','))`
@@ -219,7 +194,6 @@ export async function GET(request: NextRequest) {
           idx++;
         }
 
-        // Match berdasarkan email di kolom `email` (untuk data baru)
         conditions.push(`pd.email ILIKE $${idx}`);
         values.push(`%${picParam}%`);
         idx++;
@@ -234,7 +208,6 @@ export async function GET(request: NextRequest) {
           ORDER BY pd.created_at DESC
         `;
       } else {
-        // Login lama / filter langsung dengan kode PIC: ?pic=DP
         query = `
           SELECT pd.*,
                  es.last_sent_at,
@@ -247,7 +220,6 @@ export async function GET(request: NextRequest) {
         values = [picParam];
       }
     } else {
-      // Tidak ada filter PIC — ambil semua
       query = `
         SELECT pd.*,
                es.last_sent_at,
@@ -286,9 +258,10 @@ export async function GET(request: NextRequest) {
           updatedAt:              row.updated_at,
           lastSentAt:             row.last_sent_at        ?? null,
           scheduledEmailAt:       row.scheduled_email_at  ?? null,
-          // ✅ Field baru: digunakan frontend untuk indikator "Baru Direview"
-          // Kolom ini diisi oleh api/reviews setiap kali PIC submit review
+          // ─ Field untuk sistem badge "Baru Direview" ─────────────────────────
+          // Badge tampil jika: lastReviewedAt !== null && reviewSeenAt === null
           lastReviewedAt:         row.last_reviewed_at    ?? null,
+          reviewSeenAt:           row.review_seen_at      ?? null,
         };
       })
     );
@@ -296,10 +269,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(procedures);
   } catch (error) {
     console.error('Error fetching procedures:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch procedures' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to fetch procedures' }, { status: 500 });
   } finally {
     client.release();
   }
@@ -319,26 +289,25 @@ export async function POST(request: NextRequest) {
       needsReview
     );
 
-    const query = `
-      INSERT INTO procedure_documents
-        (nama_dokumen, nomor_dokumen, level_dokumen, tanggal_selesai_approval,
-         revisi, owner, pic, email, status, is_custom)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      RETURNING *
-    `;
-
-    const result = await client.query(query, [
-      body.namaDokumen,
-      body.nomorDokumen,
-      body.levelDokumen,
-      body.tanggalSelesaiApproval,
-      body.revisi || '0',
-      body.owner,
-      body.pic,
-      body.email || '',
-      status,
-      true,
-    ]);
+    const result = await client.query(
+      `INSERT INTO procedure_documents
+         (nama_dokumen, nomor_dokumen, level_dokumen, tanggal_selesai_approval,
+          revisi, owner, pic, email, status, is_custom)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING *`,
+      [
+        body.namaDokumen,
+        body.nomorDokumen,
+        body.levelDokumen,
+        body.tanggalSelesaiApproval,
+        body.revisi || '0',
+        body.owner,
+        body.pic,
+        body.email || '',
+        status,
+        true,
+      ]
+    );
 
     const row = result.rows[0];
 
@@ -351,7 +320,6 @@ export async function POST(request: NextRequest) {
         `SELECT id FROM email_schedules WHERE nomor_dokumen = $1 LIMIT 1`,
         [body.nomorDokumen]
       );
-
       if (existingSched.rows.length === 0) {
         const scheduledAt = resolveScheduledAt(body.tanggalSelesaiApproval, needsReview);
         await client.query(
@@ -383,23 +351,17 @@ export async function POST(request: NextRequest) {
         email:                  row.email,
         status:                 row.status,
         isCustom:               row.is_custom,
-        // last_reviewed_at null untuk dokumen baru (belum pernah direview)
         lastReviewedAt:         null,
+        reviewSeenAt:           null,
       },
       { status: 201 }
     );
   } catch (error: any) {
     console.error('Error creating procedure:', error);
     if (error.code === '23505') {
-      return NextResponse.json(
-        { error: 'Nomor dokumen sudah ada' },
-        { status: 409 }
-      );
+      return NextResponse.json({ error: 'Nomor dokumen sudah ada' }, { status: 409 });
     }
-    return NextResponse.json(
-      { error: 'Failed to create procedure' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to create procedure' }, { status: 500 });
   } finally {
     client.release();
   }
