@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arsitektur Sistem - Review Prosedur</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: white;
+            padding: 40px 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            color: #1e40af;
+            margin-bottom: 40px;
+            font-size: 28px;
+        }
+        svg {
+            display: block;
+            margin: 0 auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Arsitektur Sistem Berbasis Web - Review Prosedur</h1>
+        <svg viewBox="0 0 1400 900" xmlns="http://www.w3.org/2000/svg" width="100%" style="max-width: 1400px;">
+            <!-- Title untuk setiap layer -->
+            <text x="20" y="40" font-size="20" font-weight="bold" fill="#1e40af">PRESENTATION LAYER</text>
+            
+            <!-- Presentation Layer - 6 komponen UI -->
+            <rect x="50" y="70" width="140" height="100" rx="8" fill="#3b82f6" stroke="#1e40af" stroke-width="2"/>
+            <text x="120" y="105" font-size="13" font-weight="bold" fill="white" text-anchor="middle">Admin Dashboard</text>
+            <text x="120" y="125" font-size="11" fill="white" text-anchor="middle">Kelola Dokumen</text>
+            <text x="120" y="140" font-size="11" fill="white" text-anchor="middle">Laporan</text>
+            
+            <rect x="220" y="70" width="140" height="100" rx="8" fill="#3b82f6" stroke="#1e40af" stroke-width="2"/>
+            <text x="290" y="105" font-size="13" font-weight="bold" fill="white" text-anchor="middle">PIC Dashboard</text>
+            <text x="290" y="125" font-size="11" fill="white" text-anchor="middle">Review Dokumen</text>
+            <text x="290" y="140" font-size="11" fill="white" text-anchor="middle">Approval</text>
+            
+            <rect x="390" y="70" width="140" height="100" rx="8" fill="#3b82f6" stroke="#1e40af" stroke-width="2"/>
+            <text x="460" y="105" font-size="13" font-weight="bold" fill="white" text-anchor="middle">User Portal</text>
+            <text x="460" y="125" font-size="11" fill="white" text-anchor="middle">Upload Dokumen</text>
+            <text x="460" y="140" font-size="11" fill="white" text-anchor="middle">Track Status</text>
+            
+            <rect x="560" y="70" width="140" height="100" rx="8" fill="#3b82f6" stroke="#1e40af" stroke-width="2"/>
+            <text x="630" y="105" font-size="13" font-weight="bold" fill="white" text-anchor="middle">Auth Pages</text>
+            <text x="630" y="125" font-size="11" fill="white" text-anchor="middle">Login</text>
+            <text x="630" y="140" font-size="11" fill="white" text-anchor="middle">Register</text>
+            
+            <rect x="730" y="70" width="140" height="100" rx="8" fill="#3b82f6" stroke="#1e40af" stroke-width="2"/>
+            <text x="800" y="105" font-size="13" font-weight="bold" fill="white" text-anchor="middle">Archive Page</text>
+            <text x="800" y="125" font-size="11" fill="white" text-anchor="middle">Arsip Dokumen</text>
+            <text x="800" y="140" font-size="11" fill="white" text-anchor="middle">History</text>
+            
+            <rect x="900" y="70" width="140" height="100" rx="8" fill="#3b82f6" stroke="#1e40af" stroke-width="2"/>
+            <text x="970" y="105" font-size="13" font-weight="bold" fill="white" text-anchor="middle">Components</text>
+            <text x="970" y="125" font-size="11" fill="white" text-anchor="middle">UI Elements</text>
+            <text x="970" y="140" font-size="11" fill="white" text-anchor="middle">Shared</text>
+            
+            <!-- Arrow down ke Application Layer -->
+            <line x1="700" y1="190" x2="700" y2="220" stroke="#6b7280" stroke-width="2" marker-end="url(#arrowhead)"/>
+            
+            <!-- Application & API Layer -->
+            <text x="20" y="260" font-size="20" font-weight="bold" fill="#1e40af">APPLICATION & API LAYER</text>
+            
+            <rect x="50" y="280" width="130" height="90" rx="8" fill="#10b981" stroke="#047857" stroke-width="2"/>
+            <text x="115" y="310" font-size="12" font-weight="bold" fill="white" text-anchor="middle">Auth API</text>
+            <text x="115" y="330" font-size="10" fill="white" text-anchor="middle">Login, Register</text>
+            <text x="115" y="345" font-size="10" fill="white" text-anchor="middle">Session Mgmt</text>
+            
+            <rect x="210" y="280" width="130" height="90" rx="8" fill="#10b981" stroke="#047857" stroke-width="2"/>
+            <text x="275" y="310" font-size="12" font-weight="bold" fill="white" text-anchor="middle">Procedures API</text>
+            <text x="275" y="330" font-size="10" fill="white" text-anchor="middle">CRUD Dokumen</text>
+            <text x="275" y="345" font-size="10" fill="white" text-anchor="middle">Retrieve</text>
+            
+            <rect x="370" y="280" width="130" height="90" rx="8" fill="#10b981" stroke="#047857" stroke-width="2"/>
+            <text x="435" y="310" font-size="12" font-weight="bold" fill="white" text-anchor="middle">Reviews API</text>
+            <text x="435" y="330" font-size="10" fill="white" text-anchor="middle">Create Review</text>
+            <text x="435" y="345" font-size="10" fill="white" text-anchor="middle">Submit Decision</text>
+            
+            <rect x="530" y="280" width="130" height="90" rx="8" fill="#10b981" stroke="#047857" stroke-width="2"/>
+            <text x="595" y="310" font-size="12" font-weight="bold" fill="white" text-anchor="middle">Files API</text>
+            <text x="595" y="330" font-size="10" fill="white" text-anchor="middle">Upload File</text>
+            <text x="595" y="345" font-size="10" fill="white" text-anchor="middle">Download</text>
+            
+            <rect x="690" y="280" width="130" height="90" rx="8" fill="#10b981" stroke="#047857" stroke-width="2"/>
+            <text x="755" y="310" font-size="12" font-weight="bold" fill="white" text-anchor="middle">Archive API</text>
+            <text x="755" y="330" font-size="10" fill="white" text-anchor="middle">Manage Arsip</text>
+            <text x="755" y="345" font-size="10" fill="white" text-anchor="middle">Retrieve Data</text>
+            
+            <rect x="850" y="280" width="130" height="90" rx="8" fill="#10b981" stroke="#047857" stroke-width="2"/>
+            <text x="915" y="310" font-size="12" font-weight="bold" fill="white" text-anchor="middle">PIC API</text>
+            <text x="915" y="330" font-size="10" fill="white" text-anchor="middle">Assignment</text>
+            <text x="915" y="345" font-size="10" fill="white" text-anchor="middle">Management</text>
+            
+            <rect x="1010" y="280" width="130" height="90" rx="8" fill="#10b981" stroke="#047857" stroke-width="2"/>
+            <text x="1075" y="310" font-size="12" font-weight="bold" fill="white" text-anchor="middle">Activity API</text>
+            <text x="1075" y="330" font-size="10" fill="white" text-anchor="middle">Logging</text>
+            <text x="1075" y="345" font-size="10" fill="white" text-anchor="middle">Reporting</text>
+            
+            <!-- Arrow down ke Data Layer -->
+            <line x1="700" y1="390" x2="700" y2="420" stroke="#6b7280" stroke-width="2" marker-end="url(#arrowhead)"/>
+            
+            <!-- Data & Storage Layer -->
+            <text x="20" y="460" font-size="20" font-weight="bold" fill="#1e40af">DATA & STORAGE LAYER</text>
+            
+            <!-- Database Tables -->
+            <rect x="50" y="480" width="110" height="80" rx="6" fill="#f59e0b" stroke="#d97706" stroke-width="2"/>
+            <text x="105" y="510" font-size="11" font-weight="bold" fill="white" text-anchor="middle">Users</text>
+            <text x="105" y="528" font-size="9" fill="white" text-anchor="middle">ID, Email</text>
+            <text x="105" y="542" font-size="9" fill="white" text-anchor="middle">Password</text>
+            
+            <rect x="185" y="480" width="110" height="80" rx="6" fill="#f59e0b" stroke="#d97706" stroke-width="2"/>
+            <text x="240" y="510" font-size="11" font-weight="bold" fill="white" text-anchor="middle">Procedures</text>
+            <text x="240" y="528" font-size="9" fill="white" text-anchor="middle">Title, Content</text>
+            <text x="240" y="542" font-size="9" fill="white" text-anchor="middle">Version</text>
+            
+            <rect x="320" y="480" width="110" height="80" rx="6" fill="#f59e0b" stroke="#d97706" stroke-width="2"/>
+            <text x="375" y="510" font-size="11" font-weight="bold" fill="white" text-anchor="middle">Reviews</text>
+            <text x="375" y="528" font-size="9" fill="white" text-anchor="middle">Feedback</text>
+            <text x="375" y="542" font-size="9" fill="white" text-anchor="middle">Decision</text>
+            
+            <rect x="455" y="480" width="110" height="80" rx="6" fill="#f59e0b" stroke="#d97706" stroke-width="2"/>
+            <text x="510" y="510" font-size="11" font-weight="bold" fill="white" text-anchor="middle">Files</text>
+            <text x="510" y="528" font-size="9" fill="white" text-anchor="middle">File Path</text>
+            <text x="510" y="542" font-size="9" fill="white" text-anchor="middle">Size, Type</text>
+            
+            <rect x="590" y="480" width="110" height="80" rx="6" fill="#f59e0b" stroke="#d97706" stroke-width="2"/>
+            <text x="645" y="510" font-size="11" font-weight="bold" fill="white" text-anchor="middle">Activities</text>
+            <text x="645" y="528" font-size="9" fill="white" text-anchor="middle">User Action</text>
+            <text x="645" y="542" font-size="9" fill="white" text-anchor="middle">Timestamp</text>
+            
+            <rect x="725" y="480" width="110" height="80" rx="6" fill="#f59e0b" stroke="#d97706" stroke-width="2"/>
+            <text x="780" y="510" font-size="11" font-weight="bold" fill="white" text-anchor="middle">Archive</text>
+            <text x="780" y="528" font-size="9" fill="white" text-anchor="middle">Archived Docs</text>
+            <text x="780" y="542" font-size="9" fill="white" text-anchor="middle">Retention</text>
+            
+            <rect x="860" y="480" width="110" height="80" rx="6" fill="#f59e0b" stroke="#d97706" stroke-width="2"/>
+            <text x="915" y="510" font-size="11" font-weight="bold" fill="white" text-anchor="middle">Notifications</text>
+            <text x="915" y="528" font-size="9" fill="white" text-anchor="middle">Messages</text>
+            <text x="915" y="542" font-size="9" fill="white" text-anchor="middle">Status</text>
+            
+            <rect x="995" y="480" width="110" height="80" rx="6" fill="#f59e0b" stroke="#d97706" stroke-width="2"/>
+            <text x="1050" y="510" font-size="11" font-weight="bold" fill="white" text-anchor="middle">Email Schedule</text>
+            <text x="1050" y="528" font-size="9" fill="white" text-anchor="middle">Scheduled</text>
+            <text x="1050" y="542" font-size="9" fill="white" text-anchor="middle">Emails</text>
+            
+            <!-- PostgreSQL Database -->
+            <rect x="50" y="590" width="1060" height="40" rx="6" fill="#8b5cf6" stroke="#6d28d9" stroke-width="2"/>
+            <text x="580" y="618" font-size="14" font-weight="bold" fill="white" text-anchor="middle">PostgreSQL Database</text>
+            
+            <!-- Arrow down ke External Services -->
+            <line x1="700" y1="650" x2="700" y2="680" stroke="#6b7280" stroke-width="2" marker-end="url(#arrowhead)"/>
+            
+            <!-- External Services Layer -->
+            <text x="20" y="730" font-size="20" font-weight="bold" fill="#1e40af">EXTERNAL SERVICES & INFRASTRUCTURE</text>
+            
+            <rect x="50" y="750" width="130" height="80" rx="8" fill="#ec4899" stroke="#be185d" stroke-width="2"/>
+            <text x="115" y="780" font-size="12" font-weight="bold" fill="white" text-anchor="middle">Email Service</text>
+            <text x="115" y="800" font-size="10" fill="white" text-anchor="middle">Notifikasi</text>
+            <text x="115" y="815" font-size="10" fill="white" text-anchor="middle">Email Alert</text>
+            
+            <rect x="210" y="750" width="130" height="80" rx="8" fill="#ec4899" stroke="#be185d" stroke-width="2"/>
+            <text x="275" y="780" font-size="12" font-weight="bold" fill="white" text-anchor="middle">File Storage</text>
+            <text x="275" y="800" font-size="10" fill="white" text-anchor="middle">Upload/Download</text>
+            <text x="275" y="815" font-size="10" fill="white" text-anchor="middle">Files</text>
+            
+            <rect x="370" y="750" width="130" height="80" rx="8" fill="#ec4899" stroke="#be185d" stroke-width="2"/>
+            <text x="435" y="780" font-size="12" font-weight="bold" fill="white" text-anchor="middle">Authentication</text>
+            <text x="435" y="800" font-size="10" fill="white" text-anchor="middle">Password Hash</text>
+            <text x="435" y="815" font-size="10" fill="white" text-anchor="middle">Session</text>
+            
+            <rect x="530" y="750" width="130" height="80" rx="8" fill="#ec4899" stroke="#be185d" stroke-width="2"/>
+            <text x="595" y="780" font-size="12" font-weight="bold" fill="white" text-anchor="middle">Session Mgmt</text>
+            <text x="595" y="800" font-size="10" fill="white" text-anchor="middle">Cookie Storage</text>
+            <text x="595" y="815" font-size="10" fill="white" text-anchor="middle">Token</text>
+            
+            <rect x="690" y="750" width="130" height="80" rx="8" fill="#ec4899" stroke="#be185d" stroke-width="2"/>
+            <text x="755" y="780" font-size="12" font-weight="bold" fill="white" text-anchor="middle">Logging System</text>
+            <text x="755" y="800" font-size="10" fill="white" text-anchor="middle">Activity Log</text>
+            <text x="755" y="815" font-size="10" fill="white" text-anchor="middle">Monitoring</text>
+            
+            <rect x="850" y="750" width="130" height="80" rx="8" fill="#ec4899" stroke="#be185d" stroke-width="2"/>
+            <text x="915" y="780" font-size="12" font-weight="bold" fill="white" text-anchor="middle">Node.js Runtime</text>
+            <text x="915" y="800" font-size="10" fill="white" text-anchor="middle">Server Backend</text>
+            <text x="915" y="815" font-size="10" fill="white" text-anchor="middle">API Handler</text>
+            
+            <!-- Arrow Marker Definition -->
+            <defs>
+                <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto">
+                    <polygon points="0 0, 10 5, 0 10" fill="#6b7280"/>
+                </marker>
+            </defs>
+        </svg>
+    </div>
+</body>
+</html>
