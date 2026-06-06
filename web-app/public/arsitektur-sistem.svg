@@ -1,0 +1,319 @@
+<svg viewBox="0 0 1400 900" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f0f4f8;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#e8f0f6;stop-opacity:1" />
+    </linearGradient>
+    <style>
+      .title-text { font-size: 28px; font-weight: bold; fill: #1a365d; }
+      .layer-title { font-size: 16px; font-weight: bold; fill: #2c5282; }
+      .component-title { font-size: 12px; font-weight: 600; fill: #1a365d; }
+      .component-text { font-size: 11px; fill: #4a5568; }
+      .arrow-text { font-size: 10px; fill: #2d3748; }
+      .box-layer { fill: #ffffff; stroke: #2c5282; stroke-width: 2; }
+      .box-component { fill: #ebf8ff; stroke: #4299e1; stroke-width: 1.5; }
+      .box-ui { fill: #fef5e7; stroke: #f39c12; stroke-width: 1.5; }
+      .box-api { fill: #e8f5e9; stroke: #4caf50; stroke-width: 1.5; }
+      .box-db { fill: #fce4ec; stroke: #e91e63; stroke-width: 1.5; }
+    </style>
+  </defs>
+  
+  <!-- Background gradient -->
+  <rect width="1400" height="900" fill="url(#bgGradient)"/>
+  
+  <!-- Main Title -->
+  <text x="700" y="40" text-anchor="middle" class="title-text">
+    Arsitektur Sistem Manajemen Dokumen Prosedur Berbasis Web
+  </text>
+  
+  <!-- PRESENTATION LAYER -->
+  <g id="presentation-layer">
+    <rect x="50" y="80" width="1300" height="150" class="box-layer" opacity="0.3"/>
+    <text x="60" y="105" class="layer-title">PRESENTATION LAYER (Frontend - React & Next.js)</text>
+    
+    <!-- User Interface Components -->
+    <rect x="70" y="120" width="180" height="95" class="box-ui" rx="5"/>
+    <text x="160" y="140" text-anchor="middle" class="component-title">Admin Dashboard</text>
+    <text x="160" y="158" text-anchor="middle" class="component-text">• Manajemen Dokumen</text>
+    <text x="160" y="172" text-anchor="middle" class="component-text">• Notifikasi</text>
+    <text x="160" y="186" text-anchor="middle" class="component-text">• Laporan</text>
+    
+    <rect x="280" y="120" width="180" height="95" class="box-ui" rx="5"/>
+    <text x="370" y="140" text-anchor="middle" class="component-title">PIC Dashboard</text>
+    <text x="370" y="158" text-anchor="middle" class="component-text">• Review Dokumen</text>
+    <text x="370" y="172" text-anchor="middle" class="component-text">• Request Status</text>
+    <text x="370" y="186" text-anchor="middle" class="component-text">• Profile</text>
+    
+    <rect x="490" y="120" width="180" height="95" class="box-ui" rx="5"/>
+    <text x="580" y="140" text-anchor="middle" class="component-title">User Portal</text>
+    <text x="580" y="158" text-anchor="middle" class="component-text">• Lihat Dokumen</text>
+    <text x="580" y="172" text-anchor="middle" class="component-text">• Download</text>
+    <text x="580" y="186" text-anchor="middle" class="component-text">• History</text>
+    
+    <rect x="700" y="120" width="180" height="95" class="box-ui" rx="5"/>
+    <text x="790" y="140" text-anchor="middle" class="component-title">Auth Pages</text>
+    <text x="790" y="158" text-anchor="middle" class="component-text">• Login Page</text>
+    <text x="790" y="172" text-anchor="middle" class="component-text">• Register</text>
+    <text x="790" y="186" text-anchor="middle" class="component-text">• OTP Verification</text>
+    
+    <rect x="910" y="120" width="180" height="95" class="box-ui" rx="5"/>
+    <text x="1000" y="140" text-anchor="middle" class="component-title">Archive & History</text>
+    <text x="1000" y="158" text-anchor="middle" class="component-text">• Arsip Dokumen</text>
+    <text x="1000" y="172" text-anchor="middle" class="component-text">• Activity Log</text>
+    <text x="1000" y="186" text-anchor="middle" class="component-text">• Tracking</text>
+    
+    <rect x="1120" y="120" width="180" height="95" class="box-ui" rx="5"/>
+    <text x="1210" y="140" text-anchor="middle" class="component-title">Components</text>
+    <text x="1210" y="158" text-anchor="middle" class="component-text">• UI Elements</text>
+    <text x="1210" y="172" text-anchor="middle" class="component-text">• Forms</text>
+    <text x="1210" y="186" text-anchor="middle" class="component-text">• Tables</text>
+  </g>
+  
+  <!-- Arrows from UI to API -->
+  <g stroke="#4a5568" stroke-width="2" marker-end="url(#arrowhead)" opacity="0.6">
+    <path d="M 160 215 L 160 250" stroke-dasharray="5,5"/>
+    <path d="M 370 215 L 370 250" stroke-dasharray="5,5"/>
+    <path d="M 580 215 L 580 250" stroke-dasharray="5,5"/>
+    <path d="M 790 215 L 790 250" stroke-dasharray="5,5"/>
+    <path d="M 1000 215 L 1000 250" stroke-dasharray="5,5"/>
+    <path d="M 1210 215 L 1210 250" stroke-dasharray="5,5"/>
+  </g>
+  
+  <!-- API/BUSINESS LOGIC LAYER -->
+  <g id="api-layer">
+    <rect x="50" y="250" width="1300" height="200" class="box-layer" opacity="0.3"/>
+    <text x="60" y="275" class="layer-title">APPLICATION & API LAYER (Next.js API Routes & Business Logic)</text>
+    
+    <!-- Auth API -->
+    <rect x="70" y="290" width="150" height="140" class="box-api" rx="5"/>
+    <text x="145" y="310" text-anchor="middle" class="component-title">Auth API</text>
+    <text x="145" y="328" text-anchor="middle" class="component-text">• Login</text>
+    <text x="145" y="343" text-anchor="middle" class="component-text">• Register</text>
+    <text x="145" y="358" text-anchor="middle" class="component-text">• Validate</text>
+    <text x="145" y="373" text-anchor="middle" class="component-text">• OTP</text>
+    <text x="145" y="388" text-anchor="middle" class="component-text">• PIC Login</text>
+    <text x="145" y="403" text-anchor="middle" class="component-text">• Password</text>
+    
+    <!-- Procedures API -->
+    <rect x="240" y="290" width="150" height="140" class="box-api" rx="5"/>
+    <text x="315" y="310" text-anchor="middle" class="component-title">Procedures API</text>
+    <text x="315" y="328" text-anchor="middle" class="component-text">• Get All</text>
+    <text x="315" y="343" text-anchor="middle" class="component-text">• Get Detail</text>
+    <text x="315" y="358" text-anchor="middle" class="component-text">• Create</text>
+    <text x="315" y="373" text-anchor="middle" class="component-text">• Update</text>
+    <text x="315" y="388" text-anchor="middle" class="component-text">• Archive</text>
+    <text x="315" y="403" text-anchor="middle" class="component-text">• Mark Seen</text>
+    
+    <!-- Reviews API -->
+    <rect x="410" y="290" width="150" height="140" class="box-api" rx="5"/>
+    <text x="485" y="310" text-anchor="middle" class="component-title">Reviews API</text>
+    <text x="485" y="328" text-anchor="middle" class="component-text">• Submit Review</text>
+    <text x="485" y="343" text-anchor="middle" class="component-text">• Get Reviews</text>
+    <text x="485" y="358" text-anchor="middle" class="component-text">• Approve</text>
+    <text x="485" y="373" text-anchor="middle" class="component-text">• Reject</text>
+    <text x="485" y="388" text-anchor="middle" class="component-text">• Revision</text>
+    <text x="485" y="403" text-anchor="middle" class="component-text">• Track Status</text>
+    
+    <!-- Files API -->
+    <rect x="580" y="290" width="150" height="140" class="box-api" rx="5"/>
+    <text x="655" y="310" text-anchor="middle" class="component-title">Files API</text>
+    <text x="655" y="328" text-anchor="middle" class="component-text">• Upload</text>
+    <text x="655" y="343" text-anchor="middle" class="component-text">• Download</text>
+    <text x="655" y="358" text-anchor="middle" class="component-text">• List</text>
+    <text x="655" y="373" text-anchor="middle" class="component-text">• Get</text>
+    <text x="655" y="388" text-anchor="middle" class="component-text">• Serve</text>
+    <text x="655" y="403" text-anchor="middle" class="component-text">• Delete</text>
+    
+    <!-- Archive API -->
+    <rect x="750" y="290" width="150" height="140" class="box-api" rx="5"/>
+    <text x="825" y="310" text-anchor="middle" class="component-title">Archive API</text>
+    <text x="825" y="328" text-anchor="middle" class="component-text">• Archive Doc</text>
+    <text x="825" y="343" text-anchor="middle" class="component-text">• Restore</text>
+    <text x="825" y="358" text-anchor="middle" class="component-text">• List Archive</text>
+    <text x="825" y="373" text-anchor="middle" class="component-text">• Delete Perm</text>
+    <text x="825" y="388" text-anchor="middle" class="component-text">• Search</text>
+    <text x="825" y="403" text-anchor="middle" class="component-text">• Report</text>
+    
+    <!-- PIC API -->
+    <rect x="920" y="290" width="150" height="140" class="box-api" rx="5"/>
+    <text x="995" y="310" text-anchor="middle" class="component-title">PIC API</text>
+    <text x="995" y="328" text-anchor="middle" class="component-text">• Dashboard</text>
+    <text x="995" y="343" text-anchor="middle" class="component-text">• Documents</text>
+    <text x="995" y="358" text-anchor="middle" class="component-text">• Notifications</text>
+    <text x="995" y="373" text-anchor="middle" class="component-text">• Profile</text>
+    <text x="995" y="388" text-anchor="middle" class="component-text">• Requests</text>
+    <text x="995" y="403" text-anchor="middle" class="component-text">• New Doc</text>
+    
+    <!-- Activity & Reports API -->
+    <rect x="1090" y="290" width="150" height="140" class="box-api" rx="5"/>
+    <text x="1165" y="310" text-anchor="middle" class="component-title">Activity & Reports</text>
+    <text x="1165" y="328" text-anchor="middle" class="component-text">• Activities</text>
+    <text x="1165" y="343" text-anchor="middle" class="component-text">• Notifications</text>
+    <text x="1165" y="358" text-anchor="middle" class="component-text">• Admin Notif</text>
+    <text x="1165" y="373" text-anchor="middle" class="component-text">• Schedules</text>
+    <text x="1165" y="388" text-anchor="middle" class="component-text">• Export Excel</text>
+    <text x="1165" y="403" text-anchor="middle" class="component-text">• Doc Read</text>
+  </g>
+  
+  <!-- Arrows from API to Database -->
+  <g stroke="#4a5568" stroke-width="2" marker-end="url(#arrowhead)" opacity="0.6">
+    <path d="M 145 430 L 145 470" stroke-dasharray="5,5"/>
+    <path d="M 315 430 L 315 470" stroke-dasharray="5,5"/>
+    <path d="M 485 430 L 485 470" stroke-dasharray="5,5"/>
+    <path d="M 655 430 L 655 470" stroke-dasharray="5,5"/>
+    <path d="M 825 430 L 825 470" stroke-dasharray="5,5"/>
+    <path d="M 995 430 L 995 470" stroke-dasharray="5,5"/>
+    <path d="M 1165 430 L 1165 470" stroke-dasharray="5,5"/>
+  </g>
+  
+  <!-- DATA LAYER -->
+  <g id="data-layer">
+    <rect x="50" y="470" width="1300" height="280" class="box-layer" opacity="0.3"/>
+    <text x="60" y="495" class="layer-title">DATA & STORAGE LAYER (PostgreSQL & File Storage)</text>
+    
+    <!-- Database Tables -->
+    <rect x="70" y="510" width="130" height="230" class="box-db" rx="5"/>
+    <text x="135" y="530" text-anchor="middle" class="component-title">Users Table</text>
+    <text x="135" y="548" text-anchor="middle" class="component-text">• id</text>
+    <text x="135" y="563" text-anchor="middle" class="component-text">• email</text>
+    <text x="135" y="578" text-anchor="middle" class="component-text">• password</text>
+    <text x="135" y="593" text-anchor="middle" class="component-text">• name</text>
+    <text x="135" y="608" text-anchor="middle" class="component-text">• role</text>
+    <text x="135" y="623" text-anchor="middle" class="component-text">• department</text>
+    <text x="135" y="638" text-anchor="middle" class="component-text">• isActive</text>
+    <text x="135" y="653" text-anchor="middle" class="component-text">• createdAt</text>
+    <text x="135" y="668" text-anchor="middle" class="component-text">• updatedAt</text>
+    
+    <rect x="220" y="510" width="130" height="230" class="box-db" rx="5"/>
+    <text x="285" y="530" text-anchor="middle" class="component-title">Procedures</text>
+    <text x="285" y="548" text-anchor="middle" class="component-text">• id</text>
+    <text x="285" y="563" text-anchor="middle" class="component-text">• nomorDokumen</text>
+    <text x="285" y="578" text-anchor="middle" class="component-text">• title</text>
+    <text x="285" y="593" text-anchor="middle" class="component-text">• version</text>
+    <text x="285" y="608" text-anchor="middle" class="component-text">• status</text>
+    <text x="285" y="623" text-anchor="middle" class="component-text">• createdBy</text>
+    <text x="285" y="638" text-anchor="middle" class="component-text">• updateRequired</text>
+    <text x="285" y="653" text-anchor="middle" class="component-text">• createdAt</text>
+    <text x="285" y="668" text-anchor="middle" class="component-text">• updatedAt</text>
+    
+    <rect x="370" y="510" width="130" height="230" class="box-db" rx="5"/>
+    <text x="435" y="530" text-anchor="middle" class="component-title">Reviews</text>
+    <text x="435" y="548" text-anchor="middle" class="component-text">• id</text>
+    <text x="435" y="563" text-anchor="middle" class="component-text">• procedureId</text>
+    <text x="435" y="578" text-anchor="middle" class="component-text">• picId</text>
+    <text x="435" y="593" text-anchor="middle" class="component-text">• status</text>
+    <text x="435" y="608" text-anchor="middle" class="component-text">• comment</text>
+    <text x="435" y="623" text-anchor="middle" class="component-text">• revisionReq</text>
+    <text x="435" y="638" text-anchor="middle" class="component-text">• revisionDesc</text>
+    <text x="435" y="653" text-anchor="middle" class="component-text">• createdAt</text>
+    <text x="435" y="668" text-anchor="middle" class="component-text">• updatedAt</text>
+    
+    <rect x="520" y="510" width="130" height="230" class="box-db" rx="5"/>
+    <text x="585" y="530" text-anchor="middle" class="component-title">Files</text>
+    <text x="585" y="548" text-anchor="middle" class="component-text">• id</text>
+    <text x="585" y="563" text-anchor="middle" class="component-text">• procedureId</text>
+    <text x="585" y="578" text-anchor="middle" class="component-text">• fileName</text>
+    <text x="585" y="593" text-anchor="middle" class="component-text">• filePath</text>
+    <text x="585" y="608" text-anchor="middle" class="component-text">• mimeType</text>
+    <text x="585" y="623" text-anchor="middle" class="component-text">• fileSize</text>
+    <text x="585" y="638" text-anchor="middle" class="component-text">• uploadedBy</text>
+    <text x="585" y="653" text-anchor="middle" class="component-text">• version</text>
+    <text x="585" y="668" text-anchor="middle" class="component-text">• createdAt</text>
+    
+    <rect x="670" y="510" width="130" height="230" class="box-db" rx="5"/>
+    <text x="735" y="530" text-anchor="middle" class="component-title">Activities</text>
+    <text x="735" y="548" text-anchor="middle" class="component-text">• id</text>
+    <text x="735" y="563" text-anchor="middle" class="component-text">• userId</text>
+    <text x="735" y="578" text-anchor="middle" class="component-text">• procedureId</text>
+    <text x="735" y="593" text-anchor="middle" class="component-text">• action</text>
+    <text x="735" y="608" text-anchor="middle" class="component-text">• description</text>
+    <text x="735" y="623" text-anchor="middle" class="component-text">• ipAddress</text>
+    <text x="735" y="638" text-anchor="middle" class="component-text">• userAgent</text>
+    <text x="735" y="653" text-anchor="middle" class="component-text">• metadata</text>
+    <text x="735" y="668" text-anchor="middle" class="component-text">• createdAt</text>
+    
+    <rect x="820" y="510" width="130" height="230" class="box-db" rx="5"/>
+    <text x="885" y="530" text-anchor="middle" class="component-title">Archive</text>
+    <text x="885" y="548" text-anchor="middle" class="component-text">• id</text>
+    <text x="885" y="563" text-anchor="middle" class="component-text">• procedureId</text>
+    <text x="885" y="578" text-anchor="middle" class="component-text">• reason</text>
+    <text x="885" y="593" text-anchor="middle" class="component-text">• archivedBy</text>
+    <text x="885" y="608" text-anchor="middle" class="component-text">• archivedAt</text>
+    <text x="885" y="623" text-anchor="middle" class="component-text">• restoreDate</text>
+    <text x="885" y="638" text-anchor="middle" class="component-text">• isDeleted</text>
+    <text x="885" y="653" text-anchor="middle" class="component-text">• metadata</text>
+    <text x="885" y="668" text-anchor="middle" class="component-text">• createdAt</text>
+    
+    <rect x="970" y="510" width="130" height="230" class="box-db" rx="5"/>
+    <text x="1035" y="530" text-anchor="middle" class="component-title">Notifications</text>
+    <text x="1035" y="548" text-anchor="middle" class="component-text">• id</text>
+    <text x="1035" y="563" text-anchor="middle" class="component-text">• userId</text>
+    <text x="1035" y="578" text-anchor="middle" class="component-text">• procedureId</text>
+    <text x="1035" y="593" text-anchor="middle" class="component-text">• type</text>
+    <text x="1035" y="608" text-anchor="middle" class="component-text">• message</text>
+    <text x="1035" y="623" text-anchor="middle" class="component-text">• isRead</text>
+    <text x="1035" y="638" text-anchor="middle" class="component-text">• readAt</text>
+    <text x="1035" y="653" text-anchor="middle" class="component-text">• metadata</text>
+    <text x="1035" y="668" text-anchor="middle" class="component-text">• createdAt</text>
+    
+    <rect x="1120" y="510" width="130" height="230" class="box-db" rx="5"/>
+    <text x="1185" y="530" text-anchor="middle" class="component-title">Email Schedules</text>
+    <text x="1185" y="548" text-anchor="middle" class="component-text">• id</text>
+    <text x="1185" y="563" text-anchor="middle" class="component-text">• recipient</text>
+    <text x="1185" y="578" text-anchor="middle" class="component-text">• subject</text>
+    <text x="1185" y="593" text-anchor="middle" class="component-text">• body</text>
+    <text x="1185" y="608" text-anchor="middle" class="component-text">• scheduledAt</text>
+    <text x="1185" y="623" text-anchor="middle" class="component-text">• sentAt</text>
+    <text x="1185" y="638" text-anchor="middle" class="component-text">• status</text>
+    <text x="1185" y="653" text-anchor="middle" class="component-text">• retryCount</text>
+    <text x="1185" y="668" text-anchor="middle" class="component-text">• createdAt</text>
+  </g>
+  
+  <!-- EXTERNAL SERVICES LAYER -->
+  <g id="external-layer">
+    <rect x="50" y="780" width="1300" height="80" class="box-layer" opacity="0.3"/>
+    <text x="60" y="805" class="layer-title">EXTERNAL SERVICES & INFRASTRUCTURE</text>
+    
+    <rect x="70" y="815" width="200" height="40" class="box-component" rx="5"/>
+    <text x="170" y="835" text-anchor="middle" class="component-text">Email Service (SMTP)</text>
+    
+    <rect x="290" y="815" width="200" height="40" class="box-component" rx="5"/>
+    <text x="390" y="835" text-anchor="middle" class="component-text">File Storage System</text>
+    
+    <rect x="510" y="815" width="200" height="40" class="box-component" rx="5"/>
+    <text x="610" y="835" text-anchor="middle" class="component-text">Authentication System</text>
+    
+    <rect x="730" y="815" width="200" height="40" class="box-component" rx="5"/>
+    <text x="830" y="835" text-anchor="middle" class="component-text">Session Management</text>
+    
+    <rect x="950" y="815" width="200" height="40" class="box-component" rx="5"/>
+    <text x="1050" y="835" text-anchor="middle" class="component-text">Logging & Monitoring</text>
+    
+    <rect x="1170" y="815" width="180" height="40" class="box-component" rx="5"/>
+    <text x="1260" y="835" text-anchor="middle" class="component-text">PostgreSQL DB</text>
+  </g>
+  
+  <!-- Arrow marker definition -->
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto">
+      <polygon points="0 0, 10 5, 0 10" fill="#4a5568"/>
+    </marker>
+  </defs>
+  
+  <!-- Legend -->
+  <g id="legend">
+    <text x="70" y="875" class="component-text" font-weight="bold">Keterangan:</text>
+    <rect x="70" y="880" width="12" height="12" fill="#fef5e7" stroke="#f39c12" stroke-width="1"/>
+    <text x="90" y="888" class="component-text">Frontend Layer</text>
+    
+    <rect x="280" y="880" width="12" height="12" fill="#e8f5e9" stroke="#4caf50" stroke-width="1"/>
+    <text x="300" y="888" class="component-text">API Layer</text>
+    
+    <rect x="480" y="880" width="12" height="12" fill="#fce4ec" stroke="#e91e63" stroke-width="1"/>
+    <text x="500" y="888" class="component-text">Data Layer</text>
+    
+    <rect x="680" y="880" width="12" height="12" fill="#ebf8ff" stroke="#4299e1" stroke-width="1"/>
+    <text x="700" y="888" class="component-text">Components</text>
+  </g>
+</svg>

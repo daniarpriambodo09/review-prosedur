@@ -1,0 +1,252 @@
+<svg viewBox="0 0 1400 850" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f8f9fa;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#e9ecef;stop-opacity:1" />
+    </linearGradient>
+    <style>
+      .main-title { font-size: 28px; font-weight: bold; fill: #1a365d; }
+      .category-title { font-size: 14px; font-weight: bold; fill: #fff; }
+      .tech-name { font-size: 13px; font-weight: 600; fill: #1a365d; }
+      .tech-desc { font-size: 10px; fill: #4a5568; }
+      .category-box { stroke-width: 2; }
+      .frontend-bg { fill: #fef5e7; stroke: #f39c12; }
+      .backend-bg { fill: #e8f5e9; stroke: #27ae60; }
+      .database-bg { fill: #fce4ec; stroke: #e91e63; }
+      .tools-bg { fill: #e3f2fd; stroke: #1976d2; }
+      .security-bg { fill: #fff3e0; stroke: #f57c00; }
+    </style>
+  </defs>
+  
+  <rect width="1400" height="850" fill="url(#bgGrad2)"/>
+  
+  <!-- Main Title -->
+  <text x="700" y="45" text-anchor="middle" class="main-title">
+    Technology Stack - Review Prosedur Web Application
+  </text>
+  
+  <!-- FRONTEND LAYER -->
+  <g id="frontend">
+    <!-- Category Header -->
+    <rect x="50" y="75" width="280" height="35" class="frontend-bg" rx="5"/>
+    <text x="190" y="100" text-anchor="middle" class="category-title">FRONTEND TECHNOLOGIES</text>
+    
+    <!-- Next.js -->
+    <rect x="50" y="125" width="130" height="110" class="frontend-bg category-box" rx="5"/>
+    <text x="115" y="150" text-anchor="middle" class="tech-name">Next.js 14+</text>
+    <text x="115" y="168" text-anchor="middle" class="tech-desc">Server & Client</text>
+    <text x="115" y="183" text-anchor="middle" class="tech-desc">Components,</text>
+    <text x="115" y="197" text-anchor="middle" class="tech-desc">App Router,</text>
+    <text x="115" y="211" text-anchor="middle" class="tech-desc">API Routes</text>
+    
+    <!-- React -->
+    <rect x="200" y="125" width="130" height="110" class="frontend-bg category-box" rx="5"/>
+    <text x="265" y="150" text-anchor="middle" class="tech-name">React 18+</text>
+    <text x="265" y="168" text-anchor="middle" class="tech-desc">Component-based</text>
+    <text x="265" y="183" text-anchor="middle" class="tech-desc">UI Framework,</text>
+    <text x="265" y="197" text-anchor="middle" class="tech-desc">Hooks, Suspense</text>
+    <text x="265" y="211" text-anchor="middle" class="tech-desc">for Data Fetch</text>
+    
+    <!-- TypeScript -->
+    <rect x="50" y="255" width="130" height="110" class="frontend-bg category-box" rx="5"/>
+    <text x="115" y="280" text-anchor="middle" class="tech-name">TypeScript</text>
+    <text x="115" y="298" text-anchor="middle" class="tech-desc">Type-safe Code,</text>
+    <text x="115" y="313" text-anchor="middle" class="tech-desc">Type Definitions,</text>
+    <text x="115" y="328" text-anchor="middle" class="tech-desc">Type Checking</text>
+    <text x="115" y="342" text-anchor="middle" class="tech-desc">at Compile Time</text>
+    
+    <!-- Tailwind CSS -->
+    <rect x="200" y="255" width="130" height="110" class="frontend-bg category-box" rx="5"/>
+    <text x="265" y="280" text-anchor="middle" class="tech-name">Tailwind CSS</text>
+    <text x="265" y="298" text-anchor="middle" class="tech-desc">Utility-first CSS,</text>
+    <text x="265" y="313" text-anchor="middle" class="tech-desc">Responsive Design,</text>
+    <text x="265" y="328" text-anchor="middle" class="tech-desc">Dark Mode,</text>
+    <text x="265" y="342" text-anchor="middle" class="tech-desc">Customization</text>
+  </g>
+  
+  <!-- BACKEND/RUNTIME LAYER -->
+  <g id="backend">
+    <!-- Category Header -->
+    <rect x="380" y="75" width="280" height="35" class="backend-bg" rx="5"/>
+    <text x="520" y="100" text-anchor="middle" class="category-title">BACKEND & RUNTIME</text>
+    
+    <!-- Node.js -->
+    <rect x="380" y="125" width="130" height="110" class="backend-bg category-box" rx="5"/>
+    <text x="445" y="150" text-anchor="middle" class="tech-name">Node.js</text>
+    <text x="445" y="168" text-anchor="middle" class="tech-desc">JavaScript</text>
+    <text x="445" y="183" text-anchor="middle" class="tech-desc">Runtime Environment</text>
+    <text x="445" y="197" text-anchor="middle" class="tech-desc">for Backend Logic</text>
+    <text x="445" y="211" text-anchor="middle" class="tech-desc">Execution</text>
+    
+    <!-- Express-like APIs -->
+    <rect x="530" y="125" width="130" height="110" class="backend-bg category-box" rx="5"/>
+    <text x="595" y="150" text-anchor="middle" class="tech-name">API Routes</text>
+    <text x="595" y="168" text-anchor="middle" class="tech-desc">Next.js Server</text>
+    <text x="595" y="183" text-anchor="middle" class="tech-desc">Routes, HTTP</text>
+    <text x="595" y="197" text-anchor="middle" class="tech-desc">Methods, Request</text>
+    <text x="595" y="211" text-anchor="middle" class="tech-desc">Processing</text>
+    
+    <!-- pg Library -->
+    <rect x="380" y="255" width="130" height="110" class="backend-bg category-box" rx="5"/>
+    <text x="445" y="280" text-anchor="middle" class="tech-name">pg Library</text>
+    <text x="445" y="298" text-anchor="middle" class="tech-desc">PostgreSQL Client</text>
+    <text x="445" y="313" text-anchor="middle" class="tech-desc">Connection Pooling,</text>
+    <text x="445" y="328" text-anchor="middle" class="tech-desc">Query Execution,</text>
+    <text x="445" y="342" text-anchor="middle" class="tech-desc">Data Retrieval</text>
+    
+    <!-- bcryptjs -->
+    <rect x="530" y="255" width="130" height="110" class="backend-bg category-box" rx="5"/>
+    <text x="595" y="280" text-anchor="middle" class="tech-name">bcryptjs</text>
+    <text x="595" y="298" text-anchor="middle" class="tech-desc">Password Hashing,</text>
+    <text x="595" y="313" text-anchor="middle" class="tech-desc">Encryption Algorithm,</text>
+    <text x="595" y="328" text-anchor="middle" class="tech-desc">Secure Password</text>
+    <text x="595" y="342" text-anchor="middle" class="tech-desc">Storage</text>
+  </g>
+  
+  <!-- DATABASE LAYER -->
+  <g id="database">
+    <!-- Category Header -->
+    <rect x="710" y="75" width="280" height="35" class="database-bg" rx="5"/>
+    <text x="850" y="100" text-anchor="middle" class="category-title">DATABASE & STORAGE</text>
+    
+    <!-- PostgreSQL -->
+    <rect x="710" y="125" width="130" height="110" class="database-bg category-box" rx="5"/>
+    <text x="775" y="150" text-anchor="middle" class="tech-name">PostgreSQL</text>
+    <text x="775" y="168" text-anchor="middle" class="tech-desc">Relational Database,</text>
+    <text x="775" y="183" text-anchor="middle" class="tech-desc">ACID Compliance,</text>
+    <text x="775" y="197" text-anchor="middle" class="tech-desc">Complex Queries,</text>
+    <text x="775" y="211" text-anchor="middle" class="tech-desc">Data Integrity</text>
+    
+    <!-- File Storage -->
+    <rect x="860" y="125" width="130" height="110" class="database-bg category-box" rx="5"/>
+    <text x="925" y="150" text-anchor="middle" class="tech-name">File System</text>
+    <text x="925" y="168" text-anchor="middle" class="tech-desc">Document Storage,</text>
+    <text x="925" y="183" text-anchor="middle" class="tech-desc">PDF/Word/Excel</text>
+    <text x="925" y="197" text-anchor="middle" class="tech-desc">File Uploads,</text>
+    <text x="925" y="211" text-anchor="middle" class="tech-desc">Versioning</text>
+    
+    <!-- Backup & Archiving -->
+    <rect x="710" y="255" width="130" height="110" class="database-bg category-box" rx="5"/>
+    <text x="775" y="280" text-anchor="middle" class="tech-name">Archive Storage</text>
+    <text x="775" y="298" text-anchor="middle" class="tech-desc">Historical Data,</text>
+    <text x="775" y="313" text-anchor="middle" class="tech-desc">Soft Delete,</text>
+    <text x="775" y="328" text-anchor="middle" class="tech-desc">Retention Policy,</text>
+    <text x="775" y="342" text-anchor="middle" class="tech-desc">Restore Capability</text>
+    
+    <!-- Email Service -->
+    <rect x="860" y="255" width="130" height="110" class="database-bg category-box" rx="5"/>
+    <text x="925" y="280" text-anchor="middle" class="tech-name">Email Service</text>
+    <text x="925" y="298" text-anchor="middle" class="tech-desc">Nodemailer/SMTP,</text>
+    <text x="925" y="313" text-anchor="middle" class="tech-desc">Notifications,</text>
+    <text x="925" y="328" text-anchor="middle" class="tech-desc">Scheduled Emails,</text>
+    <text x="925" y="342" text-anchor="middle" class="tech-desc">Delivery Tracking</text>
+  </g>
+  
+  <!-- TOOLS & UTILITIES LAYER -->
+  <g id="tools">
+    <!-- Category Header -->
+    <rect x="1040" y="75" width="310" height="35" class="tools-bg" rx="5"/>
+    <text x="1195" y="100" text-anchor="middle" class="category-title">TOOLS & UTILITIES</text>
+    
+    <!-- Axios/Fetch -->
+    <rect x="1040" y="125" width="100" height="110" class="tools-bg category-box" rx="5"/>
+    <text x="1090" y="150" text-anchor="middle" class="tech-name">Fetch API</text>
+    <text x="1090" y="168" text-anchor="middle" class="tech-desc">HTTP Requests</text>
+    <text x="1090" y="183" text-anchor="middle" class="tech-desc">Client-Server</text>
+    <text x="1090" y="197" text-anchor="middle" class="tech-desc">Communication</text>
+    <text x="1090" y="211" text-anchor="middle" class="tech-desc">JSON Data</text>
+    
+    <!-- Lucide Icons -->
+    <rect x="1160" y="125" width="100" height="110" class="tools-bg category-box" rx="5"/>
+    <text x="1210" y="150" text-anchor="middle" class="tech-name">Lucide Icons</text>
+    <text x="1210" y="168" text-anchor="middle" class="tech-desc">Icon Library,</text>
+    <text x="1210" y="183" text-anchor="middle" class="tech-desc">SVG Icons,</text>
+    <text x="1210" y="197" text-anchor="middle" class="tech-desc">UI Components</text>
+    <text x="1210" y="211" text-anchor="middle" class="tech-desc">Customizable</text>
+    
+    <!-- Date Utils -->
+    <rect x="1280" y="125" width="70" height="110" class="tools-bg category-box" rx="5"/>
+    <text x="1315" y="150" text-anchor="middle" class="tech-name">date-fns</text>
+    <text x="1315" y="168" text-anchor="middle" class="tech-desc">Date Format</text>
+    <text x="1315" y="183" text-anchor="middle" class="tech-desc">Manipulation,</text>
+    <text x="1315" y="197" text-anchor="middle" class="tech-desc">Utilities</text>
+    <text x="1315" y="211" text-anchor="middle" class="tech-desc">Parsing</text>
+    
+    <!-- Build & Dev Tools -->
+    <rect x="1040" y="255" width="100" height="110" class="tools-bg category-box" rx="5"/>
+    <text x="1090" y="280" text-anchor="middle" class="tech-name">npm/pnpm</text>
+    <text x="1090" y="298" text-anchor="middle" class="tech-desc">Package Manager</text>
+    <text x="1090" y="313" text-anchor="middle" class="tech-desc">Dependency</text>
+    <text x="1090" y="328" text-anchor="middle" class="tech-desc">Management</text>
+    <text x="1090" y="342" text-anchor="middle" class="tech-desc">Scripts</text>
+    
+    <!-- Git -->
+    <rect x="1160" y="255" width="100" height="110" class="tools-bg category-box" rx="5"/>
+    <text x="1210" y="280" text-anchor="middle" class="tech-name">Git/GitHub</text>
+    <text x="1210" y="298" text-anchor="middle" class="tech-desc">Version Control</text>
+    <text x="1210" y="313" text-anchor="middle" class="tech-desc">Collaboration,</text>
+    <text x="1210" y="328" text-anchor="middle" class="tech-desc">Code Hosting</text>
+    <text x="1210" y="342" text-anchor="middle" class="tech-desc">CI/CD</text>
+    
+    <!-- Documentation -->
+    <rect x="1280" y="255" width="70" height="110" class="tools-bg category-box" rx="5"/>
+    <text x="1315" y="280" text-anchor="middle" class="tech-name">Docs</text>
+    <text x="1315" y="298" text-anchor="middle" class="tech-desc">README, API</text>
+    <text x="1315" y="313" text-anchor="middle" class="tech-desc">Docs, Code</text>
+    <text x="1315" y="328" text-anchor="middle" class="tech-desc">Comments</text>
+    <text x="1315" y="342" text-anchor="middle" class="tech-desc">JSDoc</text>
+  </g>
+  
+  <!-- SECURITY & QUALITY LAYER -->
+  <g id="security">
+    <!-- Category Header -->
+    <rect x="1040" y="410" width="310" height="35" class="security-bg" rx="5"/>
+    <text x="1195" y="435" text-anchor="middle" class="category-title">SECURITY & QUALITY</text>
+    
+    <!-- Session Management -->
+    <rect x="1040" y="460" width="150" height="110" class="security-bg category-box" rx="5"/>
+    <text x="1115" y="485" text-anchor="middle" class="tech-name">Session Management</text>
+    <text x="1115" y="503" text-anchor="middle" class="tech-desc">User Sessions,</text>
+    <text x="1115" y="518" text-anchor="middle" class="tech-desc">Authentication</text>
+    <text x="1115" y="533" text-anchor="middle" class="tech-desc">Token-based</text>
+    <text x="1115" y="547" text-anchor="middle" class="tech-desc">Auth Flow</text>
+    
+    <!-- OTP Verification -->
+    <rect x="1210" y="460" width="140" height="110" class="security-bg category-box" rx="5"/>
+    <text x="1280" y="485" text-anchor="middle" class="tech-name">OTP Verification</text>
+    <text x="1280" y="503" text-anchor="middle" class="tech-desc">Two-Factor</text>
+    <text x="1280" y="518" text-anchor="middle" class="tech-desc">Authentication,</text>
+    <text x="1280" y="533" text-anchor="middle" class="tech-desc">Email OTP,</text>
+    <text x="1280" y="547" text-anchor="middle" class="tech-desc">Security Layer</text>
+  </g>
+  
+  <!-- Summary Section -->
+  <g id="summary">
+    <rect x="50" y="410" width="940" height="210" fill="#f0f4f8" stroke="#2c5282" stroke-width="1" rx="5"/>
+    
+    <text x="70" y="435" class="tech-name" font-size="14">FITUR UTAMA SISTEM:</text>
+    
+    <text x="70" y="460" class="tech-desc">✓ Full-Stack Web Application: Frontend React components berkomunikasi dengan Next.js API Routes</text>
+    <text x="70" y="480" class="tech-desc">✓ Type-Safe Development: TypeScript memastikan kualitas kode dan mengurangi bugs</text>
+    <text x="70" y="500" class="tech-desc">✓ Database Persistence: PostgreSQL menyimpan semua data dokumen, review, dan aktivitas</text>
+    <text x="70" y="520" class="tech-desc">✓ Security: bcryptjs untuk password hashing, session management, dan OTP verification</text>
+    <text x="70" y="540" class="tech-desc">✓ File Management: Upload, download, versioning, dan archiving dokumen dengan metadata lengkap</text>
+    <text x="70" y="560" class="tech-desc">✓ Audit Trail: Semua aktivitas user dicatat di Activities table untuk compliance dan tracking</text>
+    <text x="70" y="580" class="tech-desc">✓ Notification System: Email dan in-app notifications untuk updates dokumen dan review status</text>
+    <text x="70" y="600" class="tech-desc">✓ Responsive UI: Tailwind CSS memastikan aplikasi responsif dan user-friendly di semua device</text>
+  </g>
+  
+  <!-- Architecture Pattern Info -->
+  <g id="pattern">
+    <rect x="50" y="630" width="1300" height="180" fill="#fef5e7" stroke="#f39c12" stroke-width="1" opacity="0.9" rx="5"/>
+    
+    <text x="70" y="655" class="tech-name" font-size="14">ARSITEKTUR PATTERN & BEST PRACTICES:</text>
+    
+    <text x="70" y="680" class="tech-desc">• Server-Side Rendering (SSR) & Client-Side Rendering (CSR): Next.js mengoptimalkan performa dengan SSR untuk SEO dan CSR untuk interaktivitas</text>
+    <text x="70" y="700" class="tech-desc">• API Layer Separation: API Routes terpisah dari component logic untuk separation of concerns dan reusability</text>
+    <text x="70" y="720" class="tech-desc">• Component Composition: React components dikomposisi menjadi smaller, reusable pieces untuk maintainability</text>
+    <text x="70" y="740" class="tech-desc">• Database Transactions: PostgreSQL memastikan data consistency dan ACID compliance untuk operasi kritis</text>
+    <text x="70" y="760" class="tech-desc">• Error Handling & Logging: Comprehensive error handling dan activity logging untuk debugging dan audit trail</text>
+    <text x="70" y="780" class="tech-desc">• Responsive Design: Tailwind CSS utility-first approach memastikan konsistensi dan responsive design di semua viewport</text>
+  </g>
+</svg>

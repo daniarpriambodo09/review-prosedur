@@ -1,0 +1,235 @@
+<svg viewBox="0 0 1400 900" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f5f7fa;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#e9ecef;stop-opacity:1" />
+    </linearGradient>
+    <style>
+      .title { font-size: 26px; font-weight: bold; fill: #1a365d; }
+      .stage-title { font-size: 14px; font-weight: 600; fill: #fff; }
+      .stage-desc { font-size: 11px; fill: #4a5568; }
+      .arrow-label { font-size: 10px; fill: #2d3748; font-weight: 600; }
+      .stage-box { fill: #4299e1; stroke: #2c5282; stroke-width: 2; }
+      .decision-box { fill: #f6ad55; stroke: #c05621; stroke-width: 2; }
+      .success-box { fill: #68d391; stroke: #22543d; stroke-width: 2; }
+      .failure-box { fill: #fc8181; stroke: #c53030; stroke-width: 2; }
+    </style>
+    <marker id="arrowhead-std" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#2d3748"/>
+    </marker>
+  </defs>
+  
+  <rect width="1400" height="900" fill="url(#bgGrad)"/>
+  
+  <!-- Title -->
+  <text x="700" y="40" text-anchor="middle" class="title">
+    Alur Proses Dokumen Prosedur - Review, Tracking & Archiving
+  </text>
+  
+  <!-- STAGE 1: DOCUMENT CREATION -->
+  <g id="stage1">
+    <text x="700" y="85" text-anchor="middle" class="stage-desc" font-size="12" font-weight="bold">TAHAP 1: PEMBUATAN DOKUMEN</text>
+    
+    <!-- Start Circle -->
+    <circle cx="100" cy="150" r="30" fill="#2ecc71" stroke="#27ae60" stroke-width="2"/>
+    <text x="100" y="160" text-anchor="middle" class="stage-title">START</text>
+    
+    <!-- Arrow -->
+    <path d="M 130 150 L 200 150" stroke="#2d3748" stroke-width="2" marker-end="url(#arrowhead-std)"/>
+    
+    <!-- Create Procedure -->
+    <rect x="200" y="115" width="120" height="70" class="stage-box" rx="5"/>
+    <text x="260" y="140" text-anchor="middle" class="stage-title">Buat Dokumen</text>
+    <text x="260" y="158" text-anchor="middle" class="stage-desc">Nomor, Judul,</text>
+    <text x="260" y="170" text-anchor="middle" class="stage-desc">Version, Konten</text>
+    
+    <!-- Arrow -->
+    <path d="M 320 150 L 390 150" stroke="#2d3748" stroke-width="2" marker-end="url(#arrowhead-std)"/>
+    
+    <!-- Upload File -->
+    <rect x="390" y="115" width="120" height="70" class="stage-box" rx="5"/>
+    <text x="450" y="140" text-anchor="middle" class="stage-title">Upload File</text>
+    <text x="450" y="158" text-anchor="middle" class="stage-desc">PDF/Word/</text>
+    <text x="450" y="170" text-anchor="middle" class="stage-desc">Excel Dokumen</text>
+    
+    <!-- Arrow -->
+    <path d="M 510 150 L 580 150" stroke="#2d3748" stroke-width="2" marker-end="url(#arrowhead-std)"/>
+    
+    <!-- Save to DB -->
+    <rect x="580" y="115" width="120" height="70" class="stage-box" rx="5"/>
+    <text x="640" y="140" text-anchor="middle" class="stage-title">Simpan ke DB</text>
+    <text x="640" y="158" text-anchor="middle" class="stage-desc">Procedures &</text>
+    <text x="640" y="170" text-anchor="middle" class="stage-desc">Files Tables</text>
+    
+    <!-- Arrow -->
+    <path d="M 700 150 L 770 150" stroke="#2d3748" stroke-width="2" marker-end="url(#arrowhead-std)"/>
+    
+    <!-- Create Activity Log -->
+    <rect x="770" y="115" width="120" height="70" class="stage-box" rx="5"/>
+    <text x="830" y="140" text-anchor="middle" class="stage-title">Log Activity</text>
+    <text x="830" y="158" text-anchor="middle" class="stage-desc">Catat di tabel</text>
+    <text x="830" y="170" text-anchor="middle" class="stage-desc">Activities</text>
+  </g>
+  
+  <!-- Arrow to next stage -->
+  <path d="M 700 185 L 700 240" stroke="#2d3748" stroke-width="3" marker-end="url(#arrowhead-std)"/>
+  
+  <!-- STAGE 2: REVIEW PROCESS -->
+  <g id="stage2">
+    <text x="700" y="260" text-anchor="middle" class="stage-desc" font-size="12" font-weight="bold">TAHAP 2: PROSES REVIEW (PIC)</text>
+    
+    <!-- Create Review Record -->
+    <rect x="580" y="285" width="120" height="70" class="stage-box" rx="5"/>
+    <text x="640" y="310" text-anchor="middle" class="stage-title">Buat Review</text>
+    <text x="640" y="328" text-anchor="middle" class="stage-desc">Record di tabel</text>
+    <text x="640" y="340" text-anchor="middle" class="stage-desc">Reviews</text>
+    
+    <!-- Arrow -->
+    <path d="M 700 320 L 770 320" stroke="#2d3748" stroke-width="2" marker-end="url(#arrowhead-std)"/>
+    
+    <!-- Send Notification -->
+    <rect x="770" y="285" width="120" height="70" class="stage-box" rx="5"/>
+    <text x="830" y="310" text-anchor="middle" class="stage-title">Kirim Notif</text>
+    <text x="830" y="328" text-anchor="middle" class="stage-desc">Email & DB ke</text>
+    <text x="830" y="340" text-anchor="middle" class="stage-desc">PIC yang ditunjuk</text>
+    
+    <!-- Arrow -->
+    <path d="M 890 320 L 960 320" stroke="#2d3748" stroke-width="2" marker-end="url(#arrowhead-std)"/>
+    
+    <!-- Decision: Review Status -->
+    <polygon points="1010,280 1060,320 1010,360 960,320" class="decision-box"/>
+    <text x="1010" y="315" text-anchor="middle" class="stage-title">Review</text>
+    <text x="1010" y="330" text-anchor="middle" class="stage-title">Status?</text>
+    
+    <!-- Path 1: APPROVED -->
+    <path d="M 1010 360 L 1010 420" stroke="#22543d" stroke-width="2" marker-end="url(#arrowhead-std)"/>
+    <text x="1035" y="395" class="arrow-label">APPROVED</text>
+    
+    <rect x="950" y="420" width="120" height="70" class="success-box" rx="5"/>
+    <text x="1010" y="445" text-anchor="middle" class="stage-title">Dokumen</text>
+    <text x="1010" y="463" text-anchor="middle" class="stage-title">Disetujui</text>
+    <text x="1010" y="478" text-anchor="middle" class="stage-desc">Status: Published</text>
+  </g>
+  
+  <!-- Path 2: REJECTED -->
+  <g id="rejection">
+    <path d="M 960 320 L 890 320" stroke="#c53030" stroke-width="2" marker-end="url(#arrowhead-std)"/>
+    <text x="900" y="305" class="arrow-label">REJECTED</text>
+    
+    <rect x="770" y="285" width="120" height="70" class="failure-box" rx="5"/>
+    <text x="830" y="310" text-anchor="middle" class="stage-title">Dokumen</text>
+    <text x="830" y="328" text-anchor="middle" class="stage-title">Ditolak</text>
+    <text x="830" y="343" text-anchor="middle" class="stage-desc">Request Revisi</text>
+  </g>
+  
+  <!-- Arrow to next stage -->
+  <path d="M 700 490 L 700 540" stroke="#2d3748" stroke-width="3" marker-end="url(#arrowhead-std)"/>
+  
+  <!-- STAGE 3: TRACKING & DISTRIBUTION -->
+  <g id="stage3">
+    <text x="700" y="560" text-anchor="middle" class="stage-desc" font-size="12" font-weight="bold">TAHAP 3: TRACKING & DISTRIBUSI DOKUMEN</text>
+    
+    <!-- Update Status -->
+    <rect x="200" y="585" width="120" height="70" class="stage-box" rx="5"/>
+    <text x="260" y="610" text-anchor="middle" class="stage-title">Update Status</text>
+    <text x="260" y="628" text-anchor="middle" class="stage-desc">Procedures Table</text>
+    <text x="260" y="640" text-anchor="middle" class="stage-desc">Status=Published</text>
+    
+    <!-- Arrow -->
+    <path d="M 320 620 L 390 620" stroke="#2d3748" stroke-width="2" marker-end="url(#arrowhead-std)"/>
+    
+    <!-- Notify All Users -->
+    <rect x="390" y="585" width="120" height="70" class="stage-box" rx="5"/>
+    <text x="450" y="610" text-anchor="middle" class="stage-title">Notifikasi</text>
+    <text x="450" y="628" text-anchor="middle" class="stage-desc">Semua User</text>
+    <text x="450" y="640" text-anchor="middle" class="stage-desc">via Email & App</text>
+    
+    <!-- Arrow -->
+    <path d="M 510 620 L 580 620" stroke="#2d3748" stroke-width="2" marker-end="url(#arrowhead-std)"/>
+    
+    <!-- Log in Activities -->
+    <rect x="580" y="585" width="120" height="70" class="stage-box" rx="5"/>
+    <text x="640" y="610" text-anchor="middle" class="stage-title">Log Activity</text>
+    <text x="640" y="628" text-anchor="middle" class="stage-desc">Catat perubahan</text>
+    <text x="640" y="640" text-anchor="middle" class="stage-desc">status dokumen</text>
+    
+    <!-- Arrow -->
+    <path d="M 700 620 L 770 620" stroke="#2d3748" stroke-width="2" marker-end="url(#arrowhead-std)"/>
+    
+    <!-- Users Can Access -->
+    <rect x="770" y="585" width="120" height="70" class="success-box" rx="5"/>
+    <text x="830" y="610" text-anchor="middle" class="stage-title">User Akses</text>
+    <text x="830" y="628" text-anchor="middle" class="stage-desc">Dokumen Published</text>
+    <text x="830" y="640" text-anchor="middle" class="stage-desc">View & Download</text>
+    
+    <!-- Arrow -->
+    <path d="M 890 620 L 960 620" stroke="#2d3748" stroke-width="2" marker-end="url(#arrowhead-std)"/>
+    
+    <!-- Track Usage -->
+    <rect x="960" y="585" width="120" height="70" class="stage-box" rx="5"/>
+    <text x="1020" y="610" text-anchor="middle" class="stage-title">Track Usage</text>
+    <text x="1020" y="628" text-anchor="middle" class="stage-desc">Log document-read</text>
+    <text x="1020" y="640" text-anchor="middle" class="stage-desc">timestamps</text>
+  </g>
+  
+  <!-- Arrow to next stage -->
+  <path d="M 700 655 L 700 705" stroke="#2d3748" stroke-width="3" marker-end="url(#arrowhead-std)"/>
+  
+  <!-- STAGE 4: ARCHIVING -->
+  <g id="stage4">
+    <text x="700" y="725" text-anchor="middle" class="stage-desc" font-size="12" font-weight="bold">TAHAP 4: PENGARSIPAN DOKUMEN</text>
+    
+    <!-- Check Archive Date -->
+    <rect x="200" y="750" width="120" height="70" class="decision-box" rx="5"/>
+    <text x="260" y="775" text-anchor="middle" class="stage-title">Cek Tanggal</text>
+    <text x="260" y="793" text-anchor="middle" class="stage-title">Arsip?</text>
+    <text x="260" y="805" text-anchor="middle" class="stage-desc">(Retention Policy)</text>
+    
+    <!-- Arrow -->
+    <path d="M 320 785 L 390 785" stroke="#2d3748" stroke-width="2" marker-end="url(#arrowhead-std)"/>
+    <text x="350" y="775" class="arrow-label">YES</text>
+    
+    <!-- Archive Doc -->
+    <rect x="390" y="750" width="120" height="70" class="stage-box" rx="5"/>
+    <text x="450" y="775" text-anchor="middle" class="stage-title">Archive Dokumen</text>
+    <text x="450" y="793" text-anchor="middle" class="stage-desc">Pindah ke Archive</text>
+    <text x="450" y="805" text-anchor="middle" class="stage-desc">Table</text>
+    
+    <!-- Arrow -->
+    <path d="M 510 785 L 580 785" stroke="#2d3748" stroke-width="2" marker-end="url(#arrowhead-std)"/>
+    
+    <!-- Store Metadata -->
+    <rect x="580" y="750" width="120" height="70" class="stage-box" rx="5"/>
+    <text x="640" y="775" text-anchor="middle" class="stage-title">Simpan Metadata</text>
+    <text x="640" y="793" text-anchor="middle" class="stage-desc">Reason, archivedAt,</text>
+    <text x="640" y="805" text-anchor="middle" class="stage-desc">restoreDate</text>
+    
+    <!-- Arrow -->
+    <path d="M 700 785 L 770 785" stroke="#2d3748" stroke-width="2" marker-end="url(#arrowhead-std)"/>
+    
+    <!-- Remove from Active -->
+    <rect x="770" y="750" width="120" height="70" class="stage-box" rx="5"/>
+    <text x="830" y="775" text-anchor="middle" class="stage-title">Hide from Active</text>
+    <text x="830" y="793" text-anchor="middle" class="stage-desc">Tidak tampil di</text>
+    <text x="830" y="805" text-anchor="middle" class="stage-desc">list normal</text>
+    
+    <!-- Arrow -->
+    <path d="M 890 785 L 960 785" stroke="#2d3748" stroke-width="2" marker-end="url(#arrowhead-std)"/>
+    
+    <!-- End Archive -->
+    <circle cx="1030" cy="785" r="30" fill="#9f7aea" stroke="#6b46c1" stroke-width="2"/>
+    <text x="1030" y="795" text-anchor="middle" class="stage-title">ARCHIVE</text>
+  </g>
+  
+  <!-- Legend/Key Information Box -->
+  <g id="legend">
+    <rect x="50" y="820" width="1300" height="70" fill="#ffffff" stroke="#2c5282" stroke-width="1" opacity="0.9" rx="5"/>
+    
+    <text x="70" y="840" class="stage-desc" font-weight="bold">KETERANGAN SISTEM:</text>
+    
+    <text x="70" y="858" class="stage-desc">✓ Setiap perubahan status dicatat dalam tabel Activities untuk audit trail</text>
+    <text x="70" y="873" class="stage-desc">✓ Notifikasi real-time dikirim ke PIC dan admin melalui email dan aplikasi</text>
+    <text x="700" y="858" class="stage-desc">✓ File disimpan terstruktur dengan version control</text>
+    <text x="700" y="873" class="stage-desc">✓ Dokumen dapat di-restore dari archive sesuai retention policy</text>
+  </g>
+</svg>
