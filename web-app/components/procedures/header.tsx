@@ -21,56 +21,60 @@ export function Header() {
       return [
         { label: 'Status Prosedur', path: '/status-review' },
         { label: 'Arsip Prosedur', path: '/arsip-prosedur' },
+        { label: 'Pengaturan SMTP', path: '/smtp-settings' },
       ];
     } else if (pathname === '/status-review') {
       return [
         { label: 'Home', path: '/home' },
         { label: 'Arsip Prosedur', path: '/arsip-prosedur' },
+        { label: 'Pengaturan SMTP', path: '/smtp-settings' },
       ];
     } else if (pathname === '/arsip-prosedur') {
       return [
         { label: 'Home', path: '/home' },
         { label: 'Status Prosedur', path: '/status-review' },
+        { label: 'Pengaturan SMTP', path: '/smtp-settings' },
+      ];
+    } else if (pathname === '/smtp-settings') {
+      return [
+        { label: 'Home', path: '/home' },
+        { label: 'Status Prosedur', path: '/status-review' },
+        { label: 'Arsip Prosedur', path: '/arsip-prosedur' },
       ];
     }
     return [
       { label: 'Home', path: '/home' },
       { label: 'Status Prosedur', path: '/status-review' },
       { label: 'Arsip Prosedur', path: '/arsip-prosedur' },
+      { label: 'Pengaturan SMTP', path: '/smtp-settings' },
     ];
   };
 
   const menuItems = getNavigationMenu();
 
   return (
-    // ── CHANGE: py-5 → py-3, px-8 → px-6 (header lebih slim)
     <header className="sticky top-0 z-50 bg-gradient-to-r from-blue-600 to-blue-700 shadow-lg">
       <div className="px-6 py-3 flex justify-between items-center">
         {/* Logo */}
         <div className="flex items-center gap-2.5">
-          {/* CHANGE: p-2 → p-1.5, rounded-lg → rounded-md, w-5 h-5 → w-4 h-4 */}
           <div className="bg-white/20 backdrop-blur-sm p-1.5 rounded-md">
             <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" className="w-4 h-4">
               <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
           <div>
-            {/* CHANGE: text-xl → text-base, text-xs → text-[11px] */}
             <h1 className="text-base font-bold text-white tracking-tight">Review Prosedur</h1>
             <p className="text-[11px] text-blue-100">Quality Management System</p>
           </div>
         </div>
 
         {/* Desktop Navigation */}
-        {/* CHANGE: gap-6 → gap-4 */}
         <div className="hidden md:flex items-center gap-4">
-          {/* CHANGE: gap-6 → gap-4 */}
           <nav className="flex gap-4">
             {menuItems.map((item) => (
               <Link
                 key={item.path}
                 href={item.path}
-                // CHANGE: text-sm → text-xs
                 className={`text-xs font-medium transition-colors ${
                   pathname === item.path ? 'text-white' : 'text-blue-50 hover:text-white'
                 }`}
@@ -81,15 +85,12 @@ export function Header() {
           </nav>
 
           <div className="flex items-center gap-3 pl-4 border-l border-blue-500">
-            {/* ── Notification Bell — hanya tampil untuk admin ── */}
             <NotificationBell />
 
             <div className="text-right">
-              {/* CHANGE: text-xs → text-[10px], text-sm → text-xs */}
               <p className="text-[10px] text-blue-100">Logged in as</p>
               <p className="text-xs font-semibold text-white">{user?.fullName || user?.username}</p>
             </div>
-            {/* CHANGE: px-4 py-2 → px-3 py-1.5, rounded-lg → rounded-md, text-sm → text-xs */}
             <button
               onClick={handleLogout}
               className="bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-md text-xs font-medium transition-all active:scale-95"
@@ -101,7 +102,6 @@ export function Header() {
 
         {/* Mobile Hamburger */}
         <div className="md:hidden flex items-center gap-2">
-          {/* Bell di mobile juga */}
           <NotificationBell />
           <button
             onClick={() => setIsMenuOpen(!isMenuOpen)}

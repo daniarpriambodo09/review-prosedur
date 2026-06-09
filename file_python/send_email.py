@@ -28,7 +28,7 @@ EMAIL_PASSWORD = "cchs eoit qlgs imsx"
 SMTP_SERVER    = "smtp.gmail.com"
 SMTP_PORT      = 587
 
-APP_URL = "https://postneuralgic-interveinal-robbie.ngrok-free.dev"
+APP_URL = "192.168.1.5/review-prosedur/pic-login"
 
 # ==============================
 # GENERATE OTP
@@ -133,7 +133,7 @@ def mark_emails_failed(conn, nomor_list, error_msg):
 def send_email(receiver, pic, dokumen_list, otp_code):
     print(f"[{datetime.now()}] Mengirim email ke {receiver} (PIC: {pic})")
 
-    link = f"{APP_URL}/review-page-owner/{pic}"
+    link = f"{APP_URL}"
 
     dokumen_text = ""
     for i, doc in enumerate(dokumen_list, 1):
@@ -276,7 +276,7 @@ scheduler = BlockingScheduler()
 scheduler.add_job(
     check_and_send_emails,
     "interval",
-    minutes=2
+    minutes=0.5
 )
 
 # ==============================
