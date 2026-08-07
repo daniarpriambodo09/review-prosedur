@@ -9,7 +9,7 @@ interface User {
   username: string;
   fullName: string;
   email: string | null;
-  role: 'user' | 'pic';
+  role: 'user' | 'pic' | 'admin';
   picId?: number;
 }
 

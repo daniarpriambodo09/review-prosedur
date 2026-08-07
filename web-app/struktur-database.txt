@@ -235,18 +235,19 @@ Foreign-key constraints:
 
 
 procedure_management=# \d pic_users
-                                        Table "public.pic_users"
-   Column   |            Type             | Collation | Nullable |                Default
-------------+-----------------------------+-----------+----------+---------------------------------------
- id         | integer                     |           | not null | nextval('pic_users_id_seq'::regclass)
- email      | character varying(200)      |           | not null |
- password   | character varying(255)      |           | not null |
- full_name  | character varying(200)      |           | not null |
- department | character varying(200)      |           |          |
- is_active  | boolean                     |           |          | true
- last_login | timestamp without time zone |           |          |
- created_at | timestamp without time zone |           |          | CURRENT_TIMESTAMP
- updated_at | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+                                            Table "public.pic_users"
+       Column       |            Type             | Collation | Nullable |                Default
+--------------------+-----------------------------+-----------+----------+---------------------------------------
+ id                 | integer                     |           | not null | nextval('pic_users_id_seq'::regclass)
+ email              | character varying(200)      |           | not null |
+ password           | character varying(255)      |           | not null |
+ full_name          | character varying(200)      |           | not null |
+ department         | character varying(200)      |           |          |
+ is_active          | boolean                     |           |          | true
+ last_login         | timestamp without time zone |           |          |
+ created_at         | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+ updated_at         | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+ password_encrypted | text                        |           |          |
 Indexes:
     "pic_users_pkey" PRIMARY KEY, btree (id)
     "pic_users_email_key" UNIQUE CONSTRAINT, btree (email)
@@ -314,25 +315,31 @@ Foreign-key constraints:
 
 
 procedure_management=# \d users
-                                        Table "public.users"
-   Column   |            Type             | Collation | Nullable |              Default
-------------+-----------------------------+-----------+----------+-----------------------------------
- id         | integer                     |           | not null | nextval('users_id_seq'::regclass)
- username   | character varying(100)      |           | not null |
- password   | character varying(255)      |           | not null |
- full_name  | character varying(200)      |           | not null |
- email      | character varying(200)      |           |          |
- role       | character varying(50)       |           |          | 'admin'::character varying
- is_active  | boolean                     |           |          | true
- created_at | timestamp without time zone |           |          | CURRENT_TIMESTAMP
- updated_at | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+                                            Table "public.users"
+       Column       |            Type             | Collation | Nullable |              Default
+--------------------+-----------------------------+-----------+----------+-----------------------------------
+ id                 | integer                     |           | not null | nextval('users_id_seq'::regclass)
+ username           | character varying(100)      |           | not null |
+ password           | character varying(255)      |           | not null |
+ full_name          | character varying(200)      |           | not null |
+ email              | character varying(200)      |           |          |
+ role               | character varying(50)       |           |          | 'admin'::character varying
+ is_active          | boolean                     |           |          | true
+ created_at         | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+ updated_at         | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+ password_encrypted | text                        |           |          |
 Indexes:
     "users_pkey" PRIMARY KEY, btree (id)
     "idx_users_is_active" btree (is_active)
     "idx_users_username" btree (username)
     "users_username_key" UNIQUE CONSTRAINT, btree (username)
+Referenced by:
+    TABLE "user_password_views" CONSTRAINT "user_password_views_admin_id_fkey" FOREIGN KEY (admin_id) REFERENCES users(id)
 Triggers:
     update_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
+
+
+procedure_management=#
 
 
 procedure_management=# select * from pic_documents;
@@ -868,44 +875,49 @@ procedure_management=#
 procedure_management=#
 procedure_management=#
 procedure_management=# select * from pic_users;
- id |           email           |                           password                           |    full_name    |    department     | is_active | last_login |         created_at         |         updated_at
-----+---------------------------+--------------------------------------------------------------+-----------------+-------------------+-----------+------------+----------------------------+----------------------------
-  1 | hma@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Hma             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
-  2 | vra, asw@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Vra, Asw        | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
-  3 | hpu,twi,das,yfi@jai.co.id | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Hpu,Twi,Das,Yfi | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
-  4 | dkr@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Dkr             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
-  5 | mcb@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Mcb             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
-  6 | dp@jai.co.id              | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Dp              | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
-  7 | dhs@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Dhs             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
-  8 | hpu@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Hpu             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
-  9 | hsw@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Hsw             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 10 | yfi@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Yfi             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 11 | ain@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Ain             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 12 | wsu@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Wsu             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 13 | nia@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Nia             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 14 | isr@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Isr             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 15 | mcb, dhs@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Mcb, Dhs        | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 16 | mmr@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Mmr             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 17 | cha@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Cha             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 18 | dp,us@jai.co.id           | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Dp,Us           | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 19 | emu@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Emu             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 20 | rko@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Rko             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 21 | das@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Das             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 22 | yhe@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Yhe             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 23 | ens@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Ens             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 24 | asw@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Asw             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 25 | daf,yhe,twi@jai.co.id     | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Daf,Yhe,Twi     | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 26 | ens, twi@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Ens, Twi        | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 27 | wwi@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Wwi             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 28 | lda@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Lda             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 29 | vra@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Vra             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 30 | lse@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Lse             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 31 | aca@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Aca             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 32 | fs@jai.co.id              | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Fs              | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 33 | fir@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Fir             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 34 | isr, ain@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Isr, Ain        | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 35 | ath@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Ath             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 36 | twi@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Twi             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 37 | ase@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Ase             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
- 38 | sfe@jai.co.id             | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Sfe             | Quality Assurance | t         |            | 2026-04-20 18:27:33.404814 | 2026-04-21 07:25:23.411868
-(38 rows)
+ id  |            email            |                           password                           |    full_name     |    department     | is_active | last_login |         created_at         |         updated_at         |                        password_encrypted    
+-----+-----------------------------+--------------------------------------------------------------+------------------+-------------------+-----------+------------+----------------------------+----------------------------+-------------------------------------------------------------------
+ 164 | zakizainn@gmail.com         | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Ghufron          |                   | t         |            | 2026-05-30 07:36:05.147633 | 2026-05-30 07:36:05.147633 |
+ 165 | dp.rd@jai.co.id             | $2b$10$LA6DOf7Zg9mOnO3QrU7bleHytwKIRHKDHcRXMn21n3vtKCG//EWYy | Daniar Priambodo |                   | t         |            | 2026-06-12 00:22:21.498064 | 2026-06-12 00:22:21.498064 | 678e1c4662c296d55562a2b61133936e:2bfa1e1aa284b067f6237ff94aada231
+ 124 | dp@jai.co.id                | $2b$12$8SNJUvOAjvzxJTLXi94H8OPW9HIoUewPhRrwL4MDh8V6EA6zAZOAq | Daniar Priambodo | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-05-08 08:12:08.693899 |
+ 125 | 123agung.i@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Ain              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 126 | 123david.a@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Daf              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 127 | forstudy0903@gmail.com      | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Fs               | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 128 | 123wiwin.w@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Wwi              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 129 | 123dwi.as@jai.co.id         | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Das              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 130 | 123noivasari@jai.co.id      | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Nia              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 131 | 123ika.y@jai.co.id          | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Isr              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 132 | 123david.k@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Dkr              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 133 | 123evaningsih@jai.co.id     | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Emu              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 134 | 123hayu.p@jai.co.id         | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Hpu              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 135 | 123shinta.f@jai.co.id       | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Sfe              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 136 | 123riska.o@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Rko              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 137 | agung.i@jai.co.id           | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Ain              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 138 | atiek.s@jai.co.id           | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Asw              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 139 | toni.w@jai.co.id            | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Twi              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 140 | 123danny.h@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Dhs              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 141 | 123ferry.i@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Fir              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 142 | dany.h@jai.co.id            | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Dhs              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 143 | 123arie.t@jai.co.id         | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Ath              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 144 | 123arianto.s@jai.co.id      | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Ase              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 145 | 123yachrul.h@jai.co.id      | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Yhe              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 146 | 123hary.sw@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Hsw              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 147 | untuksemua0309@gmail.com    | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Dp               | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 148 | 123hendy.m@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Hma              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 149 | 123m.chasan@jai.co.id       | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Mcb              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 150 | 123vinny.r@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Vra              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 151 | 123toni.w@jai.co.id         | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Twi              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 152 | daniarpriambodo11@gmail.com | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Dp               | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 153 | 123lilis.s@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Lse              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 154 | 123yuli.f@jai.co.id         | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Hpu              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 155 | 123catur.h@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Cha              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 156 | 123widyastuti.s@jai.co.id   | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Wsu              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 157 | 123lita.d@jai.co.id         | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Lda              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 158 | 123m.rafi@jai.co.id         | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Mmr              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 159 | 123endang.s@jai.co.id       | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Ens              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 160 | 123aris.c@jai.co.id         | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Aca              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+ 162 | 123atiek.s@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Asw              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
+(40 rows)
+
+
+procedure_management=#

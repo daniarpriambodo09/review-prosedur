@@ -1,17 +1,25 @@
 // app/home/page.tsx
 'use client';
-import { useState, useEffect, useMemo } from 'react';
-import { Header } from '@/components/procedures/header';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { AdminLayout } from '@/components/layout/AdminLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { getAllProcedures, ProcedureDocument, StatusType } from '@/data/procedures/all-procedures';
+import { useAuth } from '@/contexts/AuthContext';
+import DocumentModal from '@/components/documents/DocumentModal';
+import EmailScheduleModal from '@/components/status-review/EmailScheduleModal';
+import {
+  FileText, CheckCircle2, RefreshCw, Clock, TrendingUp,
+  Plus, CalendarClock, Archive, Users, Settings, Activity,
+  ChevronRight, Calendar,
+} from 'lucide-react';
 
 const MONTH_NAMES_ID = [
   'Januari','Februari','Maret','April','Mei','Juni',
   'Juli','Agustus','September','Oktober','November','Desember',
 ];
-const MONTH_NAMES_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MONTH_NAMES_SHORT = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
 
-interface Activity {
+interface ActivityLog {
   id: number;
   userId: number | null;
   username: string;
@@ -24,185 +32,191 @@ interface Activity {
 
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 function StatusBadge({ status }: { status: StatusType }) {
-  const styles: Record<StatusType, { bg: string; text: string; border: string; icon: string }> = {
-    Relevan:          { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', icon: '✓'  },
-    Revisi:           { bg: 'bg-amber-50',   text: 'text-amber-700',   border: 'border-amber-200',   icon: '⟳'  },
-    Obsolete:         { bg: 'bg-red-50',     text: 'text-red-700',     border: 'border-red-200',     icon: '⊘'  },
-    Menunggu:         { bg: 'bg-blue-50',    text: 'text-blue-700',    border: 'border-blue-200',    icon: '⏳' },
-    'Belum dikirim':  { bg: 'bg-orange-50',  text: 'text-orange-700',  border: 'border-orange-200',  icon: '📋' },
-    'Telah terkirim': { bg: 'bg-cyan-50',    text: 'text-cyan-700',    border: 'border-cyan-200',    icon: '📨' },
-    'Telah dibaca':   { bg: 'bg-purple-50',  text: 'text-purple-700',  border: 'border-purple-200',  icon: '👁️' },
-    '-':              { bg: 'bg-slate-50',   text: 'text-slate-500',   border: 'border-slate-200',   icon: '–'  },
+  const styles: Record<StatusType, { bg: string; text: string; dot: string }> = {
+    Relevan:          { bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-500' },
+    Revisi:           { bg: 'bg-amber-50',   text: 'text-amber-700',   dot: 'bg-amber-500'   },
+    Obsolete:         { bg: 'bg-red-50',     text: 'text-red-700',     dot: 'bg-red-500'     },
+    Menunggu:         { bg: 'bg-blue-50',    text: 'text-blue-700',    dot: 'bg-blue-500'    },
+    'Belum dikirim':  { bg: 'bg-orange-50',  text: 'text-orange-700',  dot: 'bg-orange-500'  },
+    'Telah terkirim': { bg: 'bg-cyan-50',    text: 'text-cyan-700',    dot: 'bg-cyan-500'    },
+    'Telah dibaca':   { bg: 'bg-purple-50',  text: 'text-purple-700',  dot: 'bg-purple-500'  },
+    '-':              { bg: 'bg-slate-50',   text: 'text-slate-500',   dot: 'bg-slate-400'   },
   };
   const s = styles[status] ?? styles['-'];
   return (
-    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold border ${s.bg} ${s.text} ${s.border}`}>
-      {s.icon} {status}
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${s.bg} ${s.text}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
+      {status}
     </span>
   );
 }
 
-// ─── Stat Card ────────────────────────────────────────────────────────────────
-function StatCard({
-  title, value, icon, color,
-}: {
-  title: string; value: number; icon: React.ReactNode;
-  color: 'blue' | 'green' | 'amber' | 'slate' | 'red';
-}) {
-  const colorClasses = {
-    blue:  'bg-blue-50    text-blue-600    border-blue-200',
-    green: 'bg-emerald-50 text-emerald-600 border-emerald-200',
-    amber: 'bg-amber-50   text-amber-600   border-amber-200',
-    slate: 'bg-slate-50   text-slate-600   border-slate-200',
-    red:   'bg-red-50     text-red-600     border-red-200',
-  };
-  return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 hover:shadow-md transition-shadow">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm text-slate-600 mb-1">{title}</p>
-          <p className="text-3xl font-bold text-slate-900">{value}</p>
-        </div>
-        <div className={`p-3 rounded-lg ${colorClasses[color]}`}>{icon}</div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Card ke-4: Belum Review ──────────────────────────────────────────────────
-function PendingReviewCard({
-  menunggu, terkirim, terbaca,
-}: {
-  menunggu: number; terkirim: number; terbaca: number;
-}) {
-  const total = menunggu + terkirim + terbaca;
-  return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 hover:shadow-md transition-shadow">
-      <div className="flex items-start justify-between mb-4">
-        <div>
-          <p className="text-sm text-slate-600 mb-1">Belum Direview</p>
-          <p className="text-3xl font-bold text-slate-900">{total}</p>
-        </div>
-        <div className="p-3 rounded-lg bg-slate-50 text-slate-600 border border-slate-200">
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Month Filter ─────────────────────────────────────────────────────────────
-function MonthFilter({
-  value, onChange, availableMonths,
-}: {
+// ─── KPI Card ─────────────────────────────────────────────────────────────────
+interface KpiCardProps {
+  title: string;
   value: number;
-  onChange: (m: number) => void;
-  availableMonths: number[];
-}) {
+  subtitle?: string;
+  icon: React.ReactNode;
+  iconBg: string;
+  iconColor: string;
+}
+function KpiCard({ title, value, subtitle, icon, iconBg, iconColor }: KpiCardProps) {
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-sm text-slate-600 font-medium whitespace-nowrap">Filter bulan:</span>
-      <select
-        value={value}
-        onChange={e => onChange(Number(e.target.value))}
-        className="pl-3 pr-8 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer appearance-none"
-        style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%231f2937' d='M6 8L2 4h8z'/%3E%3C/svg%3E")`,
-          backgroundRepeat: 'no-repeat',
-          backgroundPosition: 'right 10px center',
-        }}
-      >
-        {MONTH_NAMES_ID.map((name, i) => (
-          <option key={i} value={i} disabled={!availableMonths.includes(i)}>
-            {name}{!availableMonths.includes(i) ? ' (kosong)' : ''}
-          </option>
-        ))}
-      </select>
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium text-slate-500 mb-1">{title}</p>
+          <p className="text-3xl font-bold text-slate-900 leading-none">{value}</p>
+          {subtitle && <p className="text-xs text-slate-400 mt-1.5">{subtitle}</p>}
+        </div>
+        <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${iconBg}`}>
+          <div className={iconColor}>{icon}</div>
+        </div>
+      </div>
     </div>
   );
 }
 
-// ─── Activity Type config (label + badge) ────────────────────────────────────
-// Urutan menentukan urutan di dropdown filter.
-//
-// Sumber data:
-//   activity_logs  → aktivitas admin  (login, upload, create, dll)
-//   pic_activities → aktivitas PIC, type-nya dinormalisasi oleh API sebelum dikirim:
-//                    'request'  → 'request_review'
-//                    'document' → 'request_document'
-//                    'view'     → 'download'
-//                    'approval' → 'review'
-const ACTIVITY_TYPE_CONFIG: Record<string, { label: string; badgeCls: string }> = {
-  // ── Admin ────────────────────────────────────────────────────────────────
-  login:            { label: '🔐 LOGIN',                 badgeCls: 'bg-blue-100 text-blue-700'      },
-  logout:           { label: '🚪 LOGOUT',                badgeCls: 'bg-slate-100 text-slate-700'    },
-  upload:           { label: '📤 UPLOAD',                badgeCls: 'bg-green-100 text-green-700'    },
-  download:         { label: '📥 DOWNLOAD',              badgeCls: 'bg-cyan-100 text-cyan-700'      },
-  review:           { label: '✅ REVIEW',                badgeCls: 'bg-purple-100 text-purple-700'  },
-  archive:          { label: '📦 ARCHIVE',               badgeCls: 'bg-amber-100 text-amber-700'    },
-  restore:          { label: '↺ RESTORE',                badgeCls: 'bg-emerald-100 text-emerald-700'},
-  delete:           { label: '🗑️ DELETE',                badgeCls: 'bg-red-100 text-red-700'        },
-  create:           { label: '➕ CREATE',                badgeCls: 'bg-indigo-100 text-indigo-700'  },
-  update:           { label: '✏️ UPDATE',                badgeCls: 'bg-orange-100 text-orange-700'  },
-  // ── PIC (dinormalisasi API dari pic_activities) ───────────────────────────
-  // pic_activities.activity_type = 'request' → API kirim sebagai 'request_review'
-  request_review:   { label: '📝 REQUEST REVIEW',        badgeCls: 'bg-teal-100 text-teal-700'      },
-  // pic_activities.activity_type = 'document' → API kirim sebagai 'request_document'
-  request_document: { label: '📄 REQUEST DOKUMEN BARU',  badgeCls: 'bg-sky-100 text-sky-700'        },
+// ─── Activity Type config ─────────────────────────────────────────────────────
+const ACTIVITY_TYPE_CONFIG: Record<string, { label: string; badgeCls: string; dot: string }> = {
+  login:            { label: 'Login',           badgeCls: 'bg-blue-100 text-blue-700',      dot: 'bg-blue-500'    },
+  logout:           { label: 'Logout',          badgeCls: 'bg-slate-100 text-slate-600',    dot: 'bg-slate-400'   },
+  upload:           { label: 'Upload',          badgeCls: 'bg-green-100 text-green-700',    dot: 'bg-green-500'   },
+  download:         { label: 'Download',        badgeCls: 'bg-cyan-100 text-cyan-700',      dot: 'bg-cyan-500'    },
+  review:           { label: 'Review',          badgeCls: 'bg-purple-100 text-purple-700',  dot: 'bg-purple-500'  },
+  archive:          { label: 'Archive',         badgeCls: 'bg-amber-100 text-amber-700',    dot: 'bg-amber-500'   },
+  restore:          { label: 'Restore',         badgeCls: 'bg-emerald-100 text-emerald-700',dot: 'bg-emerald-500' },
+  delete:           { label: 'Delete',          badgeCls: 'bg-red-100 text-red-700',        dot: 'bg-red-500'     },
+  create:           { label: 'Create',          badgeCls: 'bg-indigo-100 text-indigo-700',  dot: 'bg-indigo-500'  },
+  update:           { label: 'Update',          badgeCls: 'bg-orange-100 text-orange-700',  dot: 'bg-orange-500'  },
+  request_review:   { label: 'Request Review',  badgeCls: 'bg-teal-100 text-teal-700',      dot: 'bg-teal-500'    },
+  request_document: { label: 'Request Dokumen', badgeCls: 'bg-sky-100 text-sky-700',        dot: 'bg-sky-500'     },
 };
 
-// ─── Normalisasi type (standalone — dipakai badge & filter) ─────────────────
-// "request_download" adalah nama lama keliru, dipetakan ke "request_document"
 function normalizeActivityType(t: string): string {
   return t === 'request_download' ? 'request_document' : t;
 }
 
-// ─── Activity Type Badge ──────────────────────────────────────────────────────
 function ActivityTypeBadge({ type }: { type: string }) {
   const normalized = normalizeActivityType(type);
   const cfg = ACTIVITY_TYPE_CONFIG[normalized];
   return (
-    <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${cfg?.badgeCls ?? 'bg-slate-100 text-slate-700'}`}>
-      {cfg?.label ?? normalized.toUpperCase()}
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${cfg?.badgeCls ?? 'bg-slate-100 text-slate-600'}`}>
+      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${cfg?.dot ?? 'bg-slate-400'}`} />
+      {cfg?.label ?? normalized}
     </span>
   );
 }
 
-// ─── Dropdown helper — reusable select dengan style konsisten ─────────────────
+// ─── Dropdown style ───────────────────────────────────────────────────────────
+const selectCls =
+  'pl-3 pr-8 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 ' +
+  'focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer appearance-none transition-all';
 const dropdownStyle = {
   backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%231f2937' d='M6 8L2 4h8z'/%3E%3C/svg%3E")`,
   backgroundRepeat: 'no-repeat' as const,
   backgroundPosition: 'right 10px center',
 };
-const selectCls =
-  'pl-3 pr-8 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 ' +
-  'focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer appearance-none transition-all';
+
+// ─── Quick Action Card ────────────────────────────────────────────────────────
+function QuickActionButton({
+  onClick, icon, label, description, color,
+}: {
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  description: string;
+  color: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="group flex items-center gap-3 p-4 bg-white rounded-xl border border-slate-200 hover:border-blue-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 text-left w-full"
+    >
+      <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${color}`}>
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-slate-800 group-hover:text-blue-700 transition-colors">{label}</p>
+        <p className="text-xs text-slate-400">{description}</p>
+      </div>
+      <ChevronRight size={14} className="ml-auto text-slate-300 group-hover:text-blue-500 transition-colors flex-shrink-0" />
+    </button>
+  );
+}
+
+function QuickActionLink({
+  href, icon, label, description, color,
+}: {
+  href: string;
+  icon: React.ReactNode;
+  label: string;
+  description: string;
+  color: string;
+}) {
+  return (
+    <a
+      href={href}
+      className="group flex items-center gap-3 p-4 bg-white rounded-xl border border-slate-200 hover:border-blue-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
+    >
+      <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${color}`}>
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-slate-800 group-hover:text-blue-700 transition-colors">{label}</p>
+        <p className="text-xs text-slate-400">{description}</p>
+      </div>
+      <ChevronRight size={14} className="ml-auto text-slate-300 group-hover:text-blue-500 transition-colors flex-shrink-0" />
+    </a>
+  );
+}
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function HomePage() {
-  const [procedures,       setProcedures]       = useState<ProcedureDocument[]>([]);
-  const [recentActivities, setRecentActivities] = useState<Activity[]>([]);
-  const [loading,          setLoading]          = useState(true);
-  const [selectedMonth,    setSelectedMonth]    = useState<number>(new Date().getMonth());
-  const [activityPage,     setActivityPage]     = useState(1);
+  const { user } = useAuth();
+  const [procedures,         setProcedures]         = useState<ProcedureDocument[]>([]);
+  const [recentActivities,   setRecentActivities]   = useState<ActivityLog[]>([]);
+  const [loading,            setLoading]            = useState(true);
+  const [selectedMonth,      setSelectedMonth]      = useState<number>(new Date().getMonth());
+  const [activityPage,       setActivityPage]       = useState(1);
+  const [activityUserFilter, setActivityUserFilter] = useState('');
+  const [activityTypeFilter, setActivityTypeFilter] = useState('');
 
-  // ── Filter aktivitas ──────────────────────────────────────────────────────
-  const [activityUserFilter, setActivityUserFilter] = useState<string>('');   // '' = semua
-  const [activityTypeFilter, setActivityTypeFilter] = useState<string>('');   // '' = semua
+  // ── Modal state — BUG FIX #2 ──────────────────────────────────────────────
+  const [isAddModalOpen,           setIsAddModalOpen]           = useState(false);
+  const [isEmailScheduleModalOpen, setIsEmailScheduleModalOpen] = useState(false);
+  const [emailSchedules,           setEmailSchedules]           = useState<Record<string, any>>({});
+  // State untuk AddProcedureModal — dipanggil dari quick action
+  const [newProcedure, setNewProcedure] = useState({
+    namaDokumen: '', nomorDokumen: '', levelDokumen: '',
+    tanggalSelesaiApproval: '', owner: '', pic: '', email: '',
+  });
+  const [needsReview, setNeedsReview] = useState<boolean | null>(null);
+  const [isSaving,    setIsSaving]    = useState(false);
 
   const ACTIVITIES_PER_PAGE = 8;
+  const today = new Date();
+
+  const loadEmailSchedules = useCallback(async () => {
+    try {
+      const res = await fetch('/review-prosedur/api/email-schedules');
+      if (res.ok) {
+        const schedules = await res.json();
+        const map: Record<string, any> = {};
+        schedules.forEach((s: any) => { map[s.nomorDokumen] = s; });
+        setEmailSchedules(map);
+      }
+    } catch {}
+  }, []);
 
   useEffect(() => {
     const load = async () => {
       try {
         const procs = await getAllProcedures();
         setProcedures(procs);
-        // Ambil lebih banyak agar filter frontend tetap representatif
         const actRes = await fetch('/review-prosedur/api/activities?limit=200');
         if (actRes.ok) setRecentActivities(await actRes.json());
+        await loadEmailSchedules();
       } catch (err) {
         console.error('Error loading dashboard:', err);
       } finally {
@@ -210,9 +224,8 @@ export default function HomePage() {
       }
     };
     load();
-  }, []);
+  }, [loadEmailSchedules]);
 
-  // ── Bulan yang punya dokumen ──────────────────────────────────────────────
   const availableMonths = useMemo(() => {
     const months = new Set<number>();
     procedures.forEach(p => {
@@ -222,7 +235,6 @@ export default function HomePage() {
     return Array.from(months).sort((a, b) => a - b);
   }, [procedures]);
 
-  // ── Dokumen difilter bulan ────────────────────────────────────────────────
   const filteredDocs = useMemo(() =>
     procedures.filter(p => {
       const d = new Date(p.tanggalSelesaiApproval);
@@ -248,16 +260,12 @@ export default function HomePage() {
     );
   }, [filteredDocs]);
 
-  // ── Daftar unik username untuk dropdown User/PIC ──────────────────────────
   const uniqueUsers = useMemo(() => {
     const names = new Set<string>();
-    recentActivities.forEach(a => {
-      if (a.username) names.add(a.username);
-    });
+    recentActivities.forEach(a => { if (a.username) names.add(a.username); });
     return Array.from(names).sort((a, b) => a.localeCompare(b));
   }, [recentActivities]);
 
-  // ── Daftar unik type untuk dropdown, diurutkan sesuai urutan ACTIVITY_TYPE_CONFIG ─
   const uniqueTypes = useMemo(() => {
     const types = new Set<string>();
     recentActivities.forEach(a => {
@@ -265,357 +273,348 @@ export default function HomePage() {
     });
     const configKeys = Object.keys(ACTIVITY_TYPE_CONFIG);
     return Array.from(types).sort((a, b) => {
-      const ia = configKeys.indexOf(a);
-      const ib = configKeys.indexOf(b);
+      const ia = configKeys.indexOf(a); const ib = configKeys.indexOf(b);
       if (ia === -1 && ib === -1) return a.localeCompare(b);
-      if (ia === -1) return 1;
-      if (ib === -1) return -1;
+      if (ia === -1) return 1; if (ib === -1) return -1;
       return ia - ib;
     });
   }, [recentActivities]);
 
-  // ── Aktivitas setelah filter user + type ─────────────────────────────────
   const filteredActivities = useMemo(() => {
     return recentActivities.filter(a => {
       const matchUser = activityUserFilter === '' || a.username === activityUserFilter;
-      // normalizeType memastikan data lama (request_download) ikut terfilter
       const matchType = activityTypeFilter === '' || normalizeActivityType(a.activityType) === activityTypeFilter;
       return matchUser && matchType;
     });
   }, [recentActivities, activityUserFilter, activityTypeFilter]);
 
-  // ── Pagination aktivitas ──────────────────────────────────────────────────
   const totalActivityPages  = Math.max(1, Math.ceil(filteredActivities.length / ACTIVITIES_PER_PAGE));
   const safeActivityPage    = Math.min(activityPage, totalActivityPages);
   const activityStart       = (safeActivityPage - 1) * ACTIVITIES_PER_PAGE;
   const activityEnd         = Math.min(activityStart + ACTIVITIES_PER_PAGE, filteredActivities.length);
   const paginatedActivities = filteredActivities.slice(activityStart, activityEnd);
 
-  // Reset ke halaman 1 saat filter berubah
-  const handleUserFilterChange = (v: string) => {
-    setActivityUserFilter(v);
-    setActivityPage(1);
-  };
-  const handleTypeFilterChange = (v: string) => {
-    setActivityTypeFilter(v);
-    setActivityPage(1);
+  const handleUserFilterChange = (v: string) => { setActivityUserFilter(v); setActivityPage(1); };
+  const handleTypeFilterChange = (v: string) => { setActivityTypeFilter(v); setActivityPage(1); };
+  const hasActiveFilter  = activityUserFilter !== '' || activityTypeFilter !== '';
+  const isCurrentMonth   = selectedMonth === today.getMonth();
+  const selectedMonthName = MONTH_NAMES_ID[selectedMonth];
+
+  // ── Save new procedure dari quick action ──────────────────────────────────
+  const handleSaveNewProcedure = async () => {
+    if (!newProcedure.namaDokumen || !newProcedure.nomorDokumen || !newProcedure.levelDokumen ||
+        !newProcedure.tanggalSelesaiApproval || !newProcedure.owner || !newProcedure.pic || !newProcedure.email) {
+      alert('Semua kolom wajib diisi.');
+      return;
+    }
+    try {
+      setIsSaving(true);
+      const response = await fetch('/review-prosedur/api/procedures', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...newProcedure, revisi: '0', needsReview }),
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        if (response.status === 409) {
+          alert('Nomor dokumen sudah ada. Silakan gunakan nomor yang berbeda.');
+        } else {
+          throw new Error(err.error || 'Gagal menambahkan prosedur');
+        }
+        return;
+      }
+      const procs = await getAllProcedures();
+      setProcedures(procs);
+      setNewProcedure({ namaDokumen: '', nomorDokumen: '', levelDokumen: '', tanggalSelesaiApproval: '', owner: '', pic: '', email: '' });
+      setNeedsReview(null);
+      setIsAddModalOpen(false);
+      alert('Prosedur berhasil ditambahkan!');
+    } catch (error: any) {
+      alert('Gagal menambahkan prosedur. Silakan coba lagi.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-slate-600">Memuat dashboard...</p>
+      <ProtectedRoute>
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto mb-4" />
+            <p className="text-slate-500 text-sm">Memuat dashboard...</p>
+          </div>
         </div>
-      </div>
+      </ProtectedRoute>
     );
   }
 
-  const selectedMonthName = MONTH_NAMES_ID[selectedMonth];
-  const isCurrentMonth    = selectedMonth === new Date().getMonth();
+  // ── isInReviewRange helper (untuk AddProcedureModal di homepage) ──────────
+  function isInReviewRange(tanggalApproval: string): boolean {
+    if (!tanggalApproval) return false;
+    const d = new Date(tanggalApproval);
+    if (isNaN(d.getTime())) return false;
+    const now      = new Date();
+    const expiry   = new Date(d.getFullYear(), d.getMonth() + 2, d.getDate());
+    if (now >= expiry) return false;
+    const schedDate = new Date(d.getFullYear(), d.getMonth() - 2, 1);
+    const schedYM   = schedDate.getFullYear() * 12 + schedDate.getMonth();
+    const nowYM     = now.getFullYear() * 12 + now.getMonth();
+    return nowYM >= schedYM;
+  }
 
-  // Apakah ada filter aktif
-  const hasActiveFilter = activityUserFilter !== '' || activityTypeFilter !== '';
+  const fieldCls =
+    'w-full px-3 py-2 border border-slate-200 rounded-xl text-xs text-slate-900 ' +
+    'placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 ' +
+    'focus:border-transparent transition-all bg-white hover:border-slate-300';
+
+  const inReviewRange = isInReviewRange(newProcedure.tanggalSelesaiApproval);
+  const isExpired = (() => {
+    if (!newProcedure.tanggalSelesaiApproval) return false;
+    const d = new Date(newProcedure.tanggalSelesaiApproval);
+    if (isNaN(d.getTime())) return false;
+    return new Date() >= new Date(d.getFullYear(), d.getMonth() + 2, d.getDate());
+  })();
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50">
-        <Header />
+      <AdminLayout>
+        <div className="max-w-7xl mx-auto space-y-8">
 
-        <div className="max-w-7xl mx-auto px-8 py-8">
-
-          {/* Welcome + filter bulan */}
-          <div className="mb-8 flex items-end justify-between flex-wrap gap-4">
-            <div>
-              <h1 className="text-3xl font-bold text-slate-900 mb-1">Dashboard Admin</h1>
-              <p className="text-slate-600">Selamat datang di sistem Review Prosedur Quality Management System</p>
+          {/* ── Hero Card — BUG FIX #1: Hapus KPI dari hero, hanya sapaan ── */}
+          <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-6 md:p-8 text-white shadow-md">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div>
+                <p className="text-blue-200 text-sm font-medium mb-1">Selamat datang kembali 👋</p>
+                <h1 className="text-2xl md:text-3xl font-bold mb-1">
+                  {user?.fullName || user?.username || 'Administrator'}
+                </h1>
+                <p className="text-blue-200 text-sm">Review Prosedur · Quality Management System</p>
+              </div>
+              <div className="flex items-center gap-3 bg-white/15 backdrop-blur-sm rounded-xl px-4 py-3 self-start md:self-auto">
+                <Calendar size={18} className="text-blue-200 flex-shrink-0" />
+                <div>
+                  <p className="text-blue-200 text-[10px] font-medium uppercase tracking-wider">Hari ini</p>
+                  <p className="text-white text-sm font-semibold">
+                    {today.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                  </p>
+                </div>
+              </div>
             </div>
-            <div className="flex items-center gap-3 bg-white border border-slate-200 rounded-xl px-5 py-3 shadow-sm">
-              <svg className="w-5 h-5 text-blue-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              <MonthFilter
-                value={selectedMonth}
-                onChange={m => { setSelectedMonth(m); setActivityPage(1); }}
-                availableMonths={availableMonths}
-              />
-              {isCurrentMonth && (
-                <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">
-                  Bulan ini
+          </div>
+
+          {/* ── Filter bulan ──────────────────────────────────────────────── */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-sm font-semibold text-slate-700">Filter bulan:</span>
+            <select
+              value={selectedMonth}
+              onChange={e => { setSelectedMonth(Number(e.target.value)); setActivityPage(1); }}
+              className={selectCls}
+              style={dropdownStyle}
+            >
+              {MONTH_NAMES_ID.map((name, i) => (
+                <option key={i} value={i} disabled={!availableMonths.includes(i)}>
+                  {name}{!availableMonths.includes(i) ? ' (kosong)' : ''}
+                </option>
+              ))}
+            </select>
+            {isCurrentMonth && (
+              <span className="text-xs bg-blue-600 text-white px-2.5 py-1 rounded-full font-semibold">
+                Bulan ini
+              </span>
+            )}
+          </div>
+
+          {/* ── KPI Cards — satu-satunya tempat KPI tampil ────────────────── */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <KpiCard
+              title={`Total Dokumen · ${MONTH_NAMES_SHORT[selectedMonth]}`}
+              value={stats.total}
+              icon={<FileText size={20} />}
+              iconBg="bg-blue-50"
+              iconColor="text-blue-600"
+              subtitle="Semua status"
+            />
+            <KpiCard
+              title="Relevan"
+              value={stats.relevan}
+              icon={<CheckCircle2 size={20} />}
+              iconBg="bg-emerald-50"
+              iconColor="text-emerald-600"
+              subtitle="Sudah direview & relevan"
+            />
+            <KpiCard
+              title="Perlu Revisi"
+              value={stats.revisi}
+              icon={<RefreshCw size={20} />}
+              iconBg="bg-amber-50"
+              iconColor="text-amber-600"
+              subtitle="Membutuhkan perubahan"
+            />
+            <KpiCard
+              title="Belum Direview"
+              value={stats.menunggu + stats.terkirim + stats.terbaca}
+              icon={<Clock size={20} />}
+              iconBg="bg-slate-50"
+              iconColor="text-slate-500"
+              subtitle={`${stats.menunggu} menunggu · ${stats.terkirim} terkirim · ${stats.terbaca} terbaca`}
+            />
+          </div>
+
+          {/* ── Review Progress + Dokumen ──────────────────────────────────── */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <TrendingUp size={16} className="text-blue-600" />
+                <h2 className="font-bold text-slate-900">Review Progress · {selectedMonthName}</h2>
+                <span className="text-xs text-slate-400">({filteredDocs.length} dokumen)</span>
+              </div>
+              <span className={`text-sm font-bold ${reviewProgress === 100 ? 'text-emerald-600' : 'text-blue-600'}`}>
+                {reviewProgress}%
+              </span>
+            </div>
+            <div className="px-6 pt-4 pb-3">
+              <div className="w-full bg-slate-100 rounded-full h-2.5">
+                <div
+                  className={`h-2.5 rounded-full transition-all duration-700 ease-out ${
+                    reviewProgress === 100 ? 'bg-emerald-500' : 'bg-blue-600'
+                  }`}
+                  style={{ width: `${reviewProgress}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between mt-2">
+                <span className="text-xs text-slate-500">
+                  {filteredDocs.filter(d => d.status === 'Relevan').length} dari {filteredDocs.length} dokumen relevan
                 </span>
+                {reviewProgress === 100 && filteredDocs.length > 0 && (
+                  <span className="text-xs text-emerald-600 font-semibold flex items-center gap-1">
+                    <CheckCircle2 size={12} /> Semua dokumen relevan
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="px-6 pb-6">
+              {filteredDocs.length > 0 ? (
+                <div className="space-y-1.5 max-h-80 overflow-auto pr-1">
+                  {filteredDocs.map((doc, idx) => (
+                    <div
+                      key={doc.nomorDokumen}
+                      className={`flex items-center justify-between px-3 py-2.5 rounded-lg transition-colors ${
+                        idx % 2 === 0 ? 'bg-slate-50' : 'bg-white'
+                      } hover:bg-blue-50`}
+                    >
+                      <div className="min-w-0 flex-1 pr-3">
+                        <p className="text-sm font-medium text-slate-800 truncate">{doc.namaDokumen}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">{doc.nomorDokumen} · {doc.pic}</p>
+                      </div>
+                      <StatusBadge status={doc.status} />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-10 text-slate-400">
+                  <FileText size={40} className="mx-auto mb-3 text-slate-300" />
+                  <p className="text-sm font-medium">Tidak ada dokumen untuk {selectedMonthName}</p>
+                  <p className="text-xs mt-1">Pilih bulan lain menggunakan filter di atas</p>
+                </div>
               )}
             </div>
           </div>
 
-          {/* Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <StatCard
-              title={`Total Dokumen · ${MONTH_NAMES_SHORT[selectedMonth]}`}
-              value={stats.total}
-              color="blue"
-              icon={
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-              }
-            />
-            <StatCard
-              title="Relevan"
-              value={stats.relevan}
-              color="green"
-              icon={
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              }
-            />
-            <StatCard
-              title="Revisi"
-              value={stats.revisi}
-              color="amber"
-              icon={
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-              }
-            />
-            <PendingReviewCard
-              menunggu={stats.menunggu}
-              terkirim={stats.terkirim}
-              terbaca={stats.terbaca}
-            />
-          </div>
 
-          {/* Daftar dokumen */}
-          <div className="mb-8">
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-              <div className="px-6 py-4 bg-gradient-to-r from-blue-50 to-blue-100 border-b border-slate-200">
-                <div className="flex items-center gap-3 flex-wrap">
-                  <h2 className="font-bold text-lg text-slate-900">
-                    📅 Dokumen Bulan {selectedMonthName}
-                  </h2>
-                  <span className="text-xs text-slate-500 font-medium">
-                    {filteredDocs.length} dokumen
-                  </span>
-                </div>
-              </div>
-
-              {/* Progress */}
-              <div className="px-6 pt-5 pb-2">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-sm text-slate-600">
-                    Progress Review{' '}
-                    <span className="text-slate-400">
-                      ({filteredDocs.filter(d => d.status === 'Relevan').length}/{filteredDocs.length} Relevan)
-                    </span>
-                  </span>
-                  <span className={`text-sm font-bold ${reviewProgress === 100 ? 'text-emerald-600' : 'text-blue-600'}`}>
-                    {reviewProgress}%
-                  </span>
-                </div>
-                <div className="w-full bg-slate-200 rounded-full h-3">
-                  <div
-                    className={`h-3 rounded-full transition-all duration-500 ${
-                      reviewProgress === 100 ? 'bg-emerald-500' : 'bg-blue-600'
-                    }`}
-                    style={{ width: `${reviewProgress}%` }}
-                  />
-                </div>
-                {reviewProgress === 100 && filteredDocs.length > 0 && (
-                  <p className="text-xs text-emerald-600 mt-2 font-medium">
-                    ✓ Semua dokumen bulan {selectedMonthName} sudah berstatus Relevan
-                  </p>
-                )}
-              </div>
-
-              {/* List */}
-              <div className="px-6 pb-6 pt-2">
-                {filteredDocs.length > 0 ? (
-                  <div className="space-y-2 max-h-96 overflow-auto pr-1">
-                    {filteredDocs.map(doc => (
-                      <div key={doc.nomorDokumen}
-                        className="flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 rounded-lg transition-colors">
-                        <div className="min-w-0 flex-1 pr-3">
-                          <p className="text-sm font-medium text-slate-900 truncate">{doc.namaDokumen}</p>
-                          <p className="text-xs text-slate-500 mt-0.5">{doc.nomorDokumen} · {doc.pic}</p>
-                        </div>
-                        <StatusBadge status={doc.status} />
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-10">
-                    <svg className="w-14 h-14 mx-auto text-slate-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                        d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    <p className="text-slate-500 text-sm font-medium">Tidak ada dokumen untuk bulan {selectedMonthName}</p>
-                    <p className="text-slate-400 text-xs mt-1">Pilih bulan lain menggunakan filter di atas</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* ── Aktivitas Terbaru ── */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-
-            {/* Header + Filter */}
-            <div className="px-6 py-4 bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200">
+          {/* ── Aktivitas Terbaru ──────────────────────────────────────────── */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100">
               <div className="flex items-center justify-between flex-wrap gap-3">
-                <h2 className="font-bold text-lg text-slate-900">🕐 Aktivitas Terbaru</h2>
-
-                {/* Filter row */}
+                <div className="flex items-center gap-2">
+                  <Activity size={16} className="text-slate-600" />
+                  <h2 className="font-bold text-slate-900">Aktivitas Terbaru</h2>
+                </div>
                 <div className="flex items-center gap-2 flex-wrap">
-
-                  {/* Filter: User / PIC */}
-                  <div className="flex items-center gap-1.5">
-                    <svg className="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                        d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
-                    <select
-                      value={activityUserFilter}
-                      onChange={e => handleUserFilterChange(e.target.value)}
-                      className={selectCls}
-                      style={dropdownStyle}
-                      title="Filter berdasarkan user"
-                    >
-                      <option value="">Semua User</option>
-                      {uniqueUsers.map(u => (
-                        <option key={u} value={u}>{u}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Filter: Type */}
-                  <div className="flex items-center gap-1.5">
-                    <svg className="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                        d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                    </svg>
-                    <select
-                      value={activityTypeFilter}
-                      onChange={e => handleTypeFilterChange(e.target.value)}
-                      className={selectCls}
-                      style={dropdownStyle}
-                      title="Filter berdasarkan tipe aktivitas"
-                    >
-                      <option value="">Semua Tipe</option>
-                      {uniqueTypes.map(t => (
-                        <option key={t} value={t}>
-                          {ACTIVITY_TYPE_CONFIG[t]?.label ?? t.toUpperCase()}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Reset filter — hanya tampil jika ada filter aktif */}
+                  <select value={activityUserFilter} onChange={e => handleUserFilterChange(e.target.value)}
+                    className={selectCls} style={dropdownStyle} title="Filter user">
+                    <option value="">Semua User</option>
+                    {uniqueUsers.map(u => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                  <select value={activityTypeFilter} onChange={e => handleTypeFilterChange(e.target.value)}
+                    className={selectCls} style={dropdownStyle} title="Filter tipe">
+                    <option value="">Semua Tipe</option>
+                    {uniqueTypes.map(t => (
+                      <option key={t} value={t}>{ACTIVITY_TYPE_CONFIG[t]?.label ?? t}</option>
+                    ))}
+                  </select>
                   {hasActiveFilter && (
                     <button
-                      onClick={() => {
-                        setActivityUserFilter('');
-                        setActivityTypeFilter('');
-                        setActivityPage(1);
-                      }}
-                      className="flex items-center gap-1 px-3 py-2 text-xs font-semibold text-red-600 hover:text-red-800 hover:bg-red-50 border border-red-200 rounded-lg transition-all active:scale-95"
-                      title="Reset semua filter"
+                      onClick={() => { setActivityUserFilter(''); setActivityTypeFilter(''); setActivityPage(1); }}
+                      className="px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 border border-red-200 rounded-lg transition-all"
                     >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
                       Reset
                     </button>
                   )}
                 </div>
               </div>
-
-              {/* Info jumlah hasil filter */}
               {hasActiveFilter && (
                 <p className="text-xs text-slate-500 mt-2">
-                  Menampilkan{' '}
-                  <span className="font-semibold text-slate-700">{filteredActivities.length}</span>{' '}
-                  aktivitas
-                  {activityUserFilter && (
-                    <> dari user <span className="font-semibold text-blue-600">{activityUserFilter}</span></>
-                  )}
+                  Menampilkan <span className="font-semibold text-slate-700">{filteredActivities.length}</span> aktivitas
+                  {activityUserFilter && <> dari user <span className="font-semibold text-blue-600">{activityUserFilter}</span></>}
                   {activityTypeFilter && (
-                    <> · tipe{' '}
-                      <span className="font-semibold text-blue-600">
-                        {ACTIVITY_TYPE_CONFIG[activityTypeFilter]?.label ?? activityTypeFilter}
-                      </span>
-                    </>
+                    <> · tipe <span className="font-semibold text-blue-600">
+                      {ACTIVITY_TYPE_CONFIG[activityTypeFilter]?.label ?? activityTypeFilter}
+                    </span></>
                   )}
                 </p>
               )}
             </div>
-
-            {/* Tabel aktivitas */}
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-slate-50 border-b border-slate-200">
-                  <tr>
-                    {['Waktu','Aktivitas','User','Type'].map(h => (
-                      <th key={h} className="px-5 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">{h}</th>
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-100">
+                    {['Waktu', 'Deskripsi', 'User', 'Tipe'].map(h => (
+                      <th key={h} className="px-5 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">{h}</th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200">
+                <tbody className="divide-y divide-slate-100">
                   {paginatedActivities.length > 0 ? (
-                    paginatedActivities.map(act => (
-                      <tr key={act.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-5 py-3 text-sm text-slate-600 whitespace-nowrap">
+                    paginatedActivities.map((act, idx) => (
+                      <tr key={act.id} className={`hover:bg-blue-50/50 transition-colors ${idx % 2 === 0 ? '' : 'bg-slate-50/40'}`}>
+                        <td className="px-5 py-3 text-xs text-slate-500 whitespace-nowrap">
                           {new Date(act.createdAt).toLocaleString('id-ID', {
                             day: '2-digit', month: 'short', year: 'numeric',
                             hour: '2-digit', minute: '2-digit',
                           })}
                         </td>
-                        <td className="px-5 py-3 text-sm font-medium text-slate-900">{act.activityDescription}</td>
+                        <td className="px-5 py-3 text-sm text-slate-800 font-medium">{act.activityDescription}</td>
                         <td className="px-5 py-3 text-sm text-slate-600">{act.username || 'System'}</td>
                         <td className="px-5 py-3"><ActivityTypeBadge type={act.activityType} /></td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={4} className="px-5 py-12 text-center text-sm text-slate-500">
-                        <svg className="w-16 h-16 mx-auto text-slate-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        {hasActiveFilter
-                          ? 'Tidak ada aktivitas yang sesuai dengan filter'
-                          : 'Belum ada aktivitas'}
+                      <td colSpan={4} className="px-5 py-12 text-center text-sm text-slate-400">
+                        <Clock size={36} className="mx-auto mb-3 text-slate-300" />
+                        {hasActiveFilter ? 'Tidak ada aktivitas yang sesuai filter' : 'Belum ada aktivitas'}
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
             </div>
-
-            {/* Pagination */}
             {totalActivityPages > 1 && (
-              <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
-                <p className="text-sm text-slate-600">
-                  Menampilkan <span className="font-semibold">{filteredActivities.length > 0 ? activityStart + 1 : 0}</span>–
-                  <span className="font-semibold">{activityEnd}</span> dari{' '}
-                  <span className="font-semibold">{filteredActivities.length}</span> aktivitas
+              <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <p className="text-xs text-slate-500">
+                  {filteredActivities.length > 0 ? activityStart + 1 : 0}–{activityEnd} dari {filteredActivities.length} aktivitas
                 </p>
                 <div className="flex gap-2">
-                  <button onClick={() => setActivityPage(p => Math.max(1, p - 1))}
-                    disabled={safeActivityPage === 1}
-                    className="px-4 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-95">
+                  <button onClick={() => setActivityPage(p => Math.max(1, p - 1))} disabled={safeActivityPage === 1}
+                    className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
                     ← Sebelumnya
                   </button>
-                  <span className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold">
+                  <span className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold">
                     {safeActivityPage} / {totalActivityPages}
                   </span>
-                  <button onClick={() => setActivityPage(p => Math.min(totalActivityPages, p + 1))}
-                    disabled={safeActivityPage >= totalActivityPages}
-                    className="px-4 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-95">
+                  <button onClick={() => setActivityPage(p => Math.min(totalActivityPages, p + 1))} disabled={safeActivityPage >= totalActivityPages}
+                    className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
                     Berikutnya →
                   </button>
                 </div>
@@ -624,7 +623,133 @@ export default function HomePage() {
           </div>
 
         </div>
-      </div>
+
+        {/* ── AddProcedureModal (inline, untuk quick action) ──────────────── */}
+        {isAddModalOpen && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl border border-slate-200 overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Tambah Prosedur Baru</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">Isi semua kolom dengan informasi yang akurat</p>
+                </div>
+                <button onClick={() => { if (!isSaving) { setIsAddModalOpen(false); setNeedsReview(null); } }}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all">
+                  ✕
+                </button>
+              </div>
+              <div className="p-6 grid grid-cols-2 gap-4 max-h-[60vh] overflow-y-auto">
+                <div className="col-span-2">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Nama Dokumen <span className="text-red-500">*</span></label>
+                  <textarea value={newProcedure.namaDokumen} disabled={isSaving} rows={2}
+                    onChange={e => setNewProcedure(p => ({ ...p, namaDokumen: e.target.value }))}
+                    placeholder="Masukkan nama dokumen" className={`${fieldCls} resize-none`} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Nomor Dokumen <span className="text-red-500">*</span></label>
+                  <input type="text" value={newProcedure.nomorDokumen} disabled={isSaving}
+                    onChange={e => setNewProcedure(p => ({ ...p, nomorDokumen: e.target.value }))}
+                    placeholder="Masukkan nomor dokumen" className={fieldCls} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Level Dokumen <span className="text-red-500">*</span></label>
+                  <input type="text" value={newProcedure.levelDokumen} disabled={isSaving}
+                    onChange={e => setNewProcedure(p => ({ ...p, levelDokumen: e.target.value }))}
+                    placeholder="Masukkan level dokumen" className={fieldCls} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Owner <span className="text-red-500">*</span></label>
+                  <input type="text" value={newProcedure.owner} disabled={isSaving}
+                    onChange={e => setNewProcedure(p => ({ ...p, owner: e.target.value }))}
+                    placeholder="Masukkan owner" className={fieldCls} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">PIC <span className="text-red-500">*</span></label>
+                  <input type="text" value={newProcedure.pic} disabled={isSaving}
+                    onChange={e => setNewProcedure(p => ({ ...p, pic: e.target.value }))}
+                    placeholder="Masukkan PIC" className={fieldCls} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Email <span className="text-red-500">*</span></label>
+                  <input type="email" value={newProcedure.email} disabled={isSaving}
+                    onChange={e => setNewProcedure(p => ({ ...p, email: e.target.value }))}
+                    placeholder="Masukkan email" className={fieldCls} />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Tanggal Selesai Approval <span className="text-red-500">*</span></label>
+                  <input type="date" value={newProcedure.tanggalSelesaiApproval} disabled={isSaving}
+                    onChange={e => setNewProcedure(p => ({ ...p, tanggalSelesaiApproval: e.target.value }))}
+                    className={fieldCls} />
+                </div>
+                {newProcedure.tanggalSelesaiApproval && (
+                  <div className="col-span-2">
+                    {isExpired ? (
+                      <div className="flex items-start gap-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
+                        <p className="text-xs text-slate-600">ℹ️ Tanggal approval sudah lewat lebih dari 2 bulan. Dokumen akan otomatis berstatus <span className="font-semibold text-emerald-700">Relevan</span>.</p>
+                      </div>
+                    ) : inReviewRange ? (
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-2">Status Awal Dokumen <span className="text-red-500">*</span></label>
+                        <div className="grid grid-cols-2 gap-3">
+                          <button type="button" onClick={() => setNeedsReview(true)} disabled={isSaving}
+                            className={`p-3 rounded-xl border-2 text-left transition-all ${needsReview === true ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-blue-300 bg-white'}`}>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-sm">📨</span>
+                              <span className="font-semibold text-xs text-slate-900">Perlu Direview</span>
+                              {needsReview === true && <CheckCircle2 size={14} className="ml-auto text-blue-600" />}
+                            </div>
+                            <p className="text-xs text-slate-500">Masuk alur review — dijadwalkan kirim email ke PIC</p>
+                          </button>
+                          <button type="button" onClick={() => setNeedsReview(false)} disabled={isSaving}
+                            className={`p-3 rounded-xl border-2 text-left transition-all ${needsReview === false ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 hover:border-emerald-300 bg-white'}`}>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-sm">✓</span>
+                              <span className="font-semibold text-xs text-slate-900">Langsung Relevan</span>
+                              {needsReview === false && <CheckCircle2 size={14} className="ml-auto text-emerald-600" />}
+                            </div>
+                            <p className="text-xs text-slate-500">Tidak masuk alur review, langsung relevan</p>
+                          </button>
+                        </div>
+                        {needsReview === null && <p className="text-xs text-amber-600 mt-2">⚠ Pilih salah satu status awal</p>}
+                      </div>
+                    ) : (
+                      <div className="flex items-start gap-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
+                        <p className="text-xs text-slate-600">ℹ️ Jadwal review otomatis akan aktif pada <span className="font-semibold text-blue-700">
+                          {(() => { const d = new Date(newProcedure.tanggalSelesaiApproval); const s = new Date(d.getFullYear(), d.getMonth() - 2, 1); return s.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }); })()}
+                        </span>.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-2">
+                <button onClick={() => { if (!isSaving) { setIsAddModalOpen(false); setNeedsReview(null); } }}
+                  className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-200 rounded-xl transition-all">
+                  Batal
+                </button>
+                <button onClick={handleSaveNewProcedure}
+                  disabled={isSaving || (inReviewRange && needsReview === null)}
+                  className="inline-flex items-center gap-2 px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                  {isSaving && <span className="animate-spin w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full" />}
+                  {isSaving ? 'Menyimpan...' : 'Simpan Prosedur'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── EmailScheduleModal ───────────────────────────────────────────── */}
+        <EmailScheduleModal
+          isOpen={isEmailScheduleModalOpen}
+          onClose={async () => {
+            setIsEmailScheduleModalOpen(false);
+            await loadEmailSchedules();
+          }}
+          procedures={procedures}
+          emailSchedules={emailSchedules}
+        />
+
+      </AdminLayout>
     </ProtectedRoute>
   );
 }

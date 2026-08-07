@@ -1,87 +1,83 @@
 // app/api/auth/login/route.ts
-
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { verifyPassword } from '@/lib/auth';
-import { logActivity } from '@/lib/activityLogger'; // ✅ Tambahan
+import { logActivity } from '@/lib/activityLogger';
 
 export async function POST(request: NextRequest) {
   const client = await pool.connect();
-  
+
   try {
     const body = await request.json();
     const { username, password } = body;
 
     if (!username || !password) {
-      return NextResponse.json(
-        { error: 'Username dan password harus diisi' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Username dan password harus diisi' }, { status: 400 });
     }
 
-    // Cari user berdasarkan username
-    const query = `
-      SELECT id, username, password, full_name, email, role, is_active 
-      FROM users 
-      WHERE username = $1
-    `;
-    
-    const result = await client.query(query, [username]);
+    // 1. Coba cari di tabel users (admin biasa)
+    const userResult = await client.query(
+      `SELECT id, username, password, full_name, email, role, is_active FROM users WHERE username = $1`,
+      [username]
+    );
 
-    if (result.rows.length === 0) {
-      return NextResponse.json(
-        { error: 'Username atau password salah' },
-        { status: 401 }
+    let account: any = null;
+    let source: 'users' | 'pic_users' = 'users';
+
+    if (userResult.rows.length > 0) {
+      account = userResult.rows[0];
+      source = 'users';
+    } else {
+      // 2. Kalau tidak ketemu, cek pic_users yang role-nya mengandung 'admin'
+      const picResult = await client.query(
+        `SELECT id, email, password, full_name, role, is_active FROM pic_users WHERE email = $1`,
+        [username]
       );
+
+      if (picResult.rows.length > 0 && picResult.rows[0].role?.includes('admin')) {
+        account = picResult.rows[0];
+        source = 'pic_users';
+      }
     }
 
-    const user = result.rows[0];
-
-    // Cek apakah user aktif
-    if (!user.is_active) {
-      return NextResponse.json(
-        { error: 'Akun tidak aktif. Hubungi administrator.' },
-        { status: 403 }
-      );
+    if (!account) {
+      return NextResponse.json({ error: 'Username atau password salah' }, { status: 401 });
     }
 
-    // Verifikasi password
-    const isPasswordValid = await verifyPassword(password, user.password);
+    if (!account.is_active) {
+      return NextResponse.json({ error: 'Akun tidak aktif. Hubungi administrator.' }, { status: 403 });
+    }
 
+    const isPasswordValid = await verifyPassword(password, account.password);
     if (!isPasswordValid) {
-      return NextResponse.json(
-        { error: 'Username atau password salah' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: 'Username atau password salah' }, { status: 401 });
     }
 
-    // ✅ Log aktivitas login setelah password valid
+    const loginUsername = source === 'users' ? account.username : account.email;
+
     await logActivity({
-      userId: user.id,
-      username: user.username,
+      userId: account.id,
+      username: loginUsername,
       activityType: 'login',
-      activityDescription: `User ${user.username} login`,
+      activityDescription: `User ${loginUsername} login sebagai admin`,
       targetType: 'user',
-      targetId: user.id.toString(),
+      targetId: account.id.toString(),
     });
 
-    // Return user data (tanpa password)
     return NextResponse.json({
       success: true,
       user: {
-        id: user.id,
-        username: user.username,
-        fullName: user.full_name,
-        email: user.email,
-        role: user.role,
-      }
+        id: account.id,
+        username: loginUsername,
+        fullName: account.full_name,
+        email: account.email,
+        role: source === 'users' ? account.role : 'admin',
+        ...(source === 'pic_users' ? { picId: account.id } : {}),
+      },
     });
   } catch (error) {
     console.error('Error during login:', error);
-    return NextResponse.json(
-      { error: 'Terjadi kesalahan saat login' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Terjadi kesalahan saat login' }, { status: 500 });
   } finally {
     client.release();
   }

@@ -21,30 +21,26 @@ export async function POST(request: NextRequest) {
 
     // Cari PIC user berdasarkan email
     const query = `
-      SELECT id, email, password, full_name, is_active 
+      SELECT id, email, password, full_name, role, is_active 
       FROM pic_users 
       WHERE email = $1
     `;
-
     const result = await client.query(query, [email]);
 
     if (result.rows.length === 0) {
-      return NextResponse.json(
-        { error: 'Email atau password salah' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: 'Email atau password salah' }, { status: 401 });
     }
 
     const pic = result.rows[0];
 
-    // Cek apakah akun aktif
-    if (!pic.is_active) {
-      return NextResponse.json(
-        { error: 'Akun tidak aktif. Hubungi administrator.' },
-        { status: 403 }
-      );
+    if (!pic.role?.includes('pic')) {
+      return NextResponse.json({ error: 'Akun tidak memiliki akses sebagai PIC' }, { status: 403 });
     }
 
+    if (!pic.is_active) {
+      return NextResponse.json({ error: 'Akun tidak aktif. Hubungi administrator.' }, { status: 403 });
+    }
+    
     // Verifikasi password
     const isPasswordValid = await bcryptjs.compare(password, pic.password);
 
