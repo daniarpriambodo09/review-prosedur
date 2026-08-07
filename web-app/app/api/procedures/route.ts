@@ -3,11 +3,14 @@
 // Perubahan dari versi sebelumnya:
 // — GET: expose `reviewSeenAt` (dari kolom review_seen_at) di setiap row response
 //   sehingga frontend bisa menentukan apakah badge "Baru Direview" perlu ditampilkan.
+// — GET: tambah langkah auto-expire baru — dokumen yang statusnya "Telah terkirim"
+//   dan sudah lebih dari 2 bulan sejak email BENAR-BENAR terkirim (last_sent_at)
+//   tanpa ada review dari PIC, otomatis berubah jadi "Relevan".
 //
 // Kondisi badge tampil di frontend:
 //   lastReviewedAt !== null  &&  reviewSeenAt === null
 //
-// Semua logika auto-expire, auto-reactivate, auto-schedule TIDAK berubah.
+// Semua logika auto-reactivate, auto-schedule lainnya TIDAK berubah.
 
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
@@ -60,6 +63,29 @@ async function autoExpire(
     `UPDATE procedure_documents
      SET status = 'Relevan', updated_at = CURRENT_TIMESTAMP
      WHERE nomor_dokumen = $1 AND status = '-'`,
+    [nomorDokumen]
+  );
+  return 'Relevan';
+}
+
+// ─── Langkah 1b (BARU): auto-expire setelah email terkirim ──────────────────
+// Dokumen dengan status "Telah terkirim" berarti email sudah dikirim tapi PIC
+// belum membuka/mereview sama sekali. Jika sudah lebih dari 2 bulan sejak
+// email BENAR-BENAR terkirim (last_sent_at dari email_schedules) dan status
+// masih belum berubah, dokumen dianggap tidak ada tindak lanjut → auto "Relevan".
+async function autoExpireAfterSent(
+  client: any,
+  nomorDokumen: string,
+  lastSentAt: string | null,
+  status: string
+): Promise<string> {
+  if (status !== 'Telah terkirim') return status;
+  if (!lastSentAt) return status;
+  if (!isPast2Months(lastSentAt)) return status;
+  await client.query(
+    `UPDATE procedure_documents
+     SET status = 'Relevan', updated_at = CURRENT_TIMESTAMP
+     WHERE nomor_dokumen = $1 AND status = 'Telah terkirim'`,
     [nomorDokumen]
   );
   return 'Relevan';
@@ -129,10 +155,14 @@ async function runAutoStatusChain(
   client: any,
   nomorDokumen: string,
   tanggal: string,
-  dbStatus: string
+  dbStatus: string,
+  lastSentAt: string | null = null
 ): Promise<string> {
   if (PROTECTED_STATUSES.includes(dbStatus)) return dbStatus;
-  if (['Belum dikirim', 'Telah terkirim'].includes(dbStatus)) return dbStatus;
+  if (dbStatus === 'Belum dikirim') return dbStatus;
+  if (dbStatus === 'Telah terkirim') {
+    return await autoExpireAfterSent(client, nomorDokumen, lastSentAt, dbStatus);
+  }
   const afterExpire     = await autoExpire(client, nomorDokumen, tanggal, dbStatus);
   if (afterExpire !== dbStatus) return afterExpire;
   const afterReactivate = await autoReactivate(client, nomorDokumen, tanggal, afterExpire);
@@ -239,7 +269,8 @@ export async function GET(request: NextRequest) {
           client,
           row.nomor_dokumen,
           row.tanggal_selesai_approval,
-          row.status
+          row.status,
+          row.last_sent_at
         );
 
         return {

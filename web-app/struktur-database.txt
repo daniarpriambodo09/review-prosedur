@@ -86,7 +86,7 @@ Triggers:
     update_document_reviews_updated_at BEFORE UPDATE ON document_reviews FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
 
 
-procedure_management=# \d email_schedules;
+procedure_management=#  \d email_schedules
                                             Table "public.email_schedules"
        Column       |            Type             | Collation | Nullable |                   Default
 --------------------+-----------------------------+-----------+----------+---------------------------------------------
@@ -110,6 +110,9 @@ Foreign-key constraints:
     "fk_email_schedules_nomor_dokumen" FOREIGN KEY (nomor_dokumen) REFERENCES procedure_documents(nomor_dokumen) ON DELETE CASCADE
 Triggers:
     update_email_schedules_updated_at BEFORE UPDATE ON email_schedules FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
+
+
+procedure_management=#
 
 
 procedure_management=# \d pic_activities
@@ -276,10 +279,13 @@ procedure_management=# \d procedure_documents
  created_at               | timestamp without time zone |           |          | CURRENT_TIMESTAMP
  updated_at               | timestamp without time zone |           |          | CURRENT_TIMESTAMP
  email                    | character varying(500)      |           |          |
+ last_reviewed_at         | timestamp with time zone    |           |          |
+ review_seen_at           | timestamp with time zone    |           |          |
 Indexes:
     "procedure_documents_pkey" PRIMARY KEY, btree (id)
     "idx_nomor_dokumen" btree (nomor_dokumen)
     "idx_pic" btree (pic)
+    "idx_procedure_docs_review_unseen" btree (last_reviewed_at) WHERE last_reviewed_at IS NOT NULL AND review_seen_at IS NULL
     "idx_procedure_docs_tanggal" btree (tanggal_selesai_approval)
     "idx_status" btree (status)
     "procedure_documents_nomor_dokumen_key" UNIQUE CONSTRAINT, btree (nomor_dokumen)
@@ -289,6 +295,9 @@ Referenced by:
     TABLE "procedure_files" CONSTRAINT "fk_procedure_files_nomor_dokumen" FOREIGN KEY (nomor_dokumen) REFERENCES procedure_documents(nomor_dokumen) ON DELETE CASCADE
 Triggers:
     update_procedure_documents_updated_at BEFORE UPDATE ON procedure_documents FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
+
+
+procedure_management=#
 
 
 procedure_management=# \d procedure_files
@@ -918,6 +927,30 @@ procedure_management=# select * from pic_users;
  160 | 123aris.c@jai.co.id         | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Aca              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
  162 | 123atiek.s@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Asw              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
 (40 rows)
+
+
+procedure_management=#
+procedure_management=# \d smtp_settings
+                                          Table "public.smtp_settings"
+    Column     |            Type             | Collation | Nullable |                  Default
+---------------+-----------------------------+-----------+----------+-------------------------------------------
+ id            | integer                     |           | not null | nextval('smtp_settings_id_seq'::regclass)
+ smtp_host     | character varying(255)      |           | not null |
+ smtp_port     | integer                     |           | not null | 25
+ smtp_username | character varying(255)      |           |          | NULL::character varying
+ smtp_password | character varying(500)      |           |          | NULL::character varying
+ email_sender  | character varying(255)      |           | not null |
+ use_tls       | boolean                     |           | not null | false
+ use_ssl       | boolean                     |           | not null | false
+ app_url       | character varying(500)      |           | not null | ''::character varying
+ is_active     | boolean                     |           | not null | true
+ created_at    | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+ updated_at    | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+Indexes:
+    "smtp_settings_pkey" PRIMARY KEY, btree (id)
+    "idx_smtp_settings_single_active" UNIQUE, btree (is_active) WHERE is_active = true
+Triggers:
+    update_smtp_settings_updated_at BEFORE UPDATE ON smtp_settings FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
 
 
 procedure_management=#
