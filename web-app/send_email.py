@@ -3,6 +3,7 @@ Email Scheduler - Procedure Management System
 Mengirim reminder review dokumen secara terjadwal via SMTP.
 """
 
+import html
 import io
 import smtplib
 import ssl
@@ -13,6 +14,7 @@ from email.utils import make_msgid, formatdate
 from apscheduler.schedulers.blocking import BlockingScheduler
 from datetime import datetime
 from collections import defaultdict
+from urllib.parse import quote
 
 # ── Fix encoding Windows (PM2 / cp1252) ────────────────────────────────────
 # Paksa stdout/stderr ke UTF-8 agar tidak UnicodeEncodeError pada Windows.
@@ -45,6 +47,23 @@ def log(level: str, message: str) -> None:
 def log_info(msg: str)  -> None: log("INFO",  msg)
 def log_error(msg: str) -> None: log("ERROR", msg)
 def log_warn(msg: str)  -> None: log("WARN",  msg)
+
+# ===========================================================================
+# HELPER: PASTIKAN URL PUNYA SKEMA (http:// / https://)
+# ===========================================================================
+
+def _ensure_scheme(url: str) -> str:
+    """
+    Tanpa skema (http:// atau https://), sebagian besar mail client TIDAK
+    akan menganggap teks tersebut sebagai link -> tampil sebagai teks biasa,
+    bukan tautan yang bisa diklik. Fungsi ini menambahkan skema jika hilang.
+    """
+    url = (url or "").strip()
+    if not url:
+        return url
+    if not url.lower().startswith(("http://", "http://")):
+        url = "http://" + url
+    return url
 
 # ===========================================================================
 # LOAD KONFIGURASI SMTP DARI DATABASE
@@ -164,21 +183,29 @@ def _build_html_body(pic: str, dokumen_list: list, review_link: str) -> str:
     """Buat isi email HTML yang kompatibel dengan Outlook dan Gmail."""
 
     # Baris tabel untuk setiap dokumen
+    # html.escape() -> cegah karakter seperti " < > & pada nama/nomor dokumen
+    # merusak markup (mis. menutup atribut href lebih awal sehingga tombol
+    #/link jadi tidak valid dan oleh sebagian client dirender sebagai teks).
     rows_html = ""
     for i, doc in enumerate(dokumen_list, 1):
         bg = "#f9f9f9" if i % 2 == 0 else "#ffffff"
+        nama_safe  = html.escape(str(doc["nama"]))
+        nomor_safe = html.escape(str(doc["nomor"]))
         rows_html += (
             f'<tr style="background-color:{bg};">'
             f'<td style="padding:10px 14px;border-bottom:1px solid #e8e8e8;'
             f'color:#555;font-size:13px;">{i}</td>'
             f'<td style="padding:10px 14px;border-bottom:1px solid #e8e8e8;'
-            f'color:#333;font-size:13px;">{doc["nama"]}</td>'
+            f'color:#333;font-size:13px;">{nama_safe}</td>'
             f'<td style="padding:10px 14px;border-bottom:1px solid #e8e8e8;'
-            f'color:#666;font-size:13px;">{doc["nomor"]}</td>'
+            f'color:#666;font-size:13px;">{nomor_safe}</td>'
             f'</tr>'
         )
 
-    html = f"""\
+    pic_safe         = html.escape(str(pic))
+    review_link_safe = html.escape(review_link, quote=True)
+
+    html_out = f"""\
 <!DOCTYPE html>
 <html lang="id">
 <head>
@@ -219,7 +246,7 @@ def _build_html_body(pic: str, dokumen_list: list, review_link: str) -> str:
             <td style="padding:28px 32px;">
 
               <p style="margin:0 0 16px;color:#333;font-size:15px;line-height:1.6;">
-                Yth. PIC <strong>{pic}</strong>,
+                Yth. PIC <strong>{pic_safe}</strong>,
               </p>
               <p style="margin:0 0 24px;color:#555;font-size:14px;line-height:1.6;">
                 Terdapat dokumen prosedur yang perlu Anda review.
@@ -248,13 +275,14 @@ def _build_html_body(pic: str, dokumen_list: list, review_link: str) -> str:
                 </tbody>
               </table>
 
-              <!-- Tombol Review -->
+              <!-- Tombol Review (link aktif, absolut, target tab baru) -->
               <table cellpadding="0" cellspacing="0" style="margin:0 auto 24px;">
                 <tr>
                   <td align="center"
                       style="background-color:#1a56db;border-radius:6px;">
-                    <a href="{review_link}"
+                    <a href="{review_link_safe}"
                        target="_blank"
+                       rel="noopener noreferrer"
                        style="display:inline-block;padding:13px 32px;
                               color:#ffffff;font-size:15px;font-weight:700;
                               text-decoration:none;letter-spacing:0.3px;">
@@ -264,15 +292,17 @@ def _build_html_body(pic: str, dokumen_list: list, review_link: str) -> str:
                 </tr>
               </table>
 
-              <!-- Link fallback -->
+              <!-- Link fallback (juga link aktif, bukan teks biasa) -->
               <p style="margin:0 0 8px;color:#888;font-size:12px;
                         text-align:center;">
                 Apabila tombol tidak dapat diklik, gunakan link berikut:
               </p>
               <p style="margin:0 0 24px;text-align:center;word-break:break-all;">
-                <a href="{review_link}"
+                <a href="{review_link_safe}"
+                   target="_blank"
+                   rel="noopener noreferrer"
                    style="color:#1a56db;font-size:12px;text-decoration:underline;">
-                  {review_link}
+                  {review_link_safe}
                 </a>
               </p>
 
@@ -321,7 +351,7 @@ def _build_html_body(pic: str, dokumen_list: list, review_link: str) -> str:
 </body>
 </html>
 """
-    return html
+    return html_out
 
 
 def _build_plain_body(pic: str, dokumen_list: list, review_link: str) -> str:
@@ -361,14 +391,15 @@ def send_email(smtp_cfg: dict, receiver: str, pic: str, dokumen_list: list) -> N
     smtp_host    = smtp_cfg["smtp_host"]
     smtp_port    = smtp_cfg["smtp_port"]
     email_sender = smtp_cfg["email_sender"]
-    app_url      = smtp_cfg["app_url"].rstrip("/")
+    app_url      = _ensure_scheme(smtp_cfg["app_url"].rstrip("/"))
     use_tls      = smtp_cfg["use_tls"]
     use_ssl      = smtp_cfg["use_ssl"]
     username     = smtp_cfg["smtp_username"]
     password     = smtp_cfg["smtp_password"]
     has_auth     = bool(username and password)
 
-    review_link = f"{app_url}/review-page-owner/{pic}"
+    # quote() -> aman untuk spasi/karakter khusus pada nama PIC di URL
+    review_link = f"{app_url}/review-prosedur/review-page-owner/{quote(str(pic), safe='')}"
 
     log_info(
         f"Sending email to {receiver} (PIC: {pic}) | "
