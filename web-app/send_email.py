@@ -17,15 +17,10 @@ from collections import defaultdict
 from urllib.parse import quote
 
 # ── Fix encoding Windows (PM2 / cp1252) ────────────────────────────────────
-# Paksa stdout/stderr ke UTF-8 agar tidak UnicodeEncodeError pada Windows.
 if sys.stdout and hasattr(sys.stdout, "buffer"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 if sys.stderr and hasattr(sys.stderr, "buffer"):
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
-
-# ===========================================================================
-# KONFIGURASI DATABASE
-# ===========================================================================
 
 DB_CONFIG = {
     "dbname":   "procedure_management",
@@ -35,12 +30,7 @@ DB_CONFIG = {
     "port":     "5432",
 }
 
-# ===========================================================================
-# LOGGING HELPER
-# ===========================================================================
-
 def log(level: str, message: str) -> None:
-    """Cetak log sederhana berformat [LEVEL] timestamp message (ASCII-safe)."""
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{level}] {ts} - {message}", flush=True)
 
@@ -48,32 +38,24 @@ def log_info(msg: str)  -> None: log("INFO",  msg)
 def log_error(msg: str) -> None: log("ERROR", msg)
 def log_warn(msg: str)  -> None: log("WARN",  msg)
 
-# ===========================================================================
-# HELPER: PASTIKAN URL PUNYA SKEMA (http:// / https://)
-# ===========================================================================
-
 def _ensure_scheme(url: str) -> str:
     """
     Tanpa skema (http:// atau https://), sebagian besar mail client TIDAK
-    akan menganggap teks tersebut sebagai link -> tampil sebagai teks biasa,
-    bukan tautan yang bisa diklik. Fungsi ini menambahkan skema jika hilang.
+    akan menganggap teks tersebut sebagai link -> tampil sebagai teks biasa.
     """
     url = (url or "").strip()
     if not url:
         return url
-    if not url.lower().startswith(("http://", "http://")):
+    # FIX: sebelumnya ("http://", "http://") -> https:// tidak pernah
+    # terdeteksi, sehingga URL yang sudah https:// ditimpa jadi
+    # "http://https://..." (rusak).
+    # Default http:// (bukan https://) karena app ini diakses di jaringan
+    # internal tanpa sertifikat SSL -> https:// akan error di sisi client.
+    if not url.lower().startswith(("http://", "https://")):
         url = "http://" + url
     return url
 
-# ===========================================================================
-# LOAD KONFIGURASI SMTP DARI DATABASE
-# ===========================================================================
-
 def load_smtp_settings() -> dict | None:
-    """
-    Ambil konfigurasi SMTP aktif dari tabel smtp_settings.
-    Return dict berisi semua field, atau None jika tidak ada / error.
-    """
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cur  = conn.cursor()
@@ -95,24 +77,20 @@ def load_smtp_settings() -> dict | None:
         settings = {
             "smtp_host":     row[0],
             "smtp_port":     row[1],
-            "smtp_username": row[2],   # bisa None
-            "smtp_password": row[3],   # bisa None
+            "smtp_username": row[2],
+            "smtp_password": row[3],
             "email_sender":  row[4],
             "use_tls":       row[5],
             "use_ssl":       row[6],
             "app_url":       row[7],
         }
 
-        # Peringatan: kalau email_sender != smtp_username, Gmail/penyedia SMTP
-        # lain akan gagal SPF/DKIM alignment -> email cenderung ditandai spam.
         username = settings["smtp_username"]
         sender   = settings["email_sender"]
         if username and sender and username.strip().lower() != sender.strip().lower():
             log_warn(
                 f"email_sender ('{sender}') berbeda dari smtp_username ('{username}'). "
-                f"Ini sering menyebabkan email masuk Spam karena SPF/DKIM tidak selaras. "
-                f"Sebaiknya samakan, atau daftarkan '{sender}' sebagai 'Send mail as' "
-                f"terverifikasi di akun '{username}'."
+                f"Ini sering menyebabkan email masuk Spam karena SPF/DKIM tidak selaras."
             )
 
         return settings
@@ -121,31 +99,20 @@ def load_smtp_settings() -> dict | None:
         log_error(f"Gagal membaca konfigurasi SMTP dari database: {e}")
         return None
 
-# ===========================================================================
-# UPDATE STATUS SETELAH EMAIL TERKIRIM
-# ===========================================================================
-
 def mark_emails_sent(conn, nomor_list: list) -> None:
     cur = conn.cursor()
     try:
         cur.execute("""
             UPDATE email_schedules
-            SET
-                email_status = 'sent',
-                last_sent_at = NOW(),
-                updated_at   = NOW()
+            SET email_status = 'sent', last_sent_at = NOW(), updated_at = NOW()
             WHERE nomor_dokumen = ANY(%s)
         """, (nomor_list,))
-
         cur.execute("""
             UPDATE procedure_documents
-            SET
-                status     = 'Telah terkirim',
-                updated_at = NOW()
+            SET status = 'Telah terkirim', updated_at = NOW()
             WHERE nomor_dokumen = ANY(%s)
               AND status NOT IN ('Relevan', 'Revisi', 'Obsolete', 'Telah dibaca')
         """, (nomor_list,))
-
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -153,20 +120,13 @@ def mark_emails_sent(conn, nomor_list: list) -> None:
     finally:
         cur.close()
 
-# ===========================================================================
-# TANDAI EMAIL GAGAL
-# ===========================================================================
-
 def mark_emails_failed(conn, nomor_list: list, error_msg: str) -> None:
     cur = conn.cursor()
     try:
         cur.execute("""
             UPDATE email_schedules
-            SET
-                email_status  = 'failed',
-                error_message = %s,
-                retry_count   = retry_count + 1,
-                updated_at    = NOW()
+            SET email_status = 'failed', error_message = %s,
+                retry_count = retry_count + 1, updated_at = NOW()
             WHERE nomor_dokumen = ANY(%s)
         """, (str(error_msg)[:500], nomor_list))
         conn.commit()
@@ -175,17 +135,7 @@ def mark_emails_failed(conn, nomor_list: list, error_msg: str) -> None:
     finally:
         cur.close()
 
-# ===========================================================================
-# BUILD EMAIL BODY (HTML + PLAIN TEXT)
-# ===========================================================================
-
 def _build_html_body(pic: str, dokumen_list: list, review_link: str) -> str:
-    """Buat isi email HTML yang kompatibel dengan Outlook dan Gmail."""
-
-    # Baris tabel untuk setiap dokumen
-    # html.escape() -> cegah karakter seperti " < > & pada nama/nomor dokumen
-    # merusak markup (mis. menutup atribut href lebih awal sehingga tombol
-    #/link jadi tidak valid dan oleh sebagian client dirender sebagai teks).
     rows_html = ""
     for i, doc in enumerate(dokumen_list, 1):
         bg = "#f9f9f9" if i % 2 == 0 else "#ffffff"
@@ -214,20 +164,14 @@ def _build_html_body(pic: str, dokumen_list: list, review_link: str) -> str:
   <title>Reminder Review Prosedur</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f4f6f8;font-family:Arial,Helvetica,sans-serif;">
-
-  <!-- Wrapper -->
   <table width="100%" cellpadding="0" cellspacing="0"
          style="background-color:#f4f6f8;padding:32px 0;">
     <tr>
       <td align="center">
-
-        <!-- Card -->
         <table width="600" cellpadding="0" cellspacing="0"
                style="background-color:#ffffff;border-radius:8px;
                       box-shadow:0 2px 8px rgba(0,0,0,0.08);
                       max-width:600px;width:100%;">
-
-          <!-- Header -->
           <tr>
             <td style="background-color:#1a56db;padding:28px 32px;
                        border-radius:8px 8px 0 0;">
@@ -240,26 +184,21 @@ def _build_html_body(pic: str, dokumen_list: list, review_link: str) -> str:
               </p>
             </td>
           </tr>
-
-          <!-- Body -->
           <tr>
             <td style="padding:28px 32px;">
-
               <p style="margin:0 0 16px;color:#333;font-size:15px;line-height:1.6;">
-                Yth. PIC <strong>{pic_safe}</strong>,
+                Dear. PIC Review Prosedur,
               </p>
               <p style="margin:0 0 24px;color:#555;font-size:14px;line-height:1.6;">
                 Terdapat dokumen prosedur yang perlu Anda review.
                 Mohon segera tinjau dokumen berikut:
               </p>
-
-              <!-- Tabel dokumen -->
               <table width="100%" cellpadding="0" cellspacing="0"
                      style="border:1px solid #e0e0e0;border-radius:6px;
                             border-collapse:collapse;margin-bottom:28px;">
                 <thead>
                   <tr style="background-color:#f0f4ff;">
-                    <th style="padding:10px 14px;text-align:left;color:#444;
+                    <th style="padding:10px 14px;text-align:left;color:#444;s
                                font-size:13px;font-weight:700;border-bottom:2px solid #d0d8f0;
                                width:36px;">#</th>
                     <th style="padding:10px 14px;text-align:left;color:#444;
@@ -274,8 +213,6 @@ def _build_html_body(pic: str, dokumen_list: list, review_link: str) -> str:
                   {rows_html}
                 </tbody>
               </table>
-
-              <!-- Tombol Review (link aktif, absolut, target tab baru) -->
               <table cellpadding="0" cellspacing="0" style="margin:0 auto 24px;">
                 <tr>
                   <td align="center"
@@ -291,8 +228,6 @@ def _build_html_body(pic: str, dokumen_list: list, review_link: str) -> str:
                   </td>
                 </tr>
               </table>
-
-              <!-- Link fallback (juga link aktif, bukan teks biasa) -->
               <p style="margin:0 0 8px;color:#888;font-size:12px;
                         text-align:center;">
                 Apabila tombol tidak dapat diklik, gunakan link berikut:
@@ -305,8 +240,6 @@ def _build_html_body(pic: str, dokumen_list: list, review_link: str) -> str:
                   {review_link_safe}
                 </a>
               </p>
-
-              <!-- Panduan singkat -->
               <table width="100%" cellpadding="0" cellspacing="0"
                      style="background-color:#f8f9ff;border-left:4px solid #1a56db;
                             border-radius:4px;margin-bottom:8px;">
@@ -324,11 +257,8 @@ def _build_html_body(pic: str, dokumen_list: list, review_link: str) -> str:
                   </td>
                 </tr>
               </table>
-
             </td>
           </tr>
-
-          <!-- Footer -->
           <tr>
             <td style="background-color:#f8f9fa;padding:18px 32px;
                        border-top:1px solid #e8e8e8;border-radius:0 0 8px 8px;">
@@ -340,14 +270,10 @@ def _build_html_body(pic: str, dokumen_list: list, review_link: str) -> str:
               </p>
             </td>
           </tr>
-
         </table>
-        <!-- /Card -->
-
       </td>
     </tr>
   </table>
-
 </body>
 </html>
 """
@@ -355,9 +281,8 @@ def _build_html_body(pic: str, dokumen_list: list, review_link: str) -> str:
 
 
 def _build_plain_body(pic: str, dokumen_list: list, review_link: str) -> str:
-    """Buat plain text fallback email."""
     lines = [
-        f"Yth. PIC {pic},",
+        f"Dear. PIC Review Prosedur{pic},",
         "",
         "Terdapat dokumen prosedur yang perlu Anda review:",
         "",
@@ -379,15 +304,7 @@ def _build_plain_body(pic: str, dokumen_list: list, review_link: str) -> str:
     ]
     return "\n".join(lines)
 
-# ===========================================================================
-# KIRIM EMAIL
-# ===========================================================================
-
 def send_email(smtp_cfg: dict, receiver: str, pic: str, dokumen_list: list) -> None:
-    """
-    Kirim email HTML + plain-text fallback menggunakan konfigurasi SMTP dari DB.
-    Mendukung: plain SMTP, STARTTLS (port 587), SSL penuh (port 465).
-    """
     smtp_host    = smtp_cfg["smtp_host"]
     smtp_port    = smtp_cfg["smtp_port"]
     email_sender = smtp_cfg["email_sender"]
@@ -398,7 +315,6 @@ def send_email(smtp_cfg: dict, receiver: str, pic: str, dokumen_list: list) -> N
     password     = smtp_cfg["smtp_password"]
     has_auth     = bool(username and password)
 
-    # quote() -> aman untuk spasi/karakter khusus pada nama PIC di URL
     review_link = f"{app_url}/review-prosedur/review-page-owner/{quote(str(pic), safe='')}"
 
     log_info(
@@ -406,42 +322,37 @@ def send_email(smtp_cfg: dict, receiver: str, pic: str, dokumen_list: list) -> N
         f"SMTP: {smtp_host}:{smtp_port} | TLS={use_tls} | SSL={use_ssl} | Auth={has_auth}"
     )
 
-    # Domain dari email_sender, dipakai untuk Message-ID
     sender_domain = email_sender.split("@")[-1] if "@" in email_sender else smtp_host
 
-    # Susun EmailMessage dengan multipart/alternative (HTML + plain text)
     msg = EmailMessage()
     msg["Subject"]    = "Reminder Review Prosedur"
     msg["From"]       = email_sender
     msg["To"]         = receiver
     msg["Date"]       = formatdate(localtime=True)
     msg["Message-ID"] = make_msgid(domain=sender_domain)
-    # Reply-To eksplisit + List-Unsubscribe: penanda "mailer sah" bagi
-    # filter spam (bukan asal mailer bulk anonim tanpa jalur balasan).
     msg["Reply-To"] = email_sender
-    msg["List-Unsubscribe"] = f"<mailto:{email_sender}?subject=unsubscribe>"
-    msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+    # List-Unsubscribe SENGAJA TIDAK dipakai: header ini adalah sinyal kuat
+    # bagi Gmail bahwa email adalah "bulk mail" (newsletter/marketing),
+    # yang membuat Gmail berpotensi men-skip Inbox meski bukan Spam
+    # (mail tetap ada, tapi cuma muncul di "Semua Email"). Karena email ini
+    # adalah reminder internal (bukan bulk marketing), header ini dihapus.
 
     plain_body = _build_plain_body(pic, dokumen_list, review_link)
     html_body  = _build_html_body(pic, dokumen_list, review_link)
 
-    msg.set_content(plain_body)                            # plain text (fallback)
-    msg.add_alternative(html_body, subtype="html")         # HTML (preferred)
+    msg.set_content(plain_body)
+    msg.add_alternative(html_body, subtype="html")
 
-    # ── Pilih metode pengiriman ──────────────────────────────────────────────
     ssl_ctx = ssl.create_default_context()
     ssl_ctx.check_hostname = False
     ssl_ctx.verify_mode    = ssl.CERT_NONE
 
     if use_ssl:
-        # SSL penuh (biasanya port 465)
         with smtplib.SMTP_SSL(smtp_host, smtp_port, context=ssl_ctx) as smtp:
             if has_auth:
                 smtp.login(username, password)
             smtp.send_message(msg)
-
     elif use_tls:
-        # STARTTLS (biasanya port 587)
         with smtplib.SMTP(smtp_host, smtp_port) as smtp:
             smtp.ehlo()
             smtp.starttls(context=ssl_ctx)
@@ -449,9 +360,7 @@ def send_email(smtp_cfg: dict, receiver: str, pic: str, dokumen_list: list) -> N
             if has_auth:
                 smtp.login(username, password)
             smtp.send_message(msg)
-
     else:
-        # Plain SMTP tanpa enkripsi — cocok untuk SMTP internal
         with smtplib.SMTP(smtp_host, smtp_port) as smtp:
             if has_auth:
                 smtp.login(username, password)
@@ -459,14 +368,9 @@ def send_email(smtp_cfg: dict, receiver: str, pic: str, dokumen_list: list) -> N
 
     log_info(f"Email successfully sent to {receiver}")
 
-# ===========================================================================
-# CEK DAN KIRIM EMAIL (JOB UTAMA SCHEDULER)
-# ===========================================================================
-
 def check_and_send_emails() -> None:
     log_info("Checking email schedules...")
 
-    # 1. Load konfigurasi SMTP dari database
     smtp_cfg = load_smtp_settings()
     if smtp_cfg is None:
         log_warn("SMTP configuration not found in database.")
@@ -476,7 +380,6 @@ def check_and_send_emails() -> None:
 
     log_info(f"SMTP loaded: {smtp_cfg['smtp_host']}:{smtp_cfg['smtp_port']}")
 
-    # 2. Ambil daftar email pending dari database
     try:
         conn = psycopg2.connect(**DB_CONFIG)
     except Exception as e:
@@ -516,12 +419,10 @@ def check_and_send_emails() -> None:
         conn.close()
         return
 
-    # 3. Kelompokkan dokumen per PIC (satu email per PIC)
     grouped: dict = defaultdict(list)
     for nomor, sched, nama, pic, email in rows:
         grouped[(pic, email)].append({"nomor": nomor, "nama": nama})
 
-    # 4. Kirim email satu per satu per PIC
     for (pic, email), dokumen_list in grouped.items():
         nomor_list = [d["nomor"] for d in dokumen_list]
 
@@ -555,14 +456,9 @@ def check_and_send_emails() -> None:
                 mark_emails_failed(conn, nomor_list, str(e))
             except Exception as e2:
                 log_error(f"Failed to update status (failed) for {pic}: {e2}")
-            # Lanjut ke PIC berikutnya (scheduler tidak berhenti)
 
     conn.close()
     log_info("Email check cycle completed.")
-
-# ===========================================================================
-# ENTRY POINT — SCHEDULER
-# ===========================================================================
 
 print("=" * 70)
 print("EMAIL SCHEDULER - PROCEDURE MANAGEMENT SYSTEM")
@@ -572,7 +468,6 @@ print(f"Database     : {DB_CONFIG['dbname']} @ {DB_CONFIG['host']}")
 print(f"Started at   : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 print("=" * 70)
 
-# Jalankan sekali dulu sebelum scheduler dimulai
 check_and_send_emails()
 
 scheduler = BlockingScheduler()
