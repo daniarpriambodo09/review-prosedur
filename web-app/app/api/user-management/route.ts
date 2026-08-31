@@ -91,9 +91,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (password.length < 8) {
+    if (password.length < 6) {
       return NextResponse.json(
-        { error: 'Password minimal 8 karakter' },
+        { error: 'Password minimal 6 karakter' },
         { status: 400 }
       );
     }
@@ -179,9 +179,9 @@ export async function PUT(request: NextRequest) {
     }
 
     if (role === 'admin') {
-      if (newPassword && newPassword.length < 8) {
+      if (newPassword && newPassword.length < 6) {
         return NextResponse.json(
-          { error: 'Password minimal 8 karakter' },
+          { error: 'Password minimal 6 karakter' },
           { status: 400 }
         );
       }
@@ -214,9 +214,9 @@ export async function PUT(request: NextRequest) {
       }
 
     } else if (role === 'pic') {
-      if (newPassword && newPassword.length < 8) {
+      if (newPassword && newPassword.length < 6) {
         return NextResponse.json(
-          { error: 'Password minimal 8 karakter' },
+          { error: 'Password minimal 6 karakter' },
           { status: 400 }
         );
       }

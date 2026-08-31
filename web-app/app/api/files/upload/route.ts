@@ -1,9 +1,31 @@
+// app/api/files/upload/route.ts
+//
+// Perubahan dari versi sebelumnya:
+// — Setiap kali admin mengupload ulang file (versi baru) untuk sebuah dokumen,
+//   status dokumen tersebut di procedure_documents OTOMATIS diubah menjadi
+//   'Relevan'. Ini berlaku terlepas dari status sebelumnya (mis. "Revisi",
+//   "Obsolete", "Telah dibaca", dll) — karena upload ulang menandakan admin
+//   sudah menindaklanjuti hasil review (misalnya memperbaiki dokumen sesuai
+//   catatan revisi dari PIC).
+// — Jadwal email yang masih aktif (pending/sent) untuk dokumen tersebut ikut
+//   dibatalkan (cancelled), karena siklus review sebelumnya sudah tidak
+//   relevan lagi setelah dokumen diperbarui.
+// — 🆕 FIX: sync ke tabel document_reviews (bulan approval dokumen) juga
+//   diubah menjadi 'Relevan'. Tanpa ini, halaman status-review bisa
+//   menampilkan status lama lagi (mis. "Revisi") karena frontend meng-overlay
+//   status dari document_reviews per bulan approval untuk status non-workflow
+//   — record review lama di bulan yang sama akan menimpa balik status
+//   'Relevan' yang baru saja di-set di procedure_documents.
+
 import { NextRequest, NextResponse } from 'next/server';
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import pool from '@/lib/db';
 import { logActivity } from '@/lib/activityLogger';
+import { startApprovalCycle, STAGE_STATUS_LABEL, type PendingAction } from '@/lib/approvalCycle';
+import { getActiveSmtpSettings, sendMail } from '@/lib/mailer';
+import { buildAccEmailHtml, buildAccEmailText } from '@/lib/approvalEmailTemplate';
 
 const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads', 'documents');
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -38,7 +60,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const checkQuery = 'SELECT nama_dokumen FROM procedure_documents WHERE nomor_dokumen = $1';
+    const checkQuery = `
+      SELECT nama_dokumen, status, tanggal_selesai_approval, revisi
+      FROM procedure_documents
+      WHERE nomor_dokumen = $1
+    `;
     const checkResult = await client.query(checkQuery, [nomorDokumen]);
     
     if (checkResult.rows.length === 0) {
@@ -47,6 +73,10 @@ export async function POST(request: NextRequest) {
         { status: 404 }
       );
     }
+
+    const previousStatus          = checkResult.rows[0].status;
+    const tanggalSelesaiApproval  = checkResult.rows[0].tanggal_selesai_approval;
+    const currentRevisi           = checkResult.rows[0].revisi;
 
     await client.query('BEGIN');
 
@@ -115,9 +145,82 @@ export async function POST(request: NextRequest) {
       uploadedBy || 'admin'
     ]);
 
+    const uploadedFileId = result.rows[0].id;
+
+    // ─── Alur approval berjenjang — trigger jika status SEBELUM upload adalah
+    // 'Revisi' (hasil review PIC) ATAU 'Ditolak' (hasil ditolak salah satu
+    // approver Prepared/Checked/Approved sebelumnya). Kedua kondisi berarti
+    // admin baru saja memperbaiki dokumen, sehingga perlu di-ACC ulang dari
+    // awal (Prepared -> Checked -> Approved) sebelum dianggap 'Relevan'.
+    // Untuk status sebelumnya selain itu (mis. upload dokumen baru pertama
+    // kali), perilaku LAMA tetap dipakai: langsung 'Relevan'.
+    let approvalCycleStarted = false;
+    let pendingEmailActions: PendingAction[] = [];
+
+    if (previousStatus === 'Revisi' || previousStatus === 'Ditolak') {
+      const cycleResult = await startApprovalCycle(client, nomorDokumen, uploadedFileId);
+      if (cycleResult.started) {
+        approvalCycleStarted = true;
+        pendingEmailActions = cycleResult.actions;
+      }
+      // Jika cycleResult.started === false (tidak ada approver 'prepared'
+      // terdaftar untuk dokumen ini), sengaja TIDAK melempar error — cukup
+      // fallback ke perilaku lama di bawah (langsung 'Relevan'), supaya admin
+      // tidak terhambat hanya karena data approver belum diisi di
+      // EditProcedureModal. Idealnya diberi tahu di response (lihat di bawah).
+    }
+
+    if (!approvalCycleStarted) {
+      // ─── Perilaku LAMA: auto-update status → 'Relevan' ───────────────────
+      await client.query(
+        `UPDATE procedure_documents
+         SET status = 'Relevan', updated_at = CURRENT_TIMESTAMP
+         WHERE nomor_dokumen = $1`,
+        [nomorDokumen]
+      );
+
+      // Sync ke document_reviews menggunakan BULAN APPROVAL DOKUMEN, sama
+      // seperti pola yang dipakai di document-read/route.ts. Tanpa langkah
+      // ini, halaman status-review bisa menampilkan status lama (mis.
+      // "Revisi") lagi setelah upload — karena frontend meng-overlay status
+      // dari document_reviews per bulan approval untuk status non-workflow.
+      const docDate = new Date(tanggalSelesaiApproval);
+      const approvalMonth = isNaN(docDate.getTime())
+        ? new Date().getMonth()
+        : docDate.getMonth();
+      const revisiValue = currentRevisi || '0';
+
+      await client.query(
+        `INSERT INTO document_reviews
+           (nomor_dokumen, status, revisi, last_reviewed_month, updated_at)
+         VALUES ($1, 'Relevan', $2, $3, CURRENT_TIMESTAMP)
+         ON CONFLICT (nomor_dokumen, last_reviewed_month)
+         DO UPDATE SET
+           status      = 'Relevan',
+           revisi      = $2,
+           updated_at  = CURRENT_TIMESTAMP`,
+        [nomorDokumen, revisiValue, approvalMonth]
+      );
+    }
+    // Catatan: saat approvalCycleStarted === true, status dokumen SUDAH
+    // di-set ke 'Menunggu ACC Prepared' di dalam startApprovalCycle().
+    // document_reviews TIDAK disentuh di sini — hanya disinkronkan saat
+    // dokumen final mencapai status 'Relevan'/'Revisi'/'Obsolete'.
+
+    // Batalkan jadwal email review yang masih aktif (pending/sent) untuk
+    // dokumen ini — siklus review sebelumnya sudah tidak relevan lagi
+    // setelah dokumen diupdate. Ini tidak terkait alur approval baru.
+    await client.query(
+      `UPDATE email_schedules
+       SET email_status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+       WHERE nomor_dokumen = $1
+         AND email_status IN ('pending', 'sent')`,
+      [nomorDokumen]
+    );
+
     await client.query('COMMIT');
 
-    // Log activity
+    // Log activity — upload file
     await logActivity({
       username: uploadedBy || 'admin',
       activityType: 'upload',
@@ -125,6 +228,67 @@ export async function POST(request: NextRequest) {
       targetType: 'file',
       targetId: nomorDokumen,
     });
+
+    if (approvalCycleStarted) {
+      await logActivity({
+        username: uploadedBy || 'admin',
+        activityType: 'update',
+        activityDescription: `Alur approval dimulai (tahap Prepared) untuk ${namaDokumen} setelah upload revisi`,
+        targetType: 'procedure',
+        targetId: nomorDokumen,
+      });
+    } else if (previousStatus !== 'Relevan') {
+      await logActivity({
+        username: uploadedBy || 'admin',
+        activityType: 'update',
+        activityDescription: `Status ${namaDokumen} otomatis diubah menjadi Relevan setelah upload revisi (sebelumnya: ${previousStatus})`,
+        targetType: 'procedure',
+        targetId: nomorDokumen,
+      });
+    }
+
+    // ─── 🆕 Kirim email ACC ke tahap Prepared (di luar transaksi DB) ────────
+    // Best-effort: kalau ada email yang gagal terkirim, proses TIDAK
+    // dibatalkan (data cycle & action sudah tersimpan). Admin bisa
+    // menambahkan endpoint "kirim ulang" nanti jika perlu.
+    let emailWarning: string | null = null;
+    if (approvalCycleStarted && pendingEmailActions.length > 0) {
+      const smtpSettings = await getActiveSmtpSettings(client);
+      if (!smtpSettings) {
+        emailWarning = 'Alur approval sudah dimulai, tapi konfigurasi SMTP belum diatur — email ke Prepared belum terkirim. Atur di halaman SMTP Settings.';
+      } else {
+        let sentCount = 0;
+        for (const action of pendingEmailActions) {
+          try {
+            const accLink = `${smtpSettings.appUrl}/review-prosedur/acc/${action.token}`;
+            const emailParams = {
+              nama: action.nama,
+              role: 'prepared' as const,
+              namaDokumen,
+              nomorDokumen,
+              accLink,
+            };
+            await sendMail(
+              smtpSettings,
+              action.email,
+              'Permintaan Approval Dokumen Prosedur',
+              buildAccEmailHtml(emailParams),
+              buildAccEmailText(emailParams)
+            );
+            await client.query(
+              `UPDATE procedure_approval_actions SET email_sent_at = NOW() WHERE id = $1`,
+              [action.actionId]
+            );
+            sentCount++;
+          } catch (emailErr) {
+            console.error(`Gagal kirim email ACC ke ${action.email}:`, emailErr);
+          }
+        }
+        if (sentCount < pendingEmailActions.length) {
+          emailWarning = `Alur approval sudah dimulai, tapi hanya ${sentCount}/${pendingEmailActions.length} email Prepared yang berhasil terkirim. Periksa log server untuk detail.`;
+        }
+      }
+    }
 
     return NextResponse.json({
       success: true,
@@ -135,7 +299,11 @@ export async function POST(request: NextRequest) {
         fileSize: result.rows[0].file_size,
         version: result.rows[0].version,
         uploadedAt: result.rows[0].uploaded_at,
-      }
+      },
+      // ✅ status terbaru dokumen setelah upload, untuk update UI tanpa reload penuh
+      status: approvalCycleStarted ? STAGE_STATUS_LABEL.prepared : 'Relevan',
+      approvalCycleStarted,
+      emailWarning,
     }, { status: 201 });
 
   } catch (error) {

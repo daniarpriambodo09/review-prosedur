@@ -117,7 +117,7 @@ export default function PICProfilePage() {
   const [pwLoading,       setPwLoading]       = useState(false);
   const [pwAlert,         setPwAlert]         = useState<{ kind: AlertKind; msg: string } | null>(null);
 
-  const pwTooShort = newPassword.length > 0 && newPassword.length < 8;
+  const pwTooShort = newPassword.length > 0 && newPassword.length < 6;
   const pwMismatch = confirmPassword.length > 0 && confirmPassword !== newPassword;
   const pwSubmitOk = !!oldPassword && newPassword.length >= 8 && newPassword === confirmPassword;
 
@@ -382,7 +382,7 @@ export default function PICProfilePage() {
                     type={showNew ? 'text' : 'password'}
                     value={newPassword}
                     onChange={e => setNewPassword(e.target.value)}
-                    placeholder="Minimal 8 karakter"
+                    placeholder="Minimal 6 karakter"
                     className={`${INPUT} ${pwTooShort ? '!border-amber-300 !bg-amber-50' : ''}`}
                     autoComplete="new-password"
                   />
@@ -397,7 +397,7 @@ export default function PICProfilePage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                         d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
-                    Password minimal 8 karakter
+                    Password minimal 6 karakter
                   </p>
                 )}
               </div>
@@ -434,7 +434,7 @@ export default function PICProfilePage() {
 
               {/* Submit */}
               <div className="flex items-center justify-between pt-2">
-                <p className="text-xs text-slate-400">Gunakan minimal 8 karakter</p>
+                <p className="text-xs text-slate-400">Gunakan minimal 6 karakter</p>
                 <button
                   type="submit"
                   disabled={!pwSubmitOk || pwLoading}

@@ -2,9 +2,11 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import PDFViewer from './PDFViewer';
+import AnnotatablePDFViewer from './AnnotatablePDFViewer';
 import FileUploader from './FileUploader';
+import VersionToggleBar, { type VersionOption } from './VersionToggleBar';
 import { markReviewAsSeen } from '@/data/procedures/all-procedures';
+import { isInRevisionWorkflow } from '@/lib/revisionStatuses';
 
 interface FileInfo {
   id: number;
@@ -16,6 +18,7 @@ interface FileInfo {
   version: number;
   uploadedBy: string;
   uploadedAt: string;
+  isActive?: boolean;
 }
 
 interface DocumentModalProps {
@@ -37,6 +40,25 @@ interface DocumentModalProps {
    * (misalnya update badge di tabel tanpa full reload).
    */
   onReviewSeen?: (nomorDokumen: string) => void;
+  /**
+   * 🆕 Status dokumen SAAT INI (mis. 'Revisi', 'Menunggu ACC Prepared',
+   * 'Relevan'). Dipakai untuk menentukan apakah fitur "Bandingkan Dokumen"
+   * (lihat versi lama vs baru) perlu ditampilkan — hanya muncul selama
+   * dokumen ada di salah satu status siklus revisi/approval, hilang lagi
+   * begitu sudah 'Relevan'. Opsional — kalau tidak diisi, fitur bandingkan
+   * tidak pernah tampil (perilaku lama, tetap aman untuk caller yang belum
+   * diupdate).
+   */
+  documentStatus?: string;
+  /**
+   * 🆕 Identitas PIC yang sedang login — WAJIB diisi kalau modal ini dibuka
+   * dari halaman PIC (hideUpload=true) supaya fitur coret/kotak-teks bisa
+   * dipakai (butuh email untuk disimpan sebagai pembuat anotasi). Kalau
+   * tidak diisi di konteks PIC, fitur anotasi tetap tersembunyi (aman).
+   * Di konteks admin (hideUpload=false), prop ini diabaikan — admin selalu
+   * dapat mode lihat-saja + toggle bersih/coretan.
+   */
+  annotatorIdentity?: { nama: string | null; email: string };
 }
 
 function formatFileSize(bytes: number): string {
@@ -63,6 +85,8 @@ export default function DocumentModal({
   hideUpload    = false,
   markSeenOnOpen = false,
   onReviewSeen,
+  documentStatus,
+  annotatorIdentity,
 }: DocumentModalProps) {
   const [fileInfo,     setFileInfo]     = useState<FileInfo | null>(null);
   const [loading,      setLoading]      = useState(false);
@@ -70,7 +94,12 @@ export default function DocumentModal({
   const [blobUrl,      setBlobUrl]      = useState<string | null>(null);
   const blobRef = useRef<string | null>(null);
 
-  // ── Fetch metadata file ───────────────────────────────────────────────────
+  // 🆕 State untuk fitur Bandingkan Dokumen (versi lama vs baru)
+  const [versions,           setVersions]           = useState<FileInfo[]>([]);
+  const [viewing,            setViewing]            = useState<'current' | 'previous'>('current');
+  const [localStatusOverride, setLocalStatusOverride] = useState<string | null>(null);
+
+  // ── Fetch metadata file aktif ─────────────────────────────────────────────
   const fetchFileInfo = useCallback(async () => {
     if (!nomorDokumen) return;
     try {
@@ -86,6 +115,22 @@ export default function DocumentModal({
       setFileInfo(null);
     } finally {
       setLoading(false);
+    }
+  }, [nomorDokumen]);
+
+  // 🆕 Fetch seluruh riwayat versi (untuk fitur Bandingkan Dokumen)
+  const fetchVersions = useCallback(async () => {
+    if (!nomorDokumen) return;
+    try {
+      const res = await fetch(
+        `/review-prosedur/api/files/list?nomorDokumen=${encodeURIComponent(nomorDokumen)}`
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      setVersions(data.files || []);
+    } catch (err) {
+      console.error('DocumentModal: gagal fetch riwayat versi', err);
+      setVersions([]);
     }
   }, [nomorDokumen]);
 
@@ -112,10 +157,11 @@ export default function DocumentModal({
     if (isOpen && nomorDokumen) {
       setShowUploader(false);
       setBlobUrl(null);
+      setViewing('current');
+      setLocalStatusOverride(null);
       fetchFileInfo();
+      fetchVersions();
 
-      // Tandai review sudah dilihat admin jika prop markSeenOnOpen aktif.
-      // Fire-and-forget: tidak perlu await agar tidak memblokir modal render.
       if (markSeenOnOpen) {
         markReviewAsSeen(nomorDokumen).then(() => {
           onReviewSeen?.(nomorDokumen);
@@ -123,7 +169,6 @@ export default function DocumentModal({
       }
     }
 
-    // Cleanup blob URL saat modal ditutup
     return () => {
       if (blobRef.current) {
         URL.revokeObjectURL(blobRef.current);
@@ -131,14 +176,26 @@ export default function DocumentModal({
         setBlobUrl(null);
       }
     };
-  }, [isOpen, nomorDokumen, fetchFileInfo, markSeenOnOpen, onReviewSeen]);
+  }, [isOpen, nomorDokumen, fetchFileInfo, fetchVersions, markSeenOnOpen, onReviewSeen]);
 
-  // ── Siapkan blob URL untuk tombol download setelah fileInfo tersedia ──────
+  // 🆕 Hitung versi "sebelumnya" (versi tertinggi yang BUKAN versi aktif)
+  const previousVersion = versions
+    .filter(v => v.id !== fileInfo?.id)
+    .sort((a, b) => b.version - a.version)[0] ?? null;
+
+  const effectiveStatus = localStatusOverride ?? documentStatus;
+  const canCompare = isInRevisionWorkflow(effectiveStatus) && !!fileInfo && !!previousVersion;
+
+  // File yang sedang ditampilkan di viewer (current = fileInfo aktif, previous = versi lama)
+  const displayFile: FileInfo | null =
+    canCompare && viewing === 'previous' && previousVersion ? previousVersion : fileInfo;
+
+  // ── Siapkan blob URL untuk tombol download, ikut berubah saat toggle ──────
   useEffect(() => {
-    if (fileInfo?.filePath) {
-      fetchBlobForDownload(fileInfo.filePath);
+    if (displayFile?.filePath) {
+      fetchBlobForDownload(displayFile.filePath);
     }
-  }, [fileInfo, fetchBlobForDownload]);
+  }, [displayFile?.filePath, fetchBlobForDownload]);
 
   // ── Tutup dengan Escape ───────────────────────────────────────────────────
   useEffect(() => {
@@ -149,21 +206,26 @@ export default function DocumentModal({
   }, [isOpen, onClose]);
 
   const handleDownload = () => {
-    if (!blobUrl || !fileInfo) return;
+    if (!blobUrl || !displayFile) return;
     const a      = document.createElement('a');
     a.href       = blobUrl;
-    a.download   = fileInfo.fileName || `${nomorDokumen}.pdf`;
+    a.download   = displayFile.fileName || `${nomorDokumen}.pdf`;
     a.click();
   };
 
-  const handleUploadSuccess = () => {
+  const handleUploadSuccess = (status?: string) => {
     setShowUploader(false);
     if (blobRef.current) {
       URL.revokeObjectURL(blobRef.current);
       blobRef.current = null;
       setBlobUrl(null);
     }
+    // 🆕 Simpan status terbaru hasil upload secara lokal, supaya fitur
+    // Bandingkan Dokumen langsung akurat tanpa perlu tutup-buka modal.
+    if (status) setLocalStatusOverride(status);
+    setViewing('current');
     fetchFileInfo();
+    fetchVersions();
   };
 
   if (!isOpen) return null;
@@ -187,19 +249,19 @@ export default function DocumentModal({
                 Nomor Dokumen:{' '}
                 <span className="font-mono font-semibold text-slate-700">{nomorDokumen}</span>
               </span>
-              {fileInfo && (
+              {displayFile && (
                 <>
-                  {fileInfo.version > 0 && (
+                  {displayFile.version > 0 && (
                     <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
-                      Versi {fileInfo.version}
+                      Versi {displayFile.version}
                     </span>
                   )}
-                  {fileInfo.fileSize > 0 && (
-                    <span className="text-xs text-slate-500">{formatFileSize(fileInfo.fileSize)}</span>
+                  {displayFile.fileSize > 0 && (
+                    <span className="text-xs text-slate-500">{formatFileSize(displayFile.fileSize)}</span>
                   )}
-                  {fileInfo.uploadedAt && (
+                  {displayFile.uploadedAt && (
                     <span className="text-xs text-slate-500">
-                      Uploaded {formatDate(fileInfo.uploadedAt)}
+                      Uploaded {formatDate(displayFile.uploadedAt)}
                     </span>
                   )}
                 </>
@@ -217,6 +279,20 @@ export default function DocumentModal({
           </button>
         </div>
 
+        {/* 🆕 Toggle Bandingkan Dokumen — hanya muncul selama status masih
+            dalam siklus revisi/approval DAN ada versi sebelumnya untuk
+            dibandingkan. */}
+        {canCompare && fileInfo && previousVersion && !showUploader && (
+          <div className="px-6 py-2.5 border-b border-slate-100 bg-amber-50/50 flex-shrink-0">
+            <VersionToggleBar
+              current={{ version: fileInfo.version, uploadedAt: fileInfo.uploadedAt }}
+              previous={{ version: previousVersion.version, uploadedAt: previousVersion.uploadedAt }}
+              viewing={viewing}
+              onChange={setViewing}
+            />
+          </div>
+        )}
+
         {/* ── Body ── */}
         <div className="flex-1 overflow-hidden bg-slate-100 relative">
           {loading && (
@@ -228,7 +304,7 @@ export default function DocumentModal({
             </div>
           )}
 
-          {!loading && !fileInfo && (
+          {!loading && !displayFile && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-8 bg-slate-50">
               <div className="w-16 h-16 rounded-full bg-slate-200 flex items-center justify-center">
                 <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -243,10 +319,16 @@ export default function DocumentModal({
             </div>
           )}
 
-          {!loading && fileInfo && !showUploader && (
-            <PDFViewer
-              filePath={fileInfo.filePath}
-              fileName={fileInfo.fileName}
+          {!loading && displayFile && !showUploader && (
+            <AnnotatablePDFViewer
+              filePath={displayFile.filePath}
+              fileId={displayFile.id}
+              nomorDokumen={nomorDokumen}
+              canEdit={hideUpload === true && !!annotatorIdentity}
+              myRole={hideUpload === true ? 'pic' : undefined}
+              myNama={annotatorIdentity?.nama}
+              myEmail={annotatorIdentity?.email}
+              showCleanToggle={hideUpload !== true}
             />
           )}
 
@@ -266,12 +348,12 @@ export default function DocumentModal({
           <p className="text-xs text-slate-500">
             {loading
               ? 'Memuat...'
-              : fileInfo
-              ? 'Dokumen tersedia untuk diunduh'
+              : displayFile
+              ? (canCompare && viewing === 'previous' ? 'Menampilkan dokumen versi lama' : 'Dokumen tersedia untuk diunduh')
               : 'Belum ada dokumen yang diupload'}
           </p>
           <div className="flex gap-3">
-            {fileInfo && blobUrl && !showUploader && (
+            {displayFile && blobUrl && !showUploader && (
               <button
                 onClick={handleDownload}
                 className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-semibold transition-all flex items-center gap-2"

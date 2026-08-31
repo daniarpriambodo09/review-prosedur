@@ -38,9 +38,9 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    if (newPassword.length < 8) {
+    if (newPassword.length < 6) {
       return NextResponse.json(
-        { error: 'Password minimal 8 karakter' },
+        { error: 'Password minimal 6 karakter' },
         { status: 400 }
       );
     }

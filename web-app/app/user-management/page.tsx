@@ -223,7 +223,7 @@ function UserManagementContent() {
     if (!addForm.username.trim()) errs.username = 'Wajib diisi';
     if (addForm.role === 'pic' && !addForm.email.trim()) errs.email = 'Wajib diisi untuk PIC';
     if (!addForm.password) errs.password = 'Wajib diisi';
-    else if (addForm.password.length < 8) errs.password = 'Minimal 8 karakter';
+    else if (addForm.password.length < 6) errs.password = 'Minimal 6 karakter';
     if (addForm.password !== addForm.confirmPassword) errs.confirmPassword = 'Konfirmasi tidak cocok';
     return errs;
   };
@@ -281,7 +281,7 @@ function UserManagementContent() {
   const validateEdit = () => {
     const errs: Record<string, string> = {};
     if (!editForm.fullName.trim()) errs.fullName = 'Wajib diisi';
-    if (editForm.newPassword && editForm.newPassword.length < 8) errs.newPassword = 'Minimal 8 karakter';
+    if (editForm.newPassword && editForm.newPassword.length < 6) errs.newPassword = 'Minimal 6 karakter';
     if (editForm.newPassword && editForm.newPassword !== editForm.confirmPassword) errs.confirmPassword = 'Konfirmasi tidak cocok';
     return errs;
   };
@@ -331,7 +331,7 @@ function UserManagementContent() {
   const handleReset = async () => {
     const errs: Record<string, string> = {};
     if (!resetForm.newPassword) errs.newPassword = 'Wajib diisi';
-    else if (resetForm.newPassword.length < 8) errs.newPassword = 'Minimal 8 karakter';
+    else if (resetForm.newPassword.length < 6) errs.newPassword = 'Minimal 6 karakter';
     if (resetForm.newPassword !== resetForm.confirmPassword) errs.confirmPassword = 'Konfirmasi tidak cocok';
     setResetErrors(errs);
     if (Object.keys(errs).length > 0) return;
@@ -639,7 +639,7 @@ function UserManagementContent() {
               {addErrors.email && <p className="text-[11px] text-red-500 mt-1">{addErrors.email}</p>}
             </Field>
             <Field label="Password" required>
-              <input type="password" className={inputCls} placeholder="Minimal 8 karakter"
+              <input type="password" className={inputCls} placeholder="Minimal 6 karakter"
                 value={addForm.password} onChange={e => setAddForm(f => ({ ...f, password: e.target.value }))} />
               {addErrors.password && <p className="text-[11px] text-red-500 mt-1">{addErrors.password}</p>}
             </Field>
@@ -692,7 +692,7 @@ function UserManagementContent() {
               <p className="text-[11px] text-slate-500 mb-3">Kosongkan jika tidak ingin mengubah password</p>
               <div className="space-y-3">
                 <Field label="Password Baru">
-                  <input type="password" className={inputCls} placeholder="Minimal 8 karakter"
+                  <input type="password" className={inputCls} placeholder="Minimal 6 karakter"
                     value={editForm.newPassword} onChange={e => setEditForm(f => ({ ...f, newPassword: e.target.value }))} />
                   {editErrors.newPassword && <p className="text-[11px] text-red-500 mt-1">{editErrors.newPassword}</p>}
                 </Field>
@@ -725,7 +725,7 @@ function UserManagementContent() {
               Password baru akan menggantikan password lama. User harus menggunakan password baru ini untuk login.
             </div>
             <Field label="Password Baru" required>
-              <input type="password" className={inputCls} placeholder="Minimal 8 karakter"
+              <input type="password" className={inputCls} placeholder="Minimal 6 karakter"
                 value={resetForm.newPassword} onChange={e => setResetForm(f => ({ ...f, newPassword: e.target.value }))} />
               {resetErrors.newPassword && <p className="text-[11px] text-red-500 mt-1">{resetErrors.newPassword}</p>}
             </Field>

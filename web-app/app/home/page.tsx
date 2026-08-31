@@ -32,7 +32,7 @@ interface ActivityLog {
 
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 function StatusBadge({ status }: { status: StatusType }) {
-  const styles: Record<StatusType, { bg: string; text: string; dot: string }> = {
+  const styles: Partial<Record<StatusType, { bg: string; text: string; dot: string }>> = {
     Relevan:          { bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-500' },
     Revisi:           { bg: 'bg-amber-50',   text: 'text-amber-700',   dot: 'bg-amber-500'   },
     Obsolete:         { bg: 'bg-red-50',     text: 'text-red-700',     dot: 'bg-red-500'     },
@@ -40,9 +40,12 @@ function StatusBadge({ status }: { status: StatusType }) {
     'Belum dikirim':  { bg: 'bg-orange-50',  text: 'text-orange-700',  dot: 'bg-orange-500'  },
     'Telah terkirim': { bg: 'bg-cyan-50',    text: 'text-cyan-700',    dot: 'bg-cyan-500'    },
     'Telah dibaca':   { bg: 'bg-purple-50',  text: 'text-purple-700',  dot: 'bg-purple-500'  },
+    'Menunggu ACC Prepared': { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500' },
+    'Menunggu ACC Checked':  { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500' },
+    'Menunggu ACC Approved': { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500' },
     '-':              { bg: 'bg-slate-50',   text: 'text-slate-500',   dot: 'bg-slate-400'   },
   };
-  const s = styles[status] ?? styles['-'];
+  const s = styles[status] ?? styles['-']!;
   return (
     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${s.bg} ${s.text}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />

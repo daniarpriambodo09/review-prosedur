@@ -6,7 +6,14 @@ import { useAuth } from '@/contexts/AuthContext';
 
 interface FileUploaderProps {
   nomorDokumen: string;
-  onSuccess: () => void;
+  /**
+   * 🆕 onSuccess sekarang membawa `status` terbaru dokumen hasil response
+   * upload API (mis. 'Relevan' atau 'Menunggu ACC Prepared'), supaya parent
+   * (DocumentModal) bisa langsung tahu status terbaru tanpa perlu tutup-buka
+   * modal lagi — dipakai untuk menentukan apakah fitur "Bandingkan Dokumen"
+   * harus tetap tampil setelah upload.
+   */
+  onSuccess: (status?: string) => void;
   onCancel: () => void;
 }
 
@@ -27,13 +34,11 @@ export default function FileUploader({
     
     if (!file) return;
 
-    // Validate file type
     if (file.type !== 'application/pdf') {
       setError('Hanya file PDF yang diperbolehkan');
       return;
     }
 
-    // Validate file size (10MB)
     if (file.size > 10 * 1024 * 1024) {
       setError('Ukuran file maksimal 10MB');
       return;
@@ -65,7 +70,8 @@ export default function FileUploader({
         throw new Error(data.error || 'Upload gagal');
       }
 
-      onSuccess();
+      // 🆕 Teruskan status terbaru dari response ke parent
+      onSuccess(data.status);
     } catch (err: any) {
       setError(err.message || 'Gagal mengupload file');
     } finally {

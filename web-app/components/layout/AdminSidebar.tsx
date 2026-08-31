@@ -50,7 +50,7 @@ export function AdminSidebar() {
       <div className={`
         flex items-center border-b border-slate-100
         transition-all duration-300
-        ${collapsed ? 'justify-center px-3 py-4' : 'justify-between px-4 py-5'}
+        ${collapsed ? 'justify-center px-3 py-4' : 'justify-between px-4 py-3'}
       `}>
         {collapsed ? (
           // Collapsed: hanya logo, tanpa teks
@@ -72,27 +72,17 @@ export function AdminSidebar() {
             <ChevronRight size={12} className="text-slate-300 group-hover:text-slate-600 transition-colors" />
           </button>
         ) : (
-          // Expanded: logo + teks + tombol collapse
+          // Expanded: logo + tombol collapse
           <>
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="relative flex-shrink-0 w-9 h-9">
-                <Image
-                  src="/review-prosedur/images/logo.png"
-                  alt="Logo"
-                  fill
-                  className="object-contain"
-                  sizes="36px"
-                  priority
-                />
-              </div>
-              <div className="min-w-0">
-                <p className="text-[13px] font-bold text-slate-900 leading-tight truncate">
-                  Review Prosedur
-                </p>
-                <p className="text-[10px] text-slate-400 leading-tight">
-                  Quality Management System
-                </p>
-              </div>
+            <div className="relative flex-shrink-0 w-[180px] h-[60px] min-w-0">
+              <Image
+                src="/review-prosedur/images/yazaki-logo.jpg"
+                alt="Yazaki Logo"
+                fill
+                className="object-contain object-left"
+                sizes="180px"
+                priority
+              />
             </div>
             <button
               onClick={() => setCollapsed(c => !c)}
@@ -107,7 +97,7 @@ export function AdminSidebar() {
       </div>
 
       {/* ── Navigation ────────────────────────────────────────────────────── */}
-      <nav className="flex-1 px-3 py-4 overflow-y-auto space-y-0.5">
+      <nav className="flex-1 px-3 py-2 overflow-y-auto space-y-0.5">
         {!collapsed && (
           <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest px-3 mb-2">Menu</p>
         )}
@@ -225,21 +215,15 @@ export function MobileSidebarDrawer({
         `}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-5 border-b border-slate-100">
-          <div className="flex items-center gap-2.5">
-            <div className="relative w-9 h-9 flex-shrink-0">
-              <Image
-                src="/review-prosedur/images/logo.png"
-                alt="Logo"
-                fill
-                className="object-contain"
-                sizes="36px"
-              />
-            </div>
-            <div>
-              <p className="text-[13px] font-bold text-slate-900 leading-tight">Review Prosedur</p>
-              <p className="text-[10px] text-slate-400 leading-tight">Quality Management System</p>
-            </div>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+          <div className="relative w-[180px] h-[60px] flex-shrink-0">
+            <Image
+              src="/review-prosedur/images/yazaki-logo.jpg"
+              alt="Yazaki Logo"
+              fill
+              className="object-contain object-left"
+              sizes="180px"
+            />
           </div>
           <button
             onClick={onClose}

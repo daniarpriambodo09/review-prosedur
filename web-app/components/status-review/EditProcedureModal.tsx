@@ -23,6 +23,28 @@ interface EditValues {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Approvers (Prepared / Checked / Approved) — 🆕 BARU
+// ─────────────────────────────────────────────────────────────────────────────
+type ApproverRole = 'prepared' | 'checked' | 'approved';
+interface ApproverRow { nama: string; email: string; }
+interface ApproverState {
+  prepared: ApproverRow[];
+  checked:  ApproverRow[];
+  approved: ApproverRow[];
+}
+
+const emptyApproverRow = (): ApproverRow => ({ nama: '', email: '' });
+const emptyApproverState = (): ApproverState => ({
+  prepared: [emptyApproverRow()],
+  checked:  [emptyApproverRow()],
+  approved: [emptyApproverRow()],
+});
+
+const APPROVER_ROLE_LABEL: Record<ApproverRole, string> = {
+  prepared: 'Prepared', checked: 'Checked', approved: 'Approved',
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // AutoResizeTextarea
 // Textarea yang tingginya mengikuti konten secara otomatis.
 // Teknik: reset height ke 'auto' setiap render, lalu set ke scrollHeight.
@@ -93,6 +115,13 @@ const fieldCls =
   'focus:border-transparent transition-all disabled:opacity-60 disabled:bg-slate-50 ' +
   'hover:border-slate-400 bg-white';
 
+// Versi fieldCls TANPA 'w-full' — dipakai untuk input di dalam flex row
+// (mis. baris Prepared/Checked/Approved) supaya class lebar (w-2/5, flex-1)
+// tidak bentrok dengan w-full. Kalau w-full dan flex-1 sama-sama ada di satu
+// input, urutan generate CSS Tailwind tidak dijamin w-full kalah — jadi bisa
+// bikin input jadi sangat sempit (ini bug yang sempat terjadi sebelumnya).
+const fieldClsFlex = fieldCls.replace('w-full ', '');
+
 // ─────────────────────────────────────────────────────────────────────────────
 // EditProcedureModal
 // ─────────────────────────────────────────────────────────────────────────────
@@ -109,6 +138,10 @@ export default function EditProcedureModal({
   const [isSaving, setIsSaving] = useState(false);
   const [error,    setError]    = useState('');
   const [visible,  setVisible]  = useState(false);
+
+  // 🆕 BARU: state untuk daftar prepared/checked/approved
+  const [approvers,        setApprovers]        = useState<ApproverState>(emptyApproverState());
+  const [approversLoading, setApproversLoading]  = useState(false);
 
   const firstFieldRef = useRef<HTMLTextAreaElement>(null);
 
@@ -128,6 +161,50 @@ export default function EditProcedureModal({
       setError('');
     }
   }, [procedure]);
+
+  // 🆕 BARU: load daftar prepared/checked/approved saat procedure berubah
+  useEffect(() => {
+    if (!procedure) { setApprovers(emptyApproverState()); return; }
+    let cancelled = false;
+    setApproversLoading(true);
+    fetch(`/review-prosedur/api/procedures/${encodeURIComponent(procedure.nomorDokumen)}/approvers`)
+      .then(res => res.json())
+      .then((data: { prepared: any[]; checked: any[]; approved: any[] }) => {
+        if (cancelled) return;
+        setApprovers({
+          prepared: data.prepared?.length
+            ? data.prepared.map(a => ({ nama: a.nama || '', email: a.email }))
+            : [emptyApproverRow()],
+          checked: data.checked?.length
+            ? data.checked.map(a => ({ nama: a.nama || '', email: a.email }))
+            : [emptyApproverRow()],
+          approved: data.approved?.length
+            ? data.approved.map(a => ({ nama: a.nama || '', email: a.email }))
+            : [emptyApproverRow()],
+        });
+      })
+      .catch(() => { if (!cancelled) setApprovers(emptyApproverState()); })
+      .finally(() => { if (!cancelled) setApproversLoading(false); });
+    return () => { cancelled = true; };
+  }, [procedure]);
+
+  // 🆕 BARU: helper untuk manipulasi baris approver
+  const updateApprover = (role: ApproverRole, idx: number, field: keyof ApproverRow, val: string) => {
+    setApprovers(prev => {
+      const list = [...prev[role]];
+      list[idx] = { ...list[idx], [field]: val };
+      return { ...prev, [role]: list };
+    });
+  };
+  const addApproverRow = (role: ApproverRole) => {
+    setApprovers(prev => ({ ...prev, [role]: [...prev[role], emptyApproverRow()] }));
+  };
+  const removeApproverRow = (role: ApproverRole, idx: number) => {
+    setApprovers(prev => {
+      const list = prev[role].filter((_, i) => i !== idx);
+      return { ...prev, [role]: list.length ? list : [emptyApproverRow()] };
+    });
+  };
 
   // Animasi buka / tutup
   useEffect(() => {
@@ -196,6 +273,29 @@ export default function EditProcedureModal({
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setError(data.error || 'Gagal menyimpan perubahan.');
+        return;
+      }
+
+      // 🆕 BARU: simpan daftar prepared/checked/approved.
+      // Nomor dokumen final dipakai (kalau nomor berubah, endpoint approvers
+      // memakai nomor BARU karena PATCH di atas sudah commit perubahan nomor).
+      const finalNomor = values.nomorDokumen.trim();
+      const approversRes = await fetch(
+        `/review-prosedur/api/procedures/${encodeURIComponent(finalNomor)}/approvers`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prepared: approvers.prepared.filter(a => a.email.trim()),
+            checked:  approvers.checked.filter(a => a.email.trim()),
+            approved: approvers.approved.filter(a => a.email.trim()),
+          }),
+        }
+      );
+      if (!approversRes.ok) {
+        // Data utama sudah tersimpan; approver gagal disimpan tidak membatalkan
+        // perubahan utama, tapi tetap diberitahukan ke admin.
+        setError('Data prosedur tersimpan, tapi gagal menyimpan data prepared/checked/approved. Silakan coba edit lagi.');
         return;
       }
 
@@ -414,6 +514,72 @@ export default function EditProcedureModal({
                   maxRows={3}
                   className={fieldCls}
                 />
+              </div>
+
+              {/* ── Prepared / Checked / Approved — 🆕 BARU ────────────────── */}
+              <div className="col-span-2 border-t border-slate-200 pt-5 mt-1">
+                <div className="flex items-center gap-2 mb-3">
+                  <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <h4 className="text-sm font-semibold text-slate-700">Prepared / Checked / Approved</h4>
+                  {approversLoading && (
+                    <span className="text-xs text-slate-400">memuat...</span>
+                  )}
+                </div>
+
+                <div className="space-y-5">
+                  {(['prepared', 'checked', 'approved'] as ApproverRole[]).map(role => (
+                    <div key={role}>
+                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                        {APPROVER_ROLE_LABEL[role]}
+                      </label>
+                      <div className="space-y-2">
+                        {approvers[role].map((row, idx) => (
+                          <div key={idx} className="flex gap-2 items-start">
+                            <input
+                              type="text"
+                              value={row.nama}
+                              placeholder="Nama (opsional)"
+                              disabled={isSaving || approversLoading}
+                              onChange={e => updateApprover(role, idx, 'nama', e.target.value)}
+                              className={`${fieldClsFlex} w-2/5`}
+                            />
+                            <input
+                              type="email"
+                              value={row.email}
+                              placeholder="Masukkan email"
+                              disabled={isSaving || approversLoading}
+                              onChange={e => updateApprover(role, idx, 'email', e.target.value)}
+                              className={`${fieldClsFlex} flex-1 min-w-0`}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeApproverRow(role, idx)}
+                              disabled={isSaving || approversLoading}
+                              title="Hapus baris"
+                              className="px-2.5 py-2.5 text-red-400 hover:text-red-600 hover:bg-red-50
+                                         rounded-lg transition-all disabled:opacity-40 flex-shrink-0"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => addApproverRow(role)}
+                        disabled={isSaving || approversLoading}
+                        className="mt-2 text-xs font-medium text-blue-600 hover:text-blue-800
+                                   hover:underline transition-all disabled:opacity-40"
+                      >
+                        + Tambah {APPROVER_ROLE_LABEL[role].toLowerCase()}
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               {/* Change indicator */}

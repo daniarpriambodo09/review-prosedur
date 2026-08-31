@@ -26,7 +26,13 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // Semua public routes — tidak perlu autentikasi
-const PUBLIC_ROUTES = ['/login-page', '/pic-login', '/review-page-owner'];
+const PUBLIC_ROUTES = [
+  '/login-page', '/pic-login', '/review-page-owner',
+  // 🆕 Halaman ACC (approve/reject dokumen) dan verifikasi QR code —
+  // dibuka lewat link di email oleh Prepared/Checked/Approved yang
+  // TIDAK punya akun di sistem ini sama sekali, jadi wajib publik.
+  '/acc', '/verify',
+];
 
 function isPublicPath(pathname: string | null): boolean {
   if (!pathname) return false;

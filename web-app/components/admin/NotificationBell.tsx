@@ -7,7 +7,7 @@ import { Bell } from 'lucide-react';
 
 interface Notification {
   id:           number;
-  type:         'new_document' | 'review_request';
+  type:         'new_document' | 'review_request' | 'approval_rejected' | 'document_annotated';
   picId:        number;
   picFullName:  string;
   picEmail:     string;
@@ -57,18 +57,36 @@ const TYPE_CONFIG = {
     dotCls:   'bg-emerald-500',
     headerBg: 'bg-emerald-600',
   },
+  // 🆕 Notifikasi dokumen ditolak oleh Prepared/Checked/Approved di halaman ACC
+  approval_rejected: {
+    label:    'Dokumen Ditolak',
+    icon:     '✗',
+    badgeCls: 'bg-red-100 text-red-700 border-red-200',
+    dotCls:   'bg-red-500',
+    headerBg: 'bg-red-600',
+  },
+  // 🆕 Notifikasi ada coretan/komentar baru dari PIC atau salah satu role ACC
+  document_annotated: {
+    label:    'Coretan Baru',
+    icon:     '✏️',
+    badgeCls: 'bg-indigo-100 text-indigo-700 border-indigo-200',
+    dotCls:   'bg-indigo-500',
+    headerBg: 'bg-indigo-600',
+  },
 } as const;
 
 const STATUS_CONFIG: Record<string, string> = {
   pending:  'bg-amber-50 text-amber-700 border-amber-200',
   approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   rejected: 'bg-red-50 text-red-700 border-red-200',
+  info:     'bg-indigo-50 text-indigo-700 border-indigo-200',
 };
 
 const STATUS_LABEL: Record<string, string> = {
   pending:  '⏳ Menunggu',
   approved: '✓ Disetujui',
   rejected: '✗ Ditolak',
+  info:     'ℹ Info',
 };
 
 // ── Detail Modal via React Portal ─────────────────────────────────────────────
@@ -93,6 +111,17 @@ function DetailModal({
   const cfg   = TYPE_CONFIG[notif.type];
   const stCls = STATUS_CONFIG[notif.status] ?? STATUS_CONFIG['pending'];
   const stLbl = STATUS_LABEL[notif.status]  ?? notif.status;
+
+  // 🆕 Label yang beda per tipe notifikasi
+  const isRejection  = notif.type === 'approval_rejected';
+  const isAnnotation = notif.type === 'document_annotated';
+  const modalTitle =
+    notif.type === 'new_document'      ? 'Request Dokumen Baru' :
+    notif.type === 'review_request'    ? 'Request Review Dokumen' :
+    notif.type === 'document_annotated' ? 'Ada Coretan / Komentar Baru' :
+    'Dokumen Ditolak';
+  const fromLabel   = isRejection ? 'Ditolak Oleh' : isAnnotation ? 'Dicoret Oleh' : 'Dari PIC';
+  const reasonLabel = isRejection ? 'Alasan Penolakan' : 'Alasan Permintaan';
 
   // Lock body scroll saat modal terbuka
   useEffect(() => {
@@ -133,9 +162,11 @@ function DetailModal({
             <div className="flex items-center gap-3">
               <span className="text-2xl">{cfg.icon}</span>
               <div>
-                <p className="text-white/70 text-xs font-medium">Permintaan PIC</p>
+                <p className="text-white/70 text-xs font-medium">
+                  {isRejection ? 'Alur Approval Dokumen' : isAnnotation ? 'Kolaborasi Dokumen' : 'Permintaan PIC'}
+                </p>
                 <h3 className="text-white font-bold text-base">
-                  {notif.type === 'new_document' ? 'Request Dokumen Baru' : 'Request Review Dokumen'}
+                  {modalTitle}
                 </h3>
               </div>
             </div>
@@ -163,7 +194,7 @@ function DetailModal({
         {/* Body */}
         <div className="px-6 py-5 space-y-4 max-h-[55vh] overflow-y-auto">
           <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Dari PIC</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">{fromLabel}</p>
             <p className="text-sm font-bold text-slate-900">{notif.picFullName}</p>
             <p className="text-xs text-slate-500">{notif.picEmail}</p>
           </div>
@@ -206,8 +237,10 @@ function DetailModal({
 
           {notif.reason && (
             <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Alasan Permintaan</p>
-              <p className="text-sm text-slate-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed italic">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{reasonLabel}</p>
+              <p className={`text-sm text-slate-700 border rounded-lg px-3 py-2 leading-relaxed italic ${
+                isRejection ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'
+              }`}>
                 &ldquo;{notif.reason}&rdquo;
               </p>
             </div>
@@ -215,7 +248,9 @@ function DetailModal({
 
           {notif.notes && (
             <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Catatan dari PIC</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                {isRejection ? 'Tahap' : 'Catatan dari PIC'}
+              </p>
               <p className="text-sm text-slate-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 leading-relaxed italic">
                 &ldquo;{notif.notes}&rdquo;
               </p>
@@ -255,7 +290,7 @@ export default function NotificationBell() {
   const [unreadCount,      setUnreadCount]      = useState(0);
   const [isOpen,           setIsOpen]           = useState(false);
   const [isMarking,        setIsMarking]        = useState(false);
-  const [activeTab,        setActiveTab]        = useState<'all' | 'new_document' | 'review_request'>('all');
+  const [activeTab,        setActiveTab]        = useState<'all' | 'new_document' | 'review_request' | 'approval_rejected' | 'document_annotated'>('all');
   const [selectedNotif,    setSelectedNotif]    = useState<Notification | null>(null);
   const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<string>>(new Set());
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -371,9 +406,11 @@ export default function NotificationBell() {
     setIsOpen(false);
   };
 
-  const displayed    = activeTab === 'all' ? notifications : notifications.filter(n => n.type === activeTab);
-  const unreadNew    = notifications.filter(n => !n.isRead && n.type === 'new_document').length;
-  const unreadReview = notifications.filter(n => !n.isRead && n.type === 'review_request').length;
+  const displayed       = activeTab === 'all' ? notifications : notifications.filter(n => n.type === activeTab);
+  const unreadNew        = notifications.filter(n => !n.isRead && n.type === 'new_document').length;
+  const unreadReview     = notifications.filter(n => !n.isRead && n.type === 'review_request').length;
+  const unreadRejected   = notifications.filter(n => !n.isRead && n.type === 'approval_rejected').length;
+  const unreadAnnotated  = notifications.filter(n => !n.isRead && n.type === 'document_annotated').length;
 
   return (
     <div ref={dropdownRef} className="relative">
@@ -399,7 +436,7 @@ export default function NotificationBell() {
           <div className="px-4 py-3 bg-gradient-to-r from-blue-50 to-slate-50 border-b border-slate-200">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="font-bold text-slate-900 text-sm">Notifikasi Permintaan PIC</h3>
+                <h3 className="font-bold text-slate-900 text-sm">Notifikasi</h3>
                 {unreadCount > 0 && (
                   <p className="text-xs text-blue-600 font-medium mt-0.5">{unreadCount} belum dibaca</p>
                 )}
@@ -416,11 +453,13 @@ export default function NotificationBell() {
             </div>
 
             {/* Tab filter */}
-            <div className="flex gap-1 mt-3">
+            <div className="flex gap-1 mt-3 flex-wrap">
               {([
-                { key: 'all',            label: 'Semua',        count: notifications.filter(n => !n.isRead).length },
-                { key: 'new_document',   label: '📄 Dok. Baru', count: unreadNew    },
-                { key: 'review_request', label: '🔍 Review',    count: unreadReview },
+                { key: 'all',                label: 'Semua',        count: notifications.filter(n => !n.isRead).length },
+                { key: 'new_document',       label: '📄 Dok. Baru', count: unreadNew      },
+                { key: 'review_request',     label: '🔍 Review',    count: unreadReview   },
+                { key: 'approval_rejected',  label: '✗ Ditolak',    count: unreadRejected },
+                { key: 'document_annotated', label: '✏️ Coretan',   count: unreadAnnotated },
               ] as const).map(tab => (
                 <button
                   key={tab.key}
@@ -532,6 +571,10 @@ export default function NotificationBell() {
                 {notifications.filter(n => n.type === 'new_document').length} dok. baru
                 &nbsp;·&nbsp;
                 {notifications.filter(n => n.type === 'review_request').length} req. review
+                &nbsp;·&nbsp;
+                {notifications.filter(n => n.type === 'approval_rejected').length} ditolak
+                &nbsp;·&nbsp;
+                {notifications.filter(n => n.type === 'document_annotated').length} coretan
                 &nbsp;·&nbsp;
                 {unreadCount} belum dibaca
                 &nbsp;·&nbsp;

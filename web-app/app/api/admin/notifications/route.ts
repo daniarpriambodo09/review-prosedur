@@ -1,18 +1,21 @@
 // app/api/admin/notifications/route.ts
+//
+// 🆕 Ditambah sumber notifikasi ketiga: 'approval_rejected' — muncul saat
+// salah satu approver (Prepared/Checked/Approved) menolak dokumen lewat
+// halaman /acc/[token]. Sumbernya dari procedure_approval_actions (bukan
+// tabel pic_*), tapi tetap di-UNION dengan bentuk (shape) yang sama supaya
+// NotificationBell.tsx bisa merender ketiganya secara seragam.
+
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { logActivity } from '@/lib/activityLogger';
 
 // GET — Fetch semua notifikasi untuk admin (exclude deleted)
 export async function GET(request: NextRequest) {
-  // ── Ambil identifier admin (opsional, untuk filter deleted per-admin) ──────
-  // Jika tidak ada header, default ke 'admin' agar backward-compatible
   const adminId = request.headers.get('x-admin-id') ?? 'admin';
 
   const client = await pool.connect();
   try {
-    // Query untuk mengambil semua notifikasi dari kedua tabel,
-    // exclude yang sudah dihapus oleh admin ini
     const notifQuery = await client.query(`
       SELECT
         n.id,
@@ -63,10 +66,74 @@ export async function GET(request: NextRequest) {
           AND d.notification_type = 'review_request'
           AND d.admin_id = $1
       )
+      UNION ALL
+      SELECT
+        ra.id,
+        ra.approver_id                       AS "picId",
+        COALESCE(ra.nama, ra.email)          AS "picFullName",
+        ra.email                             AS "picEmail",
+        pd.nama_dokumen                      AS title,
+        pd.nomor_dokumen                     AS "nomorDokumen",
+        pd.nama_dokumen                      AS "namaDokumen",
+        NULL                                 AS description,
+        ra.reject_reason                     AS reason,
+        ('Ditolak sebagai ' ||
+          CASE ra.role
+            WHEN 'prepared' THEN 'Prepared'
+            WHEN 'checked'  THEN 'Checked'
+            WHEN 'approved' THEN 'Approved'
+            ELSE ra.role
+          END)                               AS notes,
+        'rejected'                           AS status,
+        ra.admin_read                        AS "isRead",
+        ra.acc_at                            AS "createdAt",
+        ra.admin_read_at                     AS "readAt",
+        'approval_rejected'                  AS type
+      FROM procedure_approval_actions ra
+      JOIN procedure_approval_cycles pac ON pac.id = ra.cycle_id
+      JOIN procedure_documents pd        ON pd.nomor_dokumen = pac.nomor_dokumen
+      WHERE ra.acc_status = 'rejected'
+        AND NOT EXISTS (
+          SELECT 1 FROM admin_notification_deletes d
+          WHERE d.notification_id = ra.id
+            AND d.notification_type = 'approval_rejected'
+            AND d.admin_id = $1
+        )
+      UNION ALL
+      SELECT
+        ae.id,
+        0                                     AS "picId",
+        COALESCE(ae.annotated_by_nama, ae.annotated_by_email) AS "picFullName",
+        ae.annotated_by_email                 AS "picEmail",
+        pd2.nama_dokumen                      AS title,
+        pd2.nomor_dokumen                     AS "nomorDokumen",
+        pd2.nama_dokumen                      AS "namaDokumen",
+        NULL                                  AS description,
+        NULL                                  AS reason,
+        (ae.annotation_count || ' coretan/komentar baru — sebagai ' ||
+          CASE ae.annotated_by_role
+            WHEN 'pic'      THEN 'PIC'
+            WHEN 'prepared' THEN 'Prepared'
+            WHEN 'checked'  THEN 'Checked'
+            WHEN 'approved' THEN 'Approved'
+            ELSE ae.annotated_by_role
+          END)                                AS notes,
+        'info'                                AS status,
+        ae.admin_read                         AS "isRead",
+        ae.created_at                         AS "createdAt",
+        ae.admin_read_at                      AS "readAt",
+        'document_annotated'                  AS type
+      FROM document_annotation_events ae
+      JOIN procedure_documents pd2 ON pd2.nomor_dokumen = ae.nomor_dokumen
+      WHERE NOT EXISTS (
+        SELECT 1 FROM admin_notification_deletes d
+        WHERE d.notification_id = ae.id
+          AND d.notification_type = 'document_annotated'
+          AND d.admin_id = $1
+      )
       ORDER BY "createdAt" DESC
     `, [adminId]);
 
-    // Hitung jumlah unread (exclude deleted)
     const unreadQuery = await client.query(`
       SELECT COUNT(*) as unread_count
       FROM (
@@ -85,6 +152,24 @@ export async function GET(request: NextRequest) {
             SELECT 1 FROM admin_notification_deletes d
             WHERE d.notification_id = r.id
               AND d.notification_type = 'review_request'
+              AND d.admin_id = $1
+          )
+        UNION ALL
+        SELECT ra.id, 'approval_rejected' AS type FROM procedure_approval_actions ra
+        WHERE ra.acc_status = 'rejected' AND ra.admin_read = false
+          AND NOT EXISTS (
+            SELECT 1 FROM admin_notification_deletes d
+            WHERE d.notification_id = ra.id
+              AND d.notification_type = 'approval_rejected'
+              AND d.admin_id = $1
+          )
+        UNION ALL
+        SELECT ae.id, 'document_annotated' AS type FROM document_annotation_events ae
+        WHERE ae.admin_read = false
+          AND NOT EXISTS (
+            SELECT 1 FROM admin_notification_deletes d
+            WHERE d.notification_id = ae.id
+              AND d.notification_type = 'document_annotated'
               AND d.admin_id = $1
           )
       ) as unread
@@ -115,7 +200,6 @@ export async function PATCH(request: NextRequest) {
     const { id, type, readBy, markAllRead } = body;
 
     if (markAllRead) {
-      // Mark all as read
       await client.query(`
         UPDATE pic_document_requests
         SET is_read = true, read_at = COALESCE(read_at, NOW()), read_by = COALESCE(read_by, $1)
@@ -128,15 +212,44 @@ export async function PATCH(request: NextRequest) {
         WHERE is_read = false
       `, [readBy]);
 
+      // 🆕 Tandai semua notifikasi penolakan sebagai sudah dibaca juga
+      await client.query(`
+        UPDATE procedure_approval_actions
+        SET admin_read = true, admin_read_at = COALESCE(admin_read_at, NOW()), admin_read_by = COALESCE(admin_read_by, $1)
+        WHERE acc_status = 'rejected' AND admin_read = false
+      `, [readBy]);
+
+      // 🆕 Tandai semua notifikasi coretan/komentar sebagai sudah dibaca juga
+      await client.query(`
+        UPDATE document_annotation_events
+        SET admin_read = true, admin_read_at = COALESCE(admin_read_at, NOW()), admin_read_by = COALESCE(admin_read_by, $1)
+        WHERE admin_read = false
+      `, [readBy]);
+
       return NextResponse.json({ success: true });
     } else if (id && type) {
-      // Mark single as read
-      const table = type === 'new_document' ? 'pic_document_requests' : 'pic_review_requests';
-      await client.query(`
-        UPDATE ${table}
-        SET is_read = true, read_at = COALESCE(read_at, NOW()), read_by = COALESCE(read_by, $1)
-        WHERE id = $2 AND is_read = false
-      `, [readBy, id]);
+      if (type === 'approval_rejected') {
+        // 🆕 Tabel & nama kolom beda dari dua tipe lainnya
+        await client.query(`
+          UPDATE procedure_approval_actions
+          SET admin_read = true, admin_read_at = COALESCE(admin_read_at, NOW()), admin_read_by = COALESCE(admin_read_by, $1)
+          WHERE id = $2 AND admin_read = false
+        `, [readBy, id]);
+      } else if (type === 'document_annotated') {
+        // 🆕 Sama polanya dengan approval_rejected, tabel beda
+        await client.query(`
+          UPDATE document_annotation_events
+          SET admin_read = true, admin_read_at = COALESCE(admin_read_at, NOW()), admin_read_by = COALESCE(admin_read_by, $1)
+          WHERE id = $2 AND admin_read = false
+        `, [readBy, id]);
+      } else {
+        const table = type === 'new_document' ? 'pic_document_requests' : 'pic_review_requests';
+        await client.query(`
+          UPDATE ${table}
+          SET is_read = true, read_at = COALESCE(read_at, NOW()), read_by = COALESCE(read_by, $1)
+          WHERE id = $2 AND is_read = false
+        `, [readBy, id]);
+      }
 
       return NextResponse.json({ success: true });
     } else {
@@ -157,7 +270,7 @@ export async function PATCH(request: NextRequest) {
 }
 
 // DELETE — Soft-delete notifikasi untuk admin tertentu
-// Body: { id: number; type: 'new_document' | 'review_request'; adminId?: string }
+// Body: { id: number; type: 'new_document' | 'review_request' | 'approval_rejected'; adminId?: string }
 export async function DELETE(request: NextRequest) {
   const client = await pool.connect();
   try {
@@ -168,7 +281,6 @@ export async function DELETE(request: NextRequest) {
       adminId?: string;
     };
 
-    // Validasi
     const notifId = Number(id);
     if (!Number.isFinite(notifId) || !Number.isSafeInteger(notifId)) {
       return NextResponse.json(
@@ -176,15 +288,13 @@ export async function DELETE(request: NextRequest) {
         { status: 400 }
       );
     }
-    if (type !== 'new_document' && type !== 'review_request') {
+    if (type !== 'new_document' && type !== 'review_request' && type !== 'approval_rejected' && type !== 'document_annotated') {
       return NextResponse.json(
-        { error: 'type harus "new_document" atau "review_request"' },
+        { error: 'type harus "new_document", "review_request", "approval_rejected", atau "document_annotated"' },
         { status: 400 }
       );
     }
 
-    // Soft-delete: insert ke tabel admin_notification_deletes
-    // ON CONFLICT DO NOTHING aman jika sudah pernah dihapus sebelumnya
     await client.query(
       `INSERT INTO admin_notification_deletes (admin_id, notification_id, notification_type)
        VALUES ($1, $2, $3)
@@ -203,4 +313,4 @@ export async function DELETE(request: NextRequest) {
   } finally {
     client.release();
   }
-} 
+}

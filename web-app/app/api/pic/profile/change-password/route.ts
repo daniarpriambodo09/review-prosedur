@@ -25,9 +25,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (newPassword.length < 8) {
+    if (newPassword.length < 6) {
       return NextResponse.json(
-        { error: 'Password baru minimal 8 karakter' },
+        { error: 'Password baru minimal 6 karakter' },
         { status: 400 }
       );
     }

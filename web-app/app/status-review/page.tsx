@@ -7,7 +7,7 @@ import {
   getAllProcedures,
   getDocumentReview,
   archiveProcedure,
-  markReviewAsSeen,
+  markReviewAsSeen, 
   hasUnseenReview,
 } from '@/data/procedures/all-procedures';
 import Link from 'next/link';
@@ -15,11 +15,12 @@ import { ProtectedRoute } from '@/components/ProtectedRoute';
 import DocumentModal from '@/components/documents/DocumentModal';
 import EmailScheduleModal from '@/components/status-review/EmailScheduleModal';
 import EditProcedureModal from '@/components/status-review/EditProcedureModal';
+import ApprovalCard from '@/components/status-review/ApprovalCard';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import {
   Search, X, Plus, Calendar, Download, Archive,
   ChevronUp, ChevronDown, FileText, CheckCircle2,
-  RefreshCw, Clock, Eye, Pencil, Trash2,
+  RefreshCw, Clock, Eye, Pencil, Trash2, Users,
 } from 'lucide-react';
 
 // =============================================================================
@@ -102,6 +103,10 @@ function StatusBadge({ status }: { status: StatusType }) {
     'Belum dikirim':  { bg: 'bg-orange-50',  text: 'text-orange-700',  dot: 'bg-orange-500'  },
     'Telah terkirim': { bg: 'bg-cyan-50',    text: 'text-cyan-700',    dot: 'bg-cyan-500'    },
     'Telah dibaca':   { bg: 'bg-purple-50',  text: 'text-purple-700',  dot: 'bg-purple-500'  },
+    'Menunggu ACC Prepared': { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500' },
+    'Menunggu ACC Checked':  { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500' },
+    'Menunggu ACC Approved': { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500' },
+    'Ditolak':        { bg: 'bg-rose-50',     text: 'text-rose-700',    dot: 'bg-rose-500'    },
     '-':              { bg: 'bg-slate-50',   text: 'text-slate-500',   dot: 'bg-slate-400'   },
   };
   const s = styles[status] ?? styles['-'];
@@ -131,6 +136,66 @@ function EmailStatusBadge({ status }: { status: string }) {
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap ${s.bg} ${s.text}`}>
       {label[status] ?? status.toUpperCase()}
     </span>
+  );
+}
+
+// =============================================================================
+// EmailScheduleDot
+// =============================================================================
+function EmailScheduleDot({
+  schedule,
+  isOpen,
+  onToggle,
+}: {
+  schedule: EmailSchedule;
+  isOpen: boolean;
+  onToggle: () => void;
+}) {
+  if (schedule.emailStatus !== 'sent' || !schedule.lastSentAt) return null;
+
+  const sentDate   = new Date(schedule.lastSentAt);
+  const expiryDate = new Date(sentDate.getFullYear(), sentDate.getMonth() + 2, sentDate.getDate());
+  const isExpired  = new Date() >= expiryDate;
+
+  return (
+    <div className="relative inline-flex" data-email-schedule-dot>
+      <button
+        type="button"
+        onClick={e => { e.stopPropagation(); onToggle(); }}
+        title="Klik untuk detail masa berlaku"
+        className={`w-2.5 h-2.5 rounded-full flex-shrink-0 transition-all active:scale-90
+                    ${isExpired ? 'bg-red-500' : 'bg-emerald-500'}
+                    ${isOpen ? 'ring-2 ring-offset-1 ring-slate-300' : 'hover:ring-2 hover:ring-offset-1 hover:ring-slate-200'}`}
+      />
+      {isOpen && (
+        <div
+          className="absolute z-20 left-1/2 -translate-x-1/2 top-full mt-2 w-48 bg-white rounded-xl shadow-lg border border-slate-200 p-3 text-xs"
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isExpired ? 'bg-red-500' : 'bg-emerald-500'}`} />
+            <span className="font-semibold text-slate-700">
+              {isExpired ? 'Jadwal Expired' : 'Email Terkirim'}
+            </span>
+          </div>
+          <p className="text-slate-500">
+            Terkirim:{' '}
+            <span className="font-medium text-slate-700">
+              {sentDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
+            </span>
+          </p>
+          <p className={isExpired ? 'text-red-500 font-medium mt-0.5' : 'text-slate-500 mt-0.5'}>
+            {isExpired
+              ? '⚠ Sudah melewati masa berlaku'
+              : <>Berlaku s/d:{' '}
+                  <span className="font-medium text-slate-700">
+                    {expiryDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  </span>
+                </>}
+          </p>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -469,9 +534,15 @@ export default function StatusReviewPage() {
   const [sortDir, setSortDir] = useState<SortDir>(null);
 
   // BUG FIX #3 & #4: selectedDocument untuk DocumentModal
-  const [selectedDocument,         setSelectedDocument]         = useState<{ nomorDokumen: string; namaDokumen: string } | null>(null);
+  const [selectedDocument,         setSelectedDocument]         = useState<{ nomorDokumen: string; namaDokumen: string; status: string } | null>(null);
   const [isEmailScheduleModalOpen, setIsEmailScheduleModalOpen] = useState(false);
   const [emailSchedules,           setEmailSchedules]           = useState<Record<string, EmailSchedule>>({});
+
+  // nomorDokumen yang popover detail jadwal-nya sedang terbuka (titik hijau/merah)
+  const [openScheduleDetail, setOpenScheduleDetail] = useState<string | null>(null);
+
+  // 🆕 BARU: dokumen yang kartu Approval-nya (Prepared/Checked/Approved) sedang dibuka
+  const [approvalDoc, setApprovalDoc] = useState<{ nomorDokumen: string; namaDokumen: string } | null>(null);
 
   // ── Load email schedules — TIDAK DIUBAH ────────────────────────────────────
   const loadEmailSchedules = useCallback(async () => {
@@ -493,7 +564,20 @@ export default function StatusReviewPage() {
     try {
       if (showLoading) setLoading(true);
       const procedures = await getAllProcedures();
-      const workflowStatuses: StatusType[] = ['Belum dikirim','Telah terkirim','Telah dibaca','Menunggu'];
+      // 🐛 FIX: status alur approval berjenjang (Prepared/Checked/Approved) juga
+      // harus dianggap "status workflow" — kalau tidak, tabel ini akan meng-
+      // overlay status tsb dengan record document_reviews BULAN INI yang masih
+      // menyimpan hasil review PIC sebelumnya (mis. 'Revisi'), sehingga status
+      // yang sebenarnya sudah maju ke 'Menunggu ACC ...' malah tampil balik
+      // jadi 'Revisi' di tabel sampai admin upload ulang sekali lagi.
+      const workflowStatuses: StatusType[] = [
+        'Belum dikirim', 'Telah terkirim', 'Telah dibaca', 'Menunggu',
+        'Menunggu ACC Prepared', 'Menunggu ACC Checked', 'Menunggu ACC Approved',
+        // 🆕 status ditolak saat proses ACC — sama seperti status ACC lainnya,
+        // ini bukan hasil dari document_reviews, jadi harus dikecualikan dari
+        // overlay supaya tidak ketiban status lama.
+        'Ditolak',
+      ];
       const withReviews = await Promise.all(
         procedures.map(async (doc) => {
           if (workflowStatuses.includes(doc.status)) return doc;
@@ -521,6 +605,19 @@ export default function StatusReviewPage() {
     const t = setTimeout(() => setDebouncedSearch(searchValue), 300);
     return () => clearTimeout(t);
   }, [searchValue]);
+
+  // Tutup popover detail jadwal email saat klik di luar area popover/titik
+  useEffect(() => {
+    if (!openScheduleDetail) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-email-schedule-dot]')) {
+        setOpenScheduleDetail(null);
+      }
+    };
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, [openScheduleDetail]);
 
   // ── Resolved display status ─────────────────────────────────────────────────
   const dataResolved = useMemo(() => {
@@ -575,14 +672,26 @@ export default function StatusReviewPage() {
   const handleEditSaved = async () => { await loadData(false); };
 
   // BUG FIX #3 & #4: handler klik nama dokumen / tombol detail membuka DocumentModal
-  const handleDocumentClick = (nomorDokumen: string, namaDokumen: string) => {
-    setSelectedDocument({ nomorDokumen, namaDokumen });
+  // 🆕 tambah parameter `status`, dipakai DocumentModal untuk fitur Bandingkan Dokumen
+  const handleDocumentClick = (nomorDokumen: string, namaDokumen: string, status: string) => {
+    setSelectedDocument({ nomorDokumen, namaDokumen, status });
     // Optimistic update — badge hilang seketika
     setDataWithStatus(prev => prev.map(doc =>
       doc.nomorDokumen === nomorDokumen && hasUnseenReview(doc)
         ? { ...doc, reviewSeenAt: new Date().toISOString() }
         : doc
     ));
+  };
+
+  // ✅ FIX: dipanggil saat DocumentModal ditutup.
+  const handleDocumentModalClose = useCallback(async () => {
+    setSelectedDocument(null);
+    await Promise.all([loadData(false), loadEmailSchedules()]);
+  }, [loadData, loadEmailSchedules]);
+
+  // 🆕 BARU: handler tombol Approval (Prepared/Checked/Approved) di kolom Aksi
+  const handleApprovalClick = (nomorDokumen: string, namaDokumen: string) => {
+    setApprovalDoc({ nomorDokumen, namaDokumen });
   };
 
   const handleDownloadExcel = async () => {
@@ -878,7 +987,6 @@ export default function StatusReviewPage() {
               <table className="w-full">
                 <thead className="bg-slate-50/80 border-b border-slate-200">
                   <tr>
-                    {/* BUG FIX #5: Kembalikan semua kolom sesuai urutan yang diminta */}
                     {sTh('Nama Dokumen',          'namaDokumen')}
                     {sTh('Nomor Dokumen',         'nomorDokumen')}
                     {sTh('Level',                 'levelDokumen')}
@@ -904,10 +1012,10 @@ export default function StatusReviewPage() {
                             showBadge ? 'bg-violet-50/30' : index % 2 === 1 ? 'bg-slate-50/30' : ''
                           }`}
                         >
-                          {/* BUG FIX #4: Nama dokumen bisa diklik → DocumentModal */}
+                          {/* Nama dokumen bisa diklik → DocumentModal */}
                           <td className="px-4 py-2 max-w-[220px]">
                             <button
-                              onClick={() => handleDocumentClick(row.nomorDokumen, row.namaDokumen)}
+                              onClick={() => handleDocumentClick(row.nomorDokumen, row.namaDokumen, row.status)}
                               className="text-left text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline underline-offset-2 transition-colors line-clamp-2"
                             >
                               <Highlight text={row.namaDokumen} keyword={debouncedSearch} />
@@ -962,51 +1070,48 @@ export default function StatusReviewPage() {
                             </div>
                           </td>
 
-                          {/* Jadwal Email */}
+                          {/* Jadwal Email — baris tunggal ringkas + titik detail */}
                           <td className="px-4 py-2">
                             {schedule && schedule.emailStatus !== 'cancelled' && !isScheduleExpired(schedule) ? (
-                              <div className="flex flex-col gap-1 text-xs">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="font-medium text-slate-700 whitespace-nowrap">
-                                    {new Date(schedule.scheduledEmailAt).toLocaleDateString('id-ID', {
-                                      day: '2-digit', month: 'short', year: 'numeric',
-                                    })}
-                                  </span>
-                                  <span className="text-slate-400">
-                                    {new Date(schedule.scheduledEmailAt).toLocaleTimeString('id-ID', {
-                                      hour: '2-digit', minute: '2-digit',
-                                    })}
-                                  </span>
-                                  <EmailStatusBadge status={schedule.emailStatus} />
-                                </div>
-                                {schedule.emailStatus === 'sent' && schedule.lastSentAt && (() => {
-                                  const sentDate   = new Date(schedule.lastSentAt);
-                                  const expiryDate = new Date(sentDate.getFullYear(), sentDate.getMonth() + 2, sentDate.getDate());
-                                  const isExpired  = new Date() >= expiryDate;
-                                  return (
-                                    <div className="flex flex-col gap-0.5">
-                                      <span className="text-emerald-600">
-                                        Terkirim: {sentDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
-                                      </span>
-                                      <span className={isExpired ? 'text-red-500 font-medium' : 'text-slate-400'}>
-                                        {isExpired
-                                          ? '⚠ Expired'
-                                          : `s/d: ${expiryDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}`}
-                                      </span>
-                                    </div>
-                                  );
-                                })()}
+                              <div className="flex items-center gap-1.5 text-xs flex-wrap">
+                                <span className="font-medium text-slate-700 whitespace-nowrap">
+                                  {new Date(schedule.scheduledEmailAt).toLocaleDateString('id-ID', {
+                                    day: '2-digit', month: 'short', year: 'numeric',
+                                  })}
+                                </span>
+                                <span className="text-slate-400">
+                                  {new Date(schedule.scheduledEmailAt).toLocaleTimeString('id-ID', {
+                                    hour: '2-digit', minute: '2-digit',
+                                  })}
+                                </span>
+                                <EmailStatusBadge status={schedule.emailStatus} />
+                                <EmailScheduleDot
+                                  schedule={schedule}
+                                  isOpen={openScheduleDetail === row.nomorDokumen}
+                                  onToggle={() =>
+                                    setOpenScheduleDetail(prev =>
+                                      prev === row.nomorDokumen ? null : row.nomorDokumen
+                                    )
+                                  }
+                                />
                               </div>
                             ) : (
                               <span className="text-slate-300 text-xs">—</span>
                             )}
                           </td>
 
-                          {/* Aksi — BUG FIX #3: tombol Eye membuka DocumentModal */}
+                          {/* Aksi — 🆕 BARU: tombol Approval ditambahkan di sini */}
                           <td className="px-4 py-2">
                             <div className="flex items-center gap-1">
                               <button
-                                onClick={() => handleDocumentClick(row.nomorDokumen, row.namaDokumen)}
+                                onClick={() => handleApprovalClick(row.nomorDokumen, row.namaDokumen)}
+                                className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-purple-600 hover:bg-purple-50 transition-all"
+                                title="Lihat Prepared / Checked / Approved"
+                              >
+                                <Users size={13} />
+                              </button>
+                              <button
+                                onClick={() => handleDocumentClick(row.nomorDokumen, row.namaDokumen, row.status)}
                                 className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-all"
                                 title="Lihat dokumen"
                               >
@@ -1104,17 +1209,13 @@ export default function StatusReviewPage() {
           onSaved={handleEditSaved}
         />
 
-        {/* BUG FIX #3 & #4: DocumentModal dengan seluruh functionality
-            - PDF viewer
-            - Download PDF
-            - Upload versi baru
-            - markSeenOnOpen → review_seen_at logic
-            - onReviewSeen → update badge di tabel */}
+        {/* DocumentModal */}
         <DocumentModal
           isOpen={selectedDocument !== null}
-          onClose={() => setSelectedDocument(null)}
+          onClose={handleDocumentModalClose}
           nomorDokumen={selectedDocument?.nomorDokumen || ''}
           namaDokumen={selectedDocument?.namaDokumen || ''}
+          documentStatus={selectedDocument?.status}
           markSeenOnOpen={true}
           onReviewSeen={handleReviewSeen}
         />
@@ -1128,6 +1229,14 @@ export default function StatusReviewPage() {
           }}
           procedures={dataWithStatus}
           emailSchedules={emailSchedules}
+        />
+
+        {/* ApprovalCard — 🆕 BARU: kartu Prepared / Checked / Approved */}
+        <ApprovalCard
+          isOpen={approvalDoc !== null}
+          onClose={() => setApprovalDoc(null)}
+          nomorDokumen={approvalDoc?.nomorDokumen || ''}
+          namaDokumen={approvalDoc?.namaDokumen || ''}
         />
 
       </AdminLayout>

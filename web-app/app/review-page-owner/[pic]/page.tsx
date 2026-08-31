@@ -5,6 +5,10 @@
 // 1. Tambah fungsi extractPicCode() untuk ekstrak kode dari email baru
 // 2. loadDocuments sekarang mengirim picEmail ke API untuk dual matching
 // 3. Auth guard menggunakan extractPicCode() agar access check tetap akurat
+// 4. 🐛 FIX: activeWorkflow sekarang juga mencakup status alur approval
+//    berjenjang (Menunggu ACC Prepared/Checked/Approved) — supaya tidak
+//    ke-overlay balik oleh document_reviews bulan ini (lihat penjelasan
+//    yang sama di app/status-review/page.tsx).
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -167,7 +171,7 @@ function DocumentTable({
   data: DocWithSchedule[];
   pendingChanges: Record<string, ReviewStatus>;
   onStatusChange: (nomorDokumen: string, status: ReviewStatus) => void;
-  onDocumentClick: (nomorDokumen: string, namaDokumen: string) => void;
+  onDocumentClick: (nomorDokumen: string, namaDokumen: string, status: string) => void;
 }) {
   if (data.length === 0) {
     return (
@@ -203,7 +207,7 @@ function DocumentTable({
             <tr key={row.nomorDokumen} className="hover:bg-blue-50/40 transition-colors">
               <td className="px-5 py-4">
                 <button
-                  onClick={() => onDocumentClick(row.nomorDokumen, row.namaDokumen)}
+                  onClick={() => onDocumentClick(row.nomorDokumen, row.namaDokumen, row.status)}
                   className="text-left text-blue-600 hover:text-blue-800 transition-colors underline decoration-dotted underline-offset-2 hover:decoration-solid font-medium text-sm"
                 >
                   {row.namaDokumen}
@@ -277,8 +281,6 @@ export default function PicReviewPage() {
   if (urlPic.startsWith('PIC-')) urlPic = urlPic.slice(4).trim();
 
   // ── FIX: Ekstrak PIC code dari email user yang login ──────────────────────
-  // Dulu: user.email?.split('@')[0] → tapi ini bisa salah untuk email multi-PIC
-  // Sekarang: extractPicCode() menangani semua format dengan benar
   const loggedPicCode = user?.role === 'pic'
     ? extractPicCode(user.email ?? '')
     : '';
@@ -287,7 +289,7 @@ export default function PicReviewPage() {
   const [documents,           setDocuments]           = useState<DocWithSchedule[]>([]);
   const [pendingChanges,      setPendingChanges]       = useState<Record<string, ReviewStatus>>({});
   const [reviewedThisSession, setReviewedThisSession] = useState<Set<string>>(new Set());
-  const [selectedDocument,    setSelectedDocument]    = useState<{ nomorDokumen: string; namaDokumen: string } | null>(null);
+  const [selectedDocument,    setSelectedDocument]    = useState<{ nomorDokumen: string; namaDokumen: string; status: string } | null>(null);
   const [loading,             setLoading]             = useState(true);
   const [currentMonthAbbr,    setCurrentMonthAbbr]    = useState('');
 
@@ -304,32 +306,26 @@ export default function PicReviewPage() {
     }
   }, [authLoading, isAuthenticated, user, loggedPicCode, urlPic, router]);
 
-  // ── FIX: Load dokumen menggunakan EMAIL sebagai identifier ────────────────
-  // Sebelumnya: getProceduresByPic(urlPic) → hanya match berdasarkan kode PIC
-  // Sekarang: kirim email ke backend untuk dual matching (kode PIC + email)
-  //
-  // Kenapa perlu email?
-  // - Dokumen lama: pic="DP", email="daniarpriambodo11@gmail.com"
-  // - Dokumen baru: pic="DP", email="dp@jai.co.id"
-  // - Keduanya harus muncul untuk PIC "DP" yang login dengan "dp@jai.co.id"
-  // - Filter by pic ILIKE '%DP%' sudah cukup untuk kedua kasus di atas
-  // - Tapi untuk memastikan tidak ada yang terlewat, kirim email juga
+  // ── Load dokumen menggunakan EMAIL sebagai identifier ──────────────────────
   const loadDocuments = useCallback(async () => {
     if (!urlPic) return;
     try {
       setLoading(true);
       setCurrentMonthAbbr(MONTH_NAMES[new Date().getMonth()]);
 
-      // FIX: Kirim email PIC ke API agar backend bisa melakukan dual matching
-      // Backend /api/procedures?pic=... sudah diupdate untuk menangani email
       const picIdentifier = user?.email ?? urlPic;
       const loaded = await getProceduresByPic(picIdentifier) as DocWithSchedule[];
 
-      // Overlay review (logika tidak berubah)
+      // 🐛 FIX: status alur approval berjenjang (Menunggu ACC Prepared/Checked/
+      // Approved) juga harus dianggap "workflow aktif" — supaya tidak
+      // ke-overlay balik oleh document_reviews bulan ini (record hasil review
+      // PIC sebelumnya). Sama seperti fix di app/status-review/page.tsx.
       const withReviews = await Promise.all(
         loaded.map(async doc => {
           const activeWorkflow: StatusType[] = [
             'Telah terkirim', 'Belum dikirim', 'Telah dibaca', 'Menunggu',
+            'Menunggu ACC Prepared', 'Menunggu ACC Checked', 'Menunggu ACC Approved',
+            'Ditolak',
           ];
 
           if (activeWorkflow.includes(doc.status)) {
@@ -365,7 +361,7 @@ export default function PicReviewPage() {
     } finally {
       setLoading(false);
     }
-  }, [urlPic, user?.email]); // FIX: tambah user?.email sebagai dependency
+  }, [urlPic, user?.email]);
 
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
@@ -383,8 +379,8 @@ export default function PicReviewPage() {
     }
   };
 
-  const handleDocumentClick = async (nomorDokumen: string, namaDokumen: string) => {
-    setSelectedDocument({ nomorDokumen, namaDokumen });
+  const handleDocumentClick = async (nomorDokumen: string, namaDokumen: string, status: string) => {
+    setSelectedDocument({ nomorDokumen, namaDokumen, status });
     await markDocumentAsRead(nomorDokumen, urlPic);
 
     setDocuments(prev => prev.map(doc => {
@@ -546,7 +542,9 @@ export default function PicReviewPage() {
         onClose={() => setSelectedDocument(null)}
         nomorDokumen={selectedDocument?.nomorDokumen || ''}
         namaDokumen={selectedDocument?.namaDokumen   || ''}
+        documentStatus={selectedDocument?.status}
         hideUpload={true}
+        annotatorIdentity={user?.email ? { nama: user.fullName ?? null, email: user.email } : undefined}
       />
     </div>
   );

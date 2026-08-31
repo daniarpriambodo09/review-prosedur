@@ -6,6 +6,12 @@
 // — GET: tambah langkah auto-expire baru — dokumen yang statusnya "Telah terkirim"
 //   dan sudah lebih dari 2 bulan sejak email BENAR-BENAR terkirim (last_sent_at)
 //   tanpa ada review dari PIC, otomatis berubah jadi "Relevan".
+// — 🆕 FIX: PROTECTED_STATUSES sekarang juga mencakup status alur approval
+//   berjenjang (Menunggu ACC Prepared/Checked/Approved) — status ini dikelola
+//   sepenuhnya oleh lib/approvalCycle.ts & lib/approvalFinalize.ts, jadi
+//   chain auto-status di bawah ini TIDAK BOLEH ikut mengubahnya (mis. auto-
+//   expire ke Relevan atau auto-reactivate ke Menunggu) selagi cycle approval
+//   masih berjalan.
 //
 // Kondisi badge tampil di frontend:
 //   lastReviewedAt !== null  &&  reviewSeenAt === null
@@ -16,7 +22,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { logActivity } from '@/lib/activityLogger';
 
-const PROTECTED_STATUSES = ['Revisi', 'Obsolete', 'Relevan', 'Telah dibaca'];
+const PROTECTED_STATUSES = [
+  'Revisi', 'Obsolete', 'Relevan', 'Telah dibaca',
+  // status alur approval berjenjang — jangan disentuh chain auto-status
+  'Menunggu ACC Prepared', 'Menunggu ACC Checked', 'Menunggu ACC Approved',
+  // 🆕 status ditolak saat proses ACC — juga harus diam, menunggu admin
+  // upload ulang dokumen untuk memulai cycle baru
+  'Ditolak',
+];
 
 function isPast2Months(tanggal: string): boolean {
   const d = new Date(tanggal);
@@ -68,11 +81,7 @@ async function autoExpire(
   return 'Relevan';
 }
 
-// ─── Langkah 1b (BARU): auto-expire setelah email terkirim ──────────────────
-// Dokumen dengan status "Telah terkirim" berarti email sudah dikirim tapi PIC
-// belum membuka/mereview sama sekali. Jika sudah lebih dari 2 bulan sejak
-// email BENAR-BENAR terkirim (last_sent_at dari email_schedules) dan status
-// masih belum berubah, dokumen dianggap tidak ada tindak lanjut → auto "Relevan".
+// ─── Langkah 1b: auto-expire setelah email terkirim ──────────────────────────
 async function autoExpireAfterSent(
   client: any,
   nomorDokumen: string,
@@ -92,7 +101,6 @@ async function autoExpireAfterSent(
 }
 
 // ─── Langkah 2: auto-reactivate → Menunggu ───────────────────────────────────
-// GUARD: dokumen yang approval-nya sudah > 2 bulan lewat TIDAK di-reactivate.
 async function autoReactivate(
   client: any,
   nomorDokumen: string,
@@ -205,7 +213,6 @@ export async function GET(request: NextRequest) {
 
     if (picParam) {
       if (picParam.includes('@')) {
-        // Login baru: parameter adalah email lengkap seperti "dp@jai.co.id"
         const emailLocalPart = picParam.split('@')[0].trim().toUpperCase();
         const picCodes       = emailLocalPart
           .split(',')
@@ -289,8 +296,6 @@ export async function GET(request: NextRequest) {
           updatedAt:              row.updated_at,
           lastSentAt:             row.last_sent_at        ?? null,
           scheduledEmailAt:       row.scheduled_email_at  ?? null,
-          // ─ Field untuk sistem badge "Baru Direview" ─────────────────────────
-          // Badge tampil jika: lastReviewedAt !== null && reviewSeenAt === null
           lastReviewedAt:         row.last_reviewed_at    ?? null,
           reviewSeenAt:           row.review_seen_at      ?? null,
         };

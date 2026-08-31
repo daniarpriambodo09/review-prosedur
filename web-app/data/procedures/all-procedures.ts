@@ -8,6 +8,10 @@ export type StatusType =
   | 'Belum dikirim'
   | 'Telah terkirim'
   | 'Telah dibaca'
+  | 'Menunggu ACC Prepared'
+  | 'Menunggu ACC Checked'
+  | 'Menunggu ACC Approved'
+  | 'Ditolak'
   | '-';
 
 export interface ProcedureDocument {
