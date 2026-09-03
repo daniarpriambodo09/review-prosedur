@@ -135,6 +135,94 @@ def mark_emails_failed(conn, nomor_list: list, error_msg: str) -> None:
     finally:
         cur.close()
 
+
+# ── Tahap 2: eskalasi ke Manager ────────────────────────────────────────────
+# Dipicu di (tanggalSelesaiApproval - 1 bulan, abaikan tahun) — HANYA kalau
+# PIC belum memberi status (Relevan/Revisi/Obsolete) sampai saat itu.
+# manager_email_scheduled_at & manager_email_status dihitung/di-set oleh
+# app/api/procedures/route.ts (Node) saat dokumen masuk siklus review;
+# di sini kita cuma polling & mengeksekusi pengirimannya.
+
+def resolve_managers(cur, pic_field: str) -> list[dict]:
+    """
+    Cari SEMUA manager yang di-assign ke departemen PIC (kode pertama di
+    kolom procedure_documents.pic), lewat department_managers.
+    Mendukung PIC yang unit-nya section (di-resolve ke department induknya
+    dulu) maupun department langsung. Satu departemen bisa punya >1 manager
+    (mis. SMGR + JMGR) -> keduanya dikirimi email.
+    """
+    if not pic_field:
+        return []
+    first_code = pic_field.replace(" ", "").split(",")[0].strip().upper()
+    if not first_code:
+        return []
+
+    cur.execute("""
+        SELECT DISTINCT sm.email, sm.nama
+        FROM staff_directory sp
+        LEFT JOIN sections sec
+          ON sp.unit_type = 'section' AND sec.id = sp.unit_id
+        JOIN department_managers dm
+          ON dm.department_id = CASE
+               WHEN sp.unit_type = 'department' THEN sp.unit_id
+               WHEN sp.unit_type = 'section'    THEN sec.department_id
+             END
+        JOIN staff_directory sm ON sm.kode = dm.manager_kode
+        WHERE sp.kode = %s
+    """, (first_code,))
+    rows = cur.fetchall()
+    return [{"email": r[0], "nama": r[1]} for r in rows]
+
+
+def mark_manager_emails_sent(conn, nomor_list: list) -> None:
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            UPDATE email_schedules
+            SET manager_email_status = 'sent', manager_email_sent_at = NOW(),
+                updated_at = NOW()
+            WHERE nomor_dokumen = ANY(%s)
+        """, (nomor_list,))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cur.close()
+
+
+def mark_manager_emails_skipped(conn, nomor_list: list) -> None:
+    """PIC sudah memberi status sebelum T-1bulan tercapai -> tidak perlu eskalasi."""
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            UPDATE email_schedules
+            SET manager_email_status = 'skipped', updated_at = NOW()
+            WHERE nomor_dokumen = ANY(%s)
+        """, (nomor_list,))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cur.close()
+
+
+def mark_manager_emails_failed(conn, nomor_list: list, error_msg: str) -> None:
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            UPDATE email_schedules
+            SET manager_email_status = 'failed', manager_email_error = %s,
+                updated_at = NOW()
+            WHERE nomor_dokumen = ANY(%s)
+        """, (str(error_msg)[:500], nomor_list))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+    finally:
+        cur.close()
+
 def _build_html_body(pic: str, dokumen_list: list, review_link: str) -> str:
     rows_html = ""
     for i, doc in enumerate(dokumen_list, 1):
@@ -304,6 +392,312 @@ def _build_plain_body(pic: str, dokumen_list: list, review_link: str) -> str:
     ]
     return "\n".join(lines)
 
+def _build_manager_html_body(manager_nama: str, dokumen_list: list) -> str:
+    """
+    dokumen_list: list of dict {nama, nomor, pic} — pic di sini nama/kode PIC
+    pemilik dokumen (bisa beda-beda PIC per baris kalau manager membawahi
+    lebih dari satu PIC di departemennya).
+    """
+    rows_html = ""
+    for i, doc in enumerate(dokumen_list, 1):
+        bg = "#fff8f0" if i % 2 == 0 else "#ffffff"
+        nama_safe  = html.escape(str(doc["nama"]))
+        nomor_safe = html.escape(str(doc["nomor"]))
+        pic_safe   = html.escape(str(doc["pic"]))
+        rows_html += (
+            f'<tr style="background-color:{bg};">'
+            f'<td style="padding:10px 14px;border-bottom:1px solid #e8e8e8;'
+            f'color:#555;font-size:13px;">{i}</td>'
+            f'<td style="padding:10px 14px;border-bottom:1px solid #e8e8e8;'
+            f'color:#333;font-size:13px;">{nama_safe}</td>'
+            f'<td style="padding:10px 14px;border-bottom:1px solid #e8e8e8;'
+            f'color:#666;font-size:13px;">{nomor_safe}</td>'
+            f'<td style="padding:10px 14px;border-bottom:1px solid #e8e8e8;'
+            f'color:#666;font-size:13px;">{pic_safe}</td>'
+            f'</tr>'
+        )
+
+    manager_safe = html.escape(str(manager_nama or "Bapak/Ibu"))
+
+    return f"""\
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Eskalasi Review Prosedur</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f6f8;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0"
+         style="background-color:#f4f6f8;padding:32px 0;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0"
+               style="background-color:#ffffff;border-radius:8px;
+                      box-shadow:0 2px 8px rgba(0,0,0,0.08);
+                      max-width:600px;width:100%;">
+          <tr>
+            <td style="background-color:#c2410c;padding:28px 32px;
+                       border-radius:8px 8px 0 0;">
+              <h1 style="margin:0;color:#ffffff;font-size:20px;
+                         font-weight:700;letter-spacing:0.3px;">
+                Eskalasi: Dokumen Belum Direview
+              </h1>
+              <p style="margin:6px 0 0;color:#fde3d0;font-size:13px;">
+                Procedure Management System
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:28px 32px;">
+              <p style="margin:0 0 16px;color:#333;font-size:15px;line-height:1.6;">
+                Dear. {manager_safe},
+              </p>
+              <p style="margin:0 0 24px;color:#555;font-size:14px;line-height:1.6;">
+                Dokumen prosedur berikut sudah diingatkan ke PIC terkait sejak
+                1 bulan lalu, namun belum diberikan status review. Mohon bantu
+                mengingatkan PIC yang bersangkutan secara langsung agar
+                dokumen segera direview sebelum batas waktu.
+              </p>
+              <table width="100%" cellpadding="0" cellspacing="0"
+                     style="border:1px solid #e0e0e0;border-radius:6px;
+                            border-collapse:collapse;margin-bottom:8px;">
+                <thead>
+                  <tr style="background-color:#fff1e6;">
+                    <th style="padding:10px 14px;text-align:left;color:#444;
+                               font-size:13px;font-weight:700;border-bottom:2px solid #f0d8c0;
+                               width:36px;">#</th>
+                    <th style="padding:10px 14px;text-align:left;color:#444;
+                               font-size:13px;font-weight:700;border-bottom:2px solid #f0d8c0;">
+                      Nama Dokumen</th>
+                    <th style="padding:10px 14px;text-align:left;color:#444;
+                               font-size:13px;font-weight:700;border-bottom:2px solid #f0d8c0;">
+                      Nomor</th>
+                    <th style="padding:10px 14px;text-align:left;color:#444;
+                               font-size:13px;font-weight:700;border-bottom:2px solid #f0d8c0;">
+                      PIC</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows_html}
+                </tbody>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color:#f8f9fa;padding:18px 32px;
+                       border-top:1px solid #e8e8e8;border-radius:0 0 8px 8px;">
+              <p style="margin:0;color:#aaa;font-size:12px;text-align:center;
+                        line-height:1.6;">
+                Email ini dikirim secara otomatis oleh
+                <strong style="color:#888;">Procedure Management System</strong>.<br>
+                Mohon tidak membalas email ini.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+"""
+
+
+def _build_manager_plain_body(manager_nama: str, dokumen_list: list) -> str:
+    lines = [
+        f"Dear. {manager_nama or 'Bapak/Ibu'},",
+        "",
+        "Dokumen prosedur berikut sudah diingatkan ke PIC terkait sejak 1 bulan",
+        "lalu, namun belum diberikan status review. Mohon bantu mengingatkan PIC",
+        "yang bersangkutan secara langsung agar dokumen segera direview sebelum",
+        "batas waktu.",
+        "",
+    ]
+    for i, doc in enumerate(dokumen_list, 1):
+        lines.append(f"  {i}. {doc['nama']} ({doc['nomor']}) — PIC: {doc['pic']}")
+    lines += [
+        "",
+        "Terima kasih.",
+        "Procedure Management System",
+    ]
+    return "\n".join(lines)
+
+
+def send_manager_email(smtp_cfg: dict, receiver: str, manager_nama: str, dokumen_list: list) -> None:
+    smtp_host    = smtp_cfg["smtp_host"]
+    smtp_port    = smtp_cfg["smtp_port"]
+    email_sender = smtp_cfg["email_sender"]
+    use_tls      = smtp_cfg["use_tls"]
+    use_ssl      = smtp_cfg["use_ssl"]
+    username     = smtp_cfg["smtp_username"]
+    password     = smtp_cfg["smtp_password"]
+    has_auth     = bool(username and password)
+
+    log_info(
+        f"Sending ESCALATION email to {receiver} (Manager: {manager_nama}) | "
+        f"SMTP: {smtp_host}:{smtp_port} | TLS={use_tls} | SSL={use_ssl} | Auth={has_auth}"
+    )
+
+    sender_domain = email_sender.split("@")[-1] if "@" in email_sender else smtp_host
+
+    msg = EmailMessage()
+    msg["Subject"]    = "Eskalasi: Dokumen Prosedur Belum Direview PIC"
+    msg["From"]       = email_sender
+    msg["To"]         = receiver
+    msg["Date"]       = formatdate(localtime=True)
+    msg["Message-ID"] = make_msgid(domain=sender_domain)
+    msg["Reply-To"]   = email_sender
+
+    plain_body = _build_manager_plain_body(manager_nama, dokumen_list)
+    html_body  = _build_manager_html_body(manager_nama, dokumen_list)
+
+    msg.set_content(plain_body)
+    msg.add_alternative(html_body, subtype="html")
+
+    ssl_ctx = ssl.create_default_context()
+    ssl_ctx.check_hostname = False
+    ssl_ctx.verify_mode    = ssl.CERT_NONE
+
+    if use_ssl:
+        with smtplib.SMTP_SSL(smtp_host, smtp_port, context=ssl_ctx) as smtp:
+            if has_auth:
+                smtp.login(username, password)
+            smtp.send_message(msg)
+    elif use_tls:
+        with smtplib.SMTP(smtp_host, smtp_port) as smtp:
+            smtp.ehlo()
+            smtp.starttls(context=ssl_ctx)
+            smtp.ehlo()
+            if has_auth:
+                smtp.login(username, password)
+            smtp.send_message(msg)
+    else:
+        with smtplib.SMTP(smtp_host, smtp_port) as smtp:
+            if has_auth:
+                smtp.login(username, password)
+            smtp.send_message(msg)
+
+    log_info(f"Escalation email successfully sent to {receiver}")
+
+
+def check_and_send_manager_emails(conn, smtp_cfg: dict) -> None:
+    # NOTE: kondisi query di bawah pakai '::date = CURRENT_DATE' (PERSIS hari
+    # ini), BUKAN '<= NOW()'. Ini keputusan sadar: email HANYA dikirim tepat
+    # di tanggal T-1bulan, tidak ada "susulan" untuk tanggal yang sudah
+    # lewat. Konsekuensinya: kalau scheduler ini kebetulan tidak jalan pas
+    # di hari H (server down, dsb), dokumen itu TIDAK akan dapat eskalasi
+    # manager sampai siklus tahun berikutnya. Trade-off ini disengaja.
+    log_info("Checking manager escalation schedules...")
+
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT
+                es.nomor_dokumen,
+                pd.nama_dokumen,
+                pd.pic,
+                pd.status
+            FROM email_schedules es
+            JOIN procedure_documents pd
+              ON es.nomor_dokumen = pd.nomor_dokumen
+            WHERE es.manager_email_status = 'not_applicable'
+              AND es.manager_email_scheduled_at IS NOT NULL
+              AND es.manager_email_scheduled_at::date = CURRENT_DATE
+        """)
+        rows = cur.fetchall()
+    except Exception as e:
+        log_error(f"Failed to fetch manager escalation candidates: {e}")
+        cur.close()
+        return
+    finally:
+        cur.close()
+
+    if not rows:
+        log_info("No manager escalation due at this time.")
+        return
+
+    log_info(f"Found {len(rows)} document(s) due for manager escalation check")
+
+    already_reviewed = ["Relevan", "Revisi", "Obsolete"]
+
+    skip_list: list = []
+    to_send:  list = []  # (nomor, nama_dokumen, pic)
+
+    for nomor, nama_dokumen, pic, status in rows:
+        if status in already_reviewed:
+            # PIC sudah kasih status sebelum T-1bulan tercapai -> skip, tidak perlu eskalasi.
+            skip_list.append(nomor)
+            continue
+        to_send.append((nomor, nama_dokumen, pic))
+
+    if skip_list:
+        try:
+            mark_manager_emails_skipped(conn, skip_list)
+            log_info(f"Skipped manager escalation for {len(skip_list)} document(s) — PIC already reviewed.")
+        except Exception as e:
+            log_error(f"Failed to mark manager emails as skipped: {e}")
+
+    if not to_send:
+        return
+
+    # Resolve manager per PIC (bisa >1 manager per dokumen), lalu kelompokkan
+    # dokumen per manager email (supaya manager yang membawahi >1 PIC cukup
+    # dapat 1 email berisi semua dokumen).
+    grouped: dict = defaultdict(list)      # (manager_email, manager_nama) -> [ {nama, nomor, pic} ]
+    doc_managers: dict = defaultdict(list) # nomor_dokumen -> [manager_email, ...] (utk agregasi status)
+    unresolved: list = []                  # dokumen yang manager-nya tidak ketemu sama sekali
+
+    cur = conn.cursor()
+    try:
+        for nomor, nama_dokumen, pic in to_send:
+            managers = resolve_managers(cur, pic)
+            if not managers:
+                log_warn(f"Manager tidak ditemukan untuk PIC='{pic}' (dokumen {nomor}) — dilewati, coba lagi siklus berikutnya.")
+                unresolved.append(nomor)
+                continue
+            for manager in managers:
+                key = (manager["email"], manager["nama"])
+                grouped[key].append({"nama": nama_dokumen, "nomor": nomor, "pic": pic})
+                doc_managers[nomor].append(manager["email"])
+    finally:
+        cur.close()
+
+    # Kirim per grup manager, catat sukses/gagal PER EMAIL MANAGER dulu —
+    # baru diagregasi jadi status per dokumen di bawah (satu dokumen bisa
+    # punya >1 manager; status 'sent' hanya kalau SEMUA manager-nya berhasil).
+    send_success: dict = {}  # manager_email -> True/False
+
+    for (manager_email, manager_nama), dokumen_list in grouped.items():
+        nomor_list = [d["nomor"] for d in dokumen_list]
+        log_info(f"Processing Manager={manager_nama} | email={manager_email} | docs={len(dokumen_list)}")
+
+        try:
+            send_manager_email(smtp_cfg, manager_email, manager_nama, dokumen_list)
+            send_success[manager_email] = True
+            log_info(f"Completed escalation for Manager: {manager_nama}")
+        except Exception as e:
+            send_success[manager_email] = False
+            log_error(f"Failed to send escalation email for Manager {manager_nama}: {e}")
+
+    sent_docs   = [n for n, mgrs in doc_managers.items() if all(send_success.get(m) for m in mgrs)]
+    failed_docs = [n for n, mgrs in doc_managers.items() if not all(send_success.get(m) for m in mgrs)]
+
+    if sent_docs:
+        try:
+            mark_manager_emails_sent(conn, sent_docs)
+        except Exception as e:
+            log_error(f"Failed to mark manager emails as sent: {e}")
+
+    if failed_docs:
+        try:
+            mark_manager_emails_failed(conn, failed_docs, "Satu atau lebih email manager gagal terkirim")
+        except Exception as e:
+            log_error(f"Failed to mark manager emails as failed: {e}")
+
+    log_info("Manager escalation check completed.")
+
+
 def send_email(smtp_cfg: dict, receiver: str, pic: str, dokumen_list: list) -> None:
     smtp_host    = smtp_cfg["smtp_host"]
     smtp_port    = smtp_cfg["smtp_port"]
@@ -369,6 +763,12 @@ def send_email(smtp_cfg: dict, receiver: str, pic: str, dokumen_list: list) -> N
     log_info(f"Email successfully sent to {receiver}")
 
 def check_and_send_emails() -> None:
+    # NOTE: query di bawah pakai '::date = CURRENT_DATE' (PERSIS hari ini),
+    # BUKAN '<= NOW()'. Email PIC HANYA dikirim tepat di tanggal T-2bulan,
+    # tidak ada "susulan" untuk tanggal yang sudah lewat. Kalau scheduler ini
+    # kebetulan tidak jalan pas di hari H, dokumen itu tidak akan dapat email
+    # sampai siklus tahun berikutnya. Trade-off ini disengaja (lihat diskusi
+    # terkait di riwayat perubahan file ini).
     log_info("Checking email schedules...")
 
     smtp_cfg = load_smtp_settings()
@@ -399,7 +799,7 @@ def check_and_send_emails() -> None:
             JOIN procedure_documents pd
               ON es.nomor_dokumen = pd.nomor_dokumen
             WHERE es.email_status = 'pending'
-              AND es.scheduled_email_at <= NOW()
+              AND es.scheduled_email_at::date = CURRENT_DATE
               AND pd.email IS NOT NULL
               AND pd.email != ''
             ORDER BY es.scheduled_email_at ASC
@@ -414,10 +814,6 @@ def check_and_send_emails() -> None:
         cur.close()
 
     log_info(f"Found {len(rows)} document(s) pending delivery")
-
-    if not rows:
-        conn.close()
-        return
 
     grouped: dict = defaultdict(list)
     for nomor, sched, nama, pic, email in rows:
@@ -456,6 +852,12 @@ def check_and_send_emails() -> None:
                 mark_emails_failed(conn, nomor_list, str(e))
             except Exception as e2:
                 log_error(f"Failed to update status (failed) for {pic}: {e2}")
+
+    # ── Tahap 2: cek eskalasi ke manager (jalan tiap siklus yang sama) ──────
+    try:
+        check_and_send_manager_emails(conn, smtp_cfg)
+    except Exception as e:
+        log_error(f"Manager escalation check failed: {e}")
 
     conn.close()
     log_info("Email check cycle completed.")

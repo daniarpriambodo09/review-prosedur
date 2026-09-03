@@ -8,11 +8,12 @@ import NotificationBell from '@/components/admin/NotificationBell';
 import { MobileSidebarDrawer } from './AdminSidebar';
 
 const BREADCRUMB_MAP: Record<string, { label: string; parent?: { label: string; path: string } }> = {
-  '/home':            { label: 'Dashboard' },
-  '/status-review':   { label: 'Status Prosedur',  parent: { label: 'Dashboard', path: '/home' } },
-  '/arsip-prosedur':  { label: 'Arsip Prosedur',   parent: { label: 'Dashboard', path: '/home' } },
-  '/user-management': { label: 'Kelola User',       parent: { label: 'Dashboard', path: '/home' } },
-  '/smtp-settings':   { label: 'Pengaturan SMTP',   parent: { label: 'Dashboard', path: '/home' } },
+  '/home':              { label: 'Dashboard' },
+  '/status-review':     { label: 'Status Prosedur',   parent: { label: 'Dashboard', path: '/home' } },
+  '/arsip-prosedur':    { label: 'Arsip Prosedur',    parent: { label: 'Dashboard', path: '/home' } },
+  '/kelola-departemen': { label: 'Kelola Departemen', parent: { label: 'Dashboard', path: '/home' } },
+  '/user-management':   { label: 'Kelola User',       parent: { label: 'Dashboard', path: '/home' } },
+  '/smtp-settings':     { label: 'Pengaturan SMTP',   parent: { label: 'Dashboard', path: '/home' } },
 };
 
 export function AdminHeader() {

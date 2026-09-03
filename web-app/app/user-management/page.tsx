@@ -1,9 +1,10 @@
 // app/user-management/page.tsx
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { useAuth } from '@/contexts/AuthContext';
+import { Search, X, ChevronUp, ChevronDown, Trash2 } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface UserRow {
@@ -21,6 +22,10 @@ interface UserRow {
 interface PasswordState {
   [key: string]: { visible: boolean; value: string | null; loading: boolean };
 }
+
+// 🆕 Sortable columns
+type SortKey = 'fullName' | 'username' | 'role' | 'status';
+type SortDir = 'asc' | 'desc' | null;
 
 const EMPTY_FORM = {
   fullName: '',
@@ -107,6 +112,32 @@ function Field({ label, required, children }: { label: string; required?: boolea
 const inputCls = 'w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors';
 const selectCls = 'w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors';
 
+// ── 🆕 Sortable table header (pola sama seperti di halaman Status Prosedur:
+// klik 1x → A→Z, klik 2x → Z→A, klik 3x → reset) ───────────────────────────────
+function SortableTh({
+  label, colKey, currentSort, currentDir, onSort,
+}: {
+  label: string; colKey: SortKey; currentSort: SortKey | null;
+  currentDir: SortDir; onSort: (k: SortKey) => void;
+}) {
+  const active = currentSort === colKey;
+  return (
+    <th
+      onClick={() => onSort(colKey)}
+      title="Klik 1× → A→Z, klik 2× → Z→A, klik 3× → reset"
+      className="text-left py-3 px-3 font-semibold text-slate-500 whitespace-nowrap cursor-pointer select-none hover:text-slate-800 hover:bg-slate-100 transition-colors"
+    >
+      <div className="flex items-center gap-1">
+        {label}
+        <span className="inline-flex flex-col" style={{ opacity: active ? 1 : 0.3 }}>
+          <ChevronUp size={10} className={active && currentDir === 'asc' ? 'text-blue-600' : 'text-slate-400'} />
+          <ChevronDown size={10} className={active && currentDir === 'desc' ? 'text-blue-600' : 'text-slate-400'} style={{ marginTop: '-2px' }} />
+        </span>
+      </div>
+    </th>
+  );
+}
+
 // ── Main Page Content ─────────────────────────────────────────────────────────
 function UserManagementContent() {
   const { user } = useAuth();
@@ -117,11 +148,20 @@ function UserManagementContent() {
   const [passwordStates, setPasswordStates] = useState<PasswordState>({});
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  // 🆕 Search + sort state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>(null);
+
   // Modals
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
   const [showDeactivateConfirm, setShowDeactivateConfirm] = useState<{ id: number; role: string; name: string } | null>(null);
+  // 🆕 Konfirmasi hapus permanen — modal TERPISAH dari nonaktifkan, supaya
+  // tidak tertukar (aksinya jauh lebih berisiko / tidak bisa dibatalkan)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<{ id: number; role: string; name: string } | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   // Form state
   const [addForm, setAddForm] = useState(EMPTY_FORM);
@@ -364,7 +404,7 @@ function UserManagementContent() {
     }
   };
 
-  // ── Deactivate ──────────────────────────────────────────────────────────────
+  // ── Deactivate (soft) ─────────────────────────────────────────────────────
   const handleDeactivate = async () => {
     if (!showDeactivateConfirm) return;
     try {
@@ -385,6 +425,78 @@ function UserManagementContent() {
       showToast('error', 'Terjadi kesalahan server');
     }
   };
+
+  // ── 🆕 Hapus permanen ────────────────────────────────────────────────────
+  const handleDelete = async () => {
+    if (!showDeleteConfirm) return;
+    setDeleteLoading(true);
+    try {
+      const res = await fetch('/review-prosedur/api/user-management', {
+        method: 'DELETE',
+        headers: authHeaders(),
+        body: JSON.stringify({ id: showDeleteConfirm.id, role: showDeleteConfirm.role, permanent: true }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('success', 'User berhasil dihapus permanen');
+        setShowDeleteConfirm(null);
+        const key = `${showDeleteConfirm.role}-${showDeleteConfirm.id}`;
+        setPasswordStates(prev => {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+        fetchUsers();
+      } else {
+        showToast('error', data.error || 'Gagal menghapus user');
+      }
+    } catch {
+      showToast('error', 'Terjadi kesalahan server');
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  // ── 🆕 Sort handler — 3-state: asc → desc → reset ──────────────────────────
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      if (sortDir === 'asc') { setSortDir('desc'); }
+      else if (sortDir === 'desc') { setSortKey(null); setSortDir(null); }
+    } else {
+      setSortKey(key); setSortDir('asc');
+    }
+  };
+
+  // ── 🆕 Data yang ditampilkan: base rows → search → sort ───────────────────
+  const baseRows = activeTab === 'admin' ? adminUsers : picUsers;
+
+  const displayedRows = useMemo(() => {
+    let result = baseRows;
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      result = result.filter(u =>
+        u.full_name.toLowerCase().includes(q) ||
+        u.username.toLowerCase().includes(q) ||
+        (u.email ?? '').toLowerCase().includes(q)
+      );
+    }
+
+    if (sortKey && sortDir) {
+      const dir = sortDir === 'asc' ? 1 : -1;
+      result = [...result].sort((a, b) => {
+        if (sortKey === 'fullName') return a.full_name.localeCompare(b.full_name) * dir;
+        if (sortKey === 'username') return a.username.localeCompare(b.username) * dir;
+        if (sortKey === 'role') return a.role.localeCompare(b.role) * dir;
+        if (sortKey === 'status') return (Number(a.is_active) - Number(b.is_active)) * dir;
+        return 0;
+      });
+    }
+
+    return result;
+  }, [baseRows, searchQuery, sortKey, sortDir]);
+
+  const hasFilter = searchQuery.trim() !== '';
 
   // ── Table rows ──────────────────────────────────────────────────────────────
   const renderPasswordCell = (u: UserRow) => {
@@ -460,7 +572,12 @@ function UserManagementContent() {
             <circle cx="9" cy="7" r="4" />
             <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
           </svg>
-          <p className="text-sm">Belum ada user</p>
+          <p className="text-sm">{hasFilter ? 'Tidak ada user yang sesuai pencarian' : 'Belum ada user'}</p>
+          {hasFilter && (
+            <button onClick={() => setSearchQuery('')} className="mt-2 text-xs text-blue-600 hover:underline">
+              Hapus pencarian
+            </button>
+          )}
         </div>
       );
     }
@@ -470,10 +587,10 @@ function UserManagementContent() {
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b border-slate-200">
-              <th className="text-left py-3 px-3 font-semibold text-slate-500 whitespace-nowrap">Nama Lengkap</th>
-              <th className="text-left py-3 px-3 font-semibold text-slate-500 whitespace-nowrap">Username / Email</th>
-              <th className="text-left py-3 px-3 font-semibold text-slate-500">Role</th>
-              <th className="text-left py-3 px-3 font-semibold text-slate-500">Status</th>
+              <SortableTh label="Nama Lengkap" colKey="fullName" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} />
+              <SortableTh label="Username / Email" colKey="username" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} />
+              <SortableTh label="Role" colKey="role" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} />
+              <SortableTh label="Status" colKey="status" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} />
               <th className="text-left py-3 px-3 font-semibold text-slate-500">Password</th>
               <th className="text-left py-3 px-3 font-semibold text-slate-500">Aksi</th>
             </tr>
@@ -510,7 +627,7 @@ function UserManagementContent() {
                     {u.is_active && (
                       <button
                         onClick={() => setShowDeactivateConfirm({ id: u.id, role: u.role === 'admin' ? 'admin' : 'pic', name: u.full_name })}
-                        className="p-1.5 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                        className="p-1.5 rounded-lg text-slate-500 hover:text-amber-600 hover:bg-amber-50 transition-colors"
                         title="Nonaktifkan user"
                       >
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -520,6 +637,14 @@ function UserManagementContent() {
                         </svg>
                       </button>
                     )}
+                    {/* 🆕 Hapus permanen */}
+                    <button
+                      onClick={() => setShowDeleteConfirm({ id: u.id, role: u.role === 'admin' ? 'admin' : 'pic', name: u.full_name })}
+                      className="p-1.5 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                      title="Hapus user permanen"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -552,27 +677,58 @@ function UserManagementContent() {
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
-          {(['admin', 'pic'] as const).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                activeTab === tab
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              {tab === 'admin' ? 'Admin' : 'PIC'}{' '}
-              <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] ${
-                activeTab === tab ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-500'
-              }`}>
-                {tab === 'admin' ? adminUsers.length : picUsers.length}
-              </span>
-            </button>
-          ))}
+        {/* Tabs + 🆕 Search */}
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+            {(['admin', 'pic'] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  activeTab === tab
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {tab === 'admin' ? 'Admin' : 'PIC'}{' '}
+                <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] ${
+                  activeTab === tab ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-500'
+                }`}>
+                  {tab === 'admin' ? adminUsers.length : picUsers.length}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {/* 🆕 Search bar */}
+          <div className="relative w-full sm:w-72">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Cari nama, username, email..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="w-full pl-8 pr-8 py-2 text-xs rounded-xl border border-slate-200 bg-white
+                         placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500
+                         hover:border-slate-300 transition-all"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
         </div>
+
+        {hasFilter && (
+          <p className="text-xs text-slate-500 -mt-3">
+            Menampilkan <span className="font-semibold text-slate-700">{displayedRows.length}</span> dari{' '}
+            <span className="font-semibold text-slate-700">{baseRows.length}</span> user
+          </p>
+        )}
 
         {/* Table card */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -585,7 +741,7 @@ function UserManagementContent() {
               <span className="text-sm">Memuat data...</span>
             </div>
           ) : (
-            renderTable(activeTab === 'admin' ? adminUsers : picUsers)
+            renderTable(displayedRows)
           )}
         </div>
 
@@ -752,8 +908,8 @@ function UserManagementContent() {
       {showDeactivateConfirm && (
         <Modal title="Nonaktifkan User" onClose={() => setShowDeactivateConfirm(null)}>
           <div className="space-y-4">
-            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-xs text-red-800">
-              User <strong>{showDeactivateConfirm.name}</strong> akan dinonaktifkan dan tidak dapat login lagi. Data tidak akan dihapus.
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-800">
+              User <strong>{showDeactivateConfirm.name}</strong> akan dinonaktifkan dan tidak dapat login lagi. Data tidak akan dihapus — bisa diaktifkan kembali lewat Edit User.
             </div>
             <div className="flex gap-3 pt-1">
               <button onClick={() => setShowDeactivateConfirm(null)}
@@ -761,8 +917,34 @@ function UserManagementContent() {
                 Batal
               </button>
               <button onClick={handleDeactivate}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-semibold transition-all active:scale-95">
+                className="flex-1 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold transition-all active:scale-95">
                 Ya, Nonaktifkan
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── 🆕 Delete (Permanen) Confirm ── */}
+      {showDeleteConfirm && (
+        <Modal title="Hapus User Permanen" onClose={() => !deleteLoading && setShowDeleteConfirm(null)}>
+          <div className="space-y-4">
+            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-xs text-red-800 space-y-1.5">
+              <p className="font-bold">⚠ Tindakan ini PERMANEN dan tidak dapat dibatalkan.</p>
+              <p>
+                Akun <strong>{showDeleteConfirm.name}</strong> beserta datanya akan <strong>dihapus total</strong> dari
+                database — bukan sekadar dinonaktifkan. Kalau kamu cuma ingin user tidak bisa login sementara,
+                pakai tombol <strong>Nonaktifkan</strong> saja.
+              </p>
+            </div>
+            <div className="flex gap-3 pt-1">
+              <button onClick={() => setShowDeleteConfirm(null)} disabled={deleteLoading}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50">
+                Batal
+              </button>
+              <button onClick={handleDelete} disabled={deleteLoading}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white text-xs font-semibold transition-all active:scale-95">
+                {deleteLoading ? 'Menghapus...' : 'Ya, Hapus Permanen'}
               </button>
             </div>
           </div>

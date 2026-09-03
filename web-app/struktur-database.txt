@@ -274,7 +274,7 @@ procedure_management=# \d procedure_documents
  revisi                   | character varying(20)       |           | not null |
  owner                    | character varying(200)      |           | not null |
  pic                      | character varying(500)      |           | not null |
- status                   | character varying(20)       |           |          | '-'::character varying
+ status                   | character varying(50)       |           |          | '-'::character varying
  is_custom                | boolean                     |           |          | false
  created_at               | timestamp without time zone |           |          | CURRENT_TIMESTAMP
  updated_at               | timestamp without time zone |           |          | CURRENT_TIMESTAMP
@@ -290,9 +290,13 @@ Indexes:
     "idx_status" btree (status)
     "procedure_documents_nomor_dokumen_key" UNIQUE CONSTRAINT, btree (nomor_dokumen)
 Referenced by:
+    TABLE "document_annotation_events" CONSTRAINT "document_annotation_events_nomor_dokumen_fkey" FOREIGN KEY (nomor_dokumen) REFERENCES procedure_documents(nomor_dokumen) ON DELETE CASCADE
+    TABLE "document_annotations" CONSTRAINT "document_annotations_nomor_dokumen_fkey" FOREIGN KEY (nomor_dokumen) REFERENCES procedure_documents(nomor_dokumen) ON DELETE CASCADE
     TABLE "email_schedules" CONSTRAINT "fk_email_schedules_nomor_dokumen" FOREIGN KEY (nomor_dokumen) REFERENCES procedure_documents(nomor_dokumen) ON DELETE CASCADE
     TABLE "backup_schedules" CONSTRAINT "fk_email_schedules_nomor_dokumen" FOREIGN KEY (nomor_dokumen) REFERENCES procedure_documents(nomor_dokumen) ON DELETE CASCADE
     TABLE "procedure_files" CONSTRAINT "fk_procedure_files_nomor_dokumen" FOREIGN KEY (nomor_dokumen) REFERENCES procedure_documents(nomor_dokumen) ON DELETE CASCADE
+    TABLE "procedure_approval_cycles" CONSTRAINT "procedure_approval_cycles_nomor_dokumen_fkey" FOREIGN KEY (nomor_dokumen) REFERENCES procedure_documents(nomor_dokumen) ON DELETE CASCADE
+    TABLE "procedure_approvers" CONSTRAINT "procedure_approvers_nomor_dokumen_fkey" FOREIGN KEY (nomor_dokumen) REFERENCES procedure_documents(nomor_dokumen) ON DELETE CASCADE
 Triggers:
     update_procedure_documents_updated_at BEFORE UPDATE ON procedure_documents FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
 
@@ -880,56 +884,6 @@ procedure_management=# select * from procedure_files;
 
 
 procedure_management=#
-procedure_management=#
-procedure_management=#
-procedure_management=#
-procedure_management=# select * from pic_users;
- id  |            email            |                           password                           |    full_name     |    department     | is_active | last_login |         created_at         |         updated_at         |                        password_encrypted    
------+-----------------------------+--------------------------------------------------------------+------------------+-------------------+-----------+------------+----------------------------+----------------------------+-------------------------------------------------------------------
- 164 | zakizainn@gmail.com         | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Ghufron          |                   | t         |            | 2026-05-30 07:36:05.147633 | 2026-05-30 07:36:05.147633 |
- 165 | dp.rd@jai.co.id             | $2b$10$LA6DOf7Zg9mOnO3QrU7bleHytwKIRHKDHcRXMn21n3vtKCG//EWYy | Daniar Priambodo |                   | t         |            | 2026-06-12 00:22:21.498064 | 2026-06-12 00:22:21.498064 | 678e1c4662c296d55562a2b61133936e:2bfa1e1aa284b067f6237ff94aada231
- 124 | dp@jai.co.id                | $2b$12$8SNJUvOAjvzxJTLXi94H8OPW9HIoUewPhRrwL4MDh8V6EA6zAZOAq | Daniar Priambodo | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-05-08 08:12:08.693899 |
- 125 | 123agung.i@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Ain              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 126 | 123david.a@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Daf              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 127 | forstudy0903@gmail.com      | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Fs               | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 128 | 123wiwin.w@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Wwi              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 129 | 123dwi.as@jai.co.id         | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Das              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 130 | 123noivasari@jai.co.id      | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Nia              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 131 | 123ika.y@jai.co.id          | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Isr              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 132 | 123david.k@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Dkr              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 133 | 123evaningsih@jai.co.id     | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Emu              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 134 | 123hayu.p@jai.co.id         | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Hpu              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 135 | 123shinta.f@jai.co.id       | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Sfe              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 136 | 123riska.o@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Rko              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 137 | agung.i@jai.co.id           | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Ain              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 138 | atiek.s@jai.co.id           | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Asw              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 139 | toni.w@jai.co.id            | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Twi              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 140 | 123danny.h@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Dhs              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 141 | 123ferry.i@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Fir              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 142 | dany.h@jai.co.id            | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Dhs              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 143 | 123arie.t@jai.co.id         | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Ath              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 144 | 123arianto.s@jai.co.id      | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Ase              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 145 | 123yachrul.h@jai.co.id      | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Yhe              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 146 | 123hary.sw@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Hsw              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 147 | untuksemua0309@gmail.com    | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Dp               | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 148 | 123hendy.m@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Hma              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 149 | 123m.chasan@jai.co.id       | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Mcb              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 150 | 123vinny.r@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Vra              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 151 | 123toni.w@jai.co.id         | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Twi              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 152 | daniarpriambodo11@gmail.com | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Dp               | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 153 | 123lilis.s@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Lse              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 154 | 123yuli.f@jai.co.id         | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Hpu              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 155 | 123catur.h@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Cha              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 156 | 123widyastuti.s@jai.co.id   | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Wsu              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 157 | 123lita.d@jai.co.id         | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Lda              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 158 | 123m.rafi@jai.co.id         | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Mmr              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 159 | 123endang.s@jai.co.id       | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Ens              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 160 | 123aris.c@jai.co.id         | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Aca              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
- 162 | 123atiek.s@jai.co.id        | $2b$10$JWTSnUYoXmnkV6DuiNF5O.5zjYJvo/DbLJUUf47EJrOHSN0Gu.wAS | Asw              | Quality Assurance | t         |            | 2026-04-27 14:01:36.076033 | 2026-04-27 14:01:36.076033 |
-(40 rows)
-
-
-procedure_management=#
 procedure_management=# \d smtp_settings
                                           Table "public.smtp_settings"
     Column     |            Type             | Collation | Nullable |                  Default
@@ -954,3 +908,181 @@ Triggers:
 
 
 procedure_management=#
+
+procedure_management=# \d user_password_views
+                                          Table "public.user_password_views"
+     Column     |            Type             | Collation | Nullable |                     Default
+----------------+-----------------------------+-----------+----------+-------------------------------------------------
+ id             | integer                     |           | not null | nextval('user_password_views_id_seq'::regclass)
+ admin_id       | integer                     |           | not null |
+ target_user_id | integer                     |           | not null |
+ target_role    | character varying(20)       |           | not null |
+ ip_address     | character varying(100)      |           |          |
+ created_at     | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+Indexes:
+    "user_password_views_pkey" PRIMARY KEY, btree (id)
+    "idx_upv_admin_id" btree (admin_id)
+    "idx_upv_created_at" btree (created_at)
+Check constraints:
+    "user_password_views_target_role_check" CHECK (target_role::text = ANY (ARRAY['admin'::character varying, 'pic'::character varying]::text[]))
+Foreign-key constraints:
+    "user_password_views_admin_id_fkey" FOREIGN KEY (admin_id) REFERENCES users(id)
+
+
+procedure_management=#
+
+procedure_management=# \d document_annotation_events
+                                            Table "public.document_annotation_events"
+       Column       |            Type             | Collation | Nullable |                        Default
+--------------------+-----------------------------+-----------+----------+--------------------------------------------------------
+ id                 | integer                     |           | not null | nextval('document_annotation_events_id_seq'::regclass)
+ nomor_dokumen      | character varying(100)      |           | not null |
+ file_id            | integer                     |           | not null |
+ annotated_by_nama  | character varying(200)      |           |          |
+ annotated_by_email | character varying(255)      |           | not null |
+ annotated_by_role  | character varying(30)       |           | not null |
+ annotation_count   | integer                     |           | not null | 0
+ admin_read         | boolean                     |           | not null | false
+ admin_read_at      | timestamp without time zone |           |          |
+ admin_read_by      | character varying(100)      |           |          |
+ created_at         | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+Indexes:
+    "document_annotation_events_pkey" PRIMARY KEY, btree (id)
+    "idx_annotation_events_nomor" btree (nomor_dokumen)
+Foreign-key constraints:
+    "document_annotation_events_file_id_fkey" FOREIGN KEY (file_id) REFERENCES procedure_files(id) ON DELETE CASCADE
+    "document_annotation_events_nomor_dokumen_fkey" FOREIGN KEY (nomor_dokumen) REFERENCES procedure_documents(nomor_dokumen) ON DELETE CASCADE
+
+
+procedure_management=# \d document_annotations
+                                           Table "public.document_annotations"
+      Column      |            Type             | Collation | Nullable |                     Default
+------------------+-----------------------------+-----------+----------+--------------------------------------------------
+ id               | integer                     |           | not null | nextval('document_annotations_id_seq'::regclass)
+ nomor_dokumen    | character varying(100)      |           | not null |
+ file_id          | integer                     |           | not null |
+ page_number      | integer                     |           | not null |
+ annotation_type  | character varying(20)       |           | not null |
+ data             | jsonb                       |           | not null |
+ color            | character varying(20)       |           | not null | '#ef4444'::character varying
+ created_by_nama  | character varying(200)      |           |          |
+ created_by_email | character varying(255)      |           | not null |
+ created_by_role  | character varying(30)       |           | not null |
+ created_at       | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+Indexes:
+    "document_annotations_pkey" PRIMARY KEY, btree (id)
+    "idx_document_annotations_file" btree (file_id)
+    "idx_document_annotations_nomor" btree (nomor_dokumen)
+Check constraints:
+    "document_annotations_annotation_type_check" CHECK (annotation_type::text = ANY (ARRAY['stroke'::character varying, 'textbox'::character varying]::text[]))
+Foreign-key constraints:
+    "document_annotations_file_id_fkey" FOREIGN KEY (file_id) REFERENCES procedure_files(id) ON DELETE CASCADE
+    "document_annotations_nomor_dokumen_fkey" FOREIGN KEY (nomor_dokumen) REFERENCES procedure_documents(nomor_dokumen) ON DELETE CASCADE
+
+
+procedure_management=# \d  procedure_approval_actions
+                                            Table "public.procedure_approval_actions"
+      Column       |            Type             | Collation | Nullable |                        Default
+-------------------+-----------------------------+-----------+----------+--------------------------------------------------------
+ id                | integer                     |           | not null | nextval('procedure_approval_actions_id_seq'::regclass)
+ cycle_id          | integer                     |           | not null |
+ approver_id       | integer                     |           | not null |
+ role              | character varying(20)       |           | not null |
+ nama              | character varying(200)      |           |          |
+ email             | character varying(255)      |           | not null |
+ token             | character varying(64)       |           | not null |
+ verification_code | character varying(32)       |           | not null |
+ acc_status        | character varying(20)       |           | not null | 'pending'::character varying
+ acc_at            | timestamp without time zone |           |          |
+ email_sent_at     | timestamp without time zone |           |          |
+ created_at        | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+ reject_reason     | text                        |           |          |
+ admin_read        | boolean                     |           | not null | false
+ admin_read_at     | timestamp without time zone |           |          |
+ admin_read_by     | character varying(100)      |           |          |
+Indexes:
+    "procedure_approval_actions_pkey" PRIMARY KEY, btree (id)
+    "idx_approval_actions_cycle" btree (cycle_id)
+    "idx_approval_actions_token" btree (token)
+    "idx_approval_actions_vcode" btree (verification_code)
+    "procedure_approval_actions_token_key" UNIQUE CONSTRAINT, btree (token)
+    "procedure_approval_actions_verification_code_key" UNIQUE CONSTRAINT, btree (verification_code)
+Check constraints:
+    "procedure_approval_actions_acc_status_check" CHECK (acc_status::text = ANY (ARRAY['pending'::character varying, 'acc'::character varying, 'rejected'::character varying]::text[]))
+    "procedure_approval_actions_role_check" CHECK (role::text = ANY (ARRAY['prepared'::character varying, 'checked'::character varying, 'approved'::character varying]::text[]))
+Foreign-key constraints:
+    "procedure_approval_actions_approver_id_fkey" FOREIGN KEY (approver_id) REFERENCES procedure_approvers(id) ON DELETE CASCADE
+    "procedure_approval_actions_cycle_id_fkey" FOREIGN KEY (cycle_id) REFERENCES procedure_approval_cycles(id) ON DELETE CASCADE
+
+
+procedure_management=# \d procedure_approval_cycles
+                                             Table "public.procedure_approval_cycles"
+        Column        |            Type             | Collation | Nullable |                        Default
+----------------------+-----------------------------+-----------+----------+-------------------------------------------------------
+ id                   | integer                     |           | not null | nextval('procedure_approval_cycles_id_seq'::regclass)
+ nomor_dokumen        | character varying(100)      |           | not null |
+ triggered_by_file_id | integer                     |           |          |
+ current_stage        | character varying(20)       |           | not null | 'prepared'::character varying
+ status               | character varying(20)       |           | not null | 'in_progress'::character varying
+ started_at           | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+ completed_at         | timestamp without time zone |           |          |
+ final_file_id        | integer                     |           |          |
+ created_at           | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+Indexes:
+    "procedure_approval_cycles_pkey" PRIMARY KEY, btree (id)
+Check constraints:
+    "procedure_approval_cycles_current_stage_check" CHECK (current_stage::text = ANY (ARRAY['prepared'::character varying, 'checked'::character varying, 'approved'::character varying, 'completed'::character varying]::text[]))
+    "procedure_approval_cycles_status_check" CHECK (status::text = ANY (ARRAY['in_progress'::character varying, 'completed'::character varying, 'cancelled'::character varying, 'rejected'::character varying]::text[]))
+Foreign-key constraints:
+    "procedure_approval_cycles_nomor_dokumen_fkey" FOREIGN KEY (nomor_dokumen) REFERENCES procedure_documents(nomor_dokumen) ON DELETE CASCADE
+Referenced by:
+    TABLE "procedure_approval_actions" CONSTRAINT "procedure_approval_actions_cycle_id_fkey" FOREIGN KEY (cycle_id) REFERENCES procedure_approval_cycles(id) ON DELETE CASCADE
+
+
+procedure_management=# \d procedure_approvers
+                                          Table "public.procedure_approvers"
+    Column     |            Type             | Collation | Nullable |                     Default
+---------------+-----------------------------+-----------+----------+-------------------------------------------------
+ id            | integer                     |           | not null | nextval('procedure_approvers_id_seq'::regclass)
+ nomor_dokumen | character varying(100)      |           | not null |
+ grup          | integer                     |           | not null | 1
+ role          | character varying(20)       |           | not null |
+ email         | character varying(255)      |           | not null |
+ nama          | character varying(200)      |           |          |
+ urutan        | integer                     |           |          | 0
+ created_at    | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+ updated_at    | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+Indexes:
+    "procedure_approvers_pkey" PRIMARY KEY, btree (id)
+    "idx_procedure_approvers_nomor" btree (nomor_dokumen)
+    "idx_procedure_approvers_role" btree (nomor_dokumen, role)
+Check constraints:
+    "procedure_approvers_role_check" CHECK (role::text = ANY (ARRAY['prepared'::character varying, 'checked'::character varying, 'approved'::character varying]::text[]))
+Foreign-key constraints:
+    "procedure_approvers_nomor_dokumen_fkey" FOREIGN KEY (nomor_dokumen) REFERENCES procedure_documents(nomor_dokumen) ON DELETE CASCADE
+Referenced by:
+    TABLE "procedure_approval_actions" CONSTRAINT "procedure_approval_actions_approver_id_fkey" FOREIGN KEY (approver_id) REFERENCES procedure_approvers(id) ON DELETE CASCADE
+
+
+procedure_management=# \d pic_notification_deletes
+                   Table "public.pic_notification_deletes"
+     Column      |           Type           | Collation | Nullable | Default
+-----------------+--------------------------+-----------+----------+---------
+ pic_id          | integer                  |           | not null |
+ notification_id | integer                  |           | not null |
+ deleted_at      | timestamp with time zone |           | not null | now()
+Indexes:
+    "pic_notification_deletes_pkey" PRIMARY KEY, btree (pic_id, notification_id)
+    "idx_notif_deletes_pic" btree (pic_id)
+
+
+procedure_management=# \d pic_notification_reads
+                    Table "public.pic_notification_reads"
+     Column      |           Type           | Collation | Nullable | Default
+-----------------+--------------------------+-----------+----------+---------
+ pic_id          | integer                  |           | not null |
+ notification_id | integer                  |           | not null |
+ read_at         | timestamp with time zone |           | not null | now()
+Indexes:
+    "pic_notification_reads_pkey" PRIMARY KEY, btree (pic_id, notification_id)
+    "idx_notif_reads_pic" btree (pic_id)

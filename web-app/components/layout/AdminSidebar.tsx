@@ -11,6 +11,7 @@ import {
   Archive,
   Users,
   Settings,
+  Building2,
   LogOut,
   ChevronLeft,
   ChevronRight,
@@ -18,11 +19,12 @@ import {
 } from 'lucide-react';
 
 const NAV_ITEMS = [
-  { label: 'Dashboard',       path: '/home',            icon: LayoutDashboard },
-  { label: 'Status Prosedur', path: '/status-review',   icon: FileCheck       },
-  { label: 'Arsip Prosedur',  path: '/arsip-prosedur',  icon: Archive         },
-  { label: 'Kelola User',     path: '/user-management', icon: Users           },
-  { label: 'Pengaturan SMTP', path: '/smtp-settings',   icon: Settings        },
+  { label: 'Dashboard',        path: '/home',              icon: LayoutDashboard },
+  { label: 'Status Prosedur',  path: '/status-review',     icon: FileCheck       },
+  { label: 'Arsip Prosedur',   path: '/arsip-prosedur',    icon: Archive         },
+  { label: 'Kelola Departemen',path: '/kelola-departemen', icon: Building2       },
+  { label: 'Kelola User',      path: '/user-management',   icon: Users           },
+  { label: 'Pengaturan SMTP',  path: '/smtp-settings',     icon: Settings        },
 ];
 
 // ── Desktop sidebar ──────────────────────────────────────────────────────────

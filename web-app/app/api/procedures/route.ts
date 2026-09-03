@@ -1,106 +1,194 @@
 // app/api/procedures/route.ts
 //
-// Perubahan dari versi sebelumnya:
-// — GET: expose `reviewSeenAt` (dari kolom review_seen_at) di setiap row response
-//   sehingga frontend bisa menentukan apakah badge "Baru Direview" perlu ditampilkan.
-// — GET: tambah langkah auto-expire baru — dokumen yang statusnya "Telah terkirim"
-//   dan sudah lebih dari 2 bulan sejak email BENAR-BENAR terkirim (last_sent_at)
-//   tanpa ada review dari PIC, otomatis berubah jadi "Relevan".
-// — 🆕 FIX: PROTECTED_STATUSES sekarang juga mencakup status alur approval
-//   berjenjang (Menunggu ACC Prepared/Checked/Approved) — status ini dikelola
-//   sepenuhnya oleh lib/approvalCycle.ts & lib/approvalFinalize.ts, jadi
-//   chain auto-status di bawah ini TIDAK BOLEH ikut mengubahnya (mis. auto-
-//   expire ke Relevan atau auto-reactivate ke Menunggu) selagi cycle approval
-//   masih berjalan.
+// ============================================================================
+// PERUBAHAN BESAR — Eskalasi 2 tahap + fix "abaikan tahun"
+// ============================================================================
+// Alur lama: 1x reminder ke PIC di (tanggalApproval - 2 bulan), auto-expire ke
+//            'Relevan' di (tanggalApproval + 2 bulan). Perhitungan tanggal
+//            SALAH karena memakai tahun asli dari tanggal_selesai_approval,
+//            bukan tahun berjalan -> begitu tahun dokumen sudah lewat,
+//            reminder langsung terpicu instan & auto-expire tidak pernah
+//            reset lagi di tahun berikutnya.
 //
-// Kondisi badge tampil di frontend:
-//   lastReviewedAt !== null  &&  reviewSeenAt === null
+// Alur baru (SEMUA perhitungan tanggal SEKARANG abaikan tahun asli dokumen —
+// yang dipakai cuma hari & bulannya, dicocokkan ke kemunculan terdekat dari
+// "sekarang"):
+//   T-2 bulan  -> email ke PIC (tahap 1)
+//   T-1 bulan  -> KALAU PIC belum kasih status (Relevan/Revisi/Obsolete),
+//                 email ke MANAGER departemen PIC tsb (tahap 2)
+//   T-0        -> KALAU masih belum ada status sama sekali, dokumen otomatis
+//                 jadi 'Relevan'
+//   Sepanjang T-2bulan s/d T-0, dokumen tetap muncul & tetap bisa diubah
+//   statusnya oleh PIC di halaman review-page-owner (tidak berubah dari
+//   sebelumnya — window kelayakan tampil diatur di file itu, bukan di sini).
 //
-// Semua logika auto-reactivate, auto-schedule lainnya TIDAK berubah.
+// Manager dicari dari tabel staff_directory: departemen PIC (kode pertama di
+// kolom procedure_documents.pic) dicocokkan ke staff dengan is_manager=true
+// di departemen yang sama (termasuk manager gabungan departemen, mis.
+// 'FATP-EXIM').
+// ============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { logActivity } from '@/lib/activityLogger';
 
+// Status yang TIDAK PERNAH disentuh chain auto-status di bawah ini.
+// CATATAN: 'Relevan' & 'Telah dibaca' SENGAJA tidak dimasukkan ke sini —
+// keduanya tetap perlu dicek ulang tiap load (Relevan -> kemungkinan
+// reaktivasi tahunan; Telah dibaca -> kemungkinan auto-expire di T-0 kalau
+// PIC buka dokumennya tapi tidak pernah kasih status).
 const PROTECTED_STATUSES = [
-  'Revisi', 'Obsolete', 'Relevan', 'Telah dibaca',
-  // status alur approval berjenjang — jangan disentuh chain auto-status
+  'Revisi', 'Obsolete',
   'Menunggu ACC Prepared', 'Menunggu ACC Checked', 'Menunggu ACC Approved',
-  // 🆕 status ditolak saat proses ACC — juga harus diam, menunggu admin
-  // upload ulang dokumen untuk memulai cycle baru
   'Ditolak',
 ];
 
-function isPast2Months(tanggal: string): boolean {
+// ── Helper tanggal: abaikan tahun, cari kemunculan hari-bulan berikutnya ────
+
+function dateOnly(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function dayMonthOf(tanggal: string): { month: number; day: number } | null {
   const d = new Date(tanggal);
-  if (isNaN(d.getTime())) return false;
-  const twoMonthsLater = new Date(d.getFullYear(), d.getMonth() + 2, d.getDate());
-  return new Date() >= twoMonthsLater;
+  if (isNaN(d.getTime())) return null;
+  return { month: d.getMonth(), day: d.getDate() };
 }
 
-function isExpiredForReview(tanggalApproval: string): boolean {
-  return isPast2Months(tanggalApproval);
+// Kemunculan hari-bulan (abaikan tahun asli) yang PALING DEKAT dan >= reference.
+// Kalau hari-bulan itu sudah lewat tahun ini (relatif ke reference), pakai tahun depan.
+function nextOccurrence(month: number, day: number, reference: Date): Date {
+  const ref = dateOnly(reference);
+  let occ = new Date(ref.getFullYear(), month, day);
+  if (occ < ref) occ = new Date(ref.getFullYear() + 1, month, day);
+  return occ;
 }
 
-function getScheduledSendDate(tanggalApproval: string): Date {
-  const d = new Date(tanggalApproval);
-  return new Date(d.getFullYear(), d.getMonth() - 2, d.getDate(), 8, 0, 0);
+function addMonths(date: Date, delta: number, hour = 8): Date {
+  return new Date(date.getFullYear(), date.getMonth() + delta, date.getDate(), hour, 0, 0);
 }
 
-function resolveScheduledAt(tanggalApproval: string, needsReview: boolean | null): Date {
+// Deadline (T-0) siklus AKTIF SEKARANG untuk sebuah tanggalApproval, dihitung
+// dari "reference" (biasanya "now"). Ini basis semua perhitungan T-2bulan/T-1bulan.
+function currentCycleDeadline(tanggalApproval: string, reference: Date = new Date()): Date | null {
+  const dm = dayMonthOf(tanggalApproval);
+  if (!dm) return null;
+  return nextOccurrence(dm.month, dm.day, reference);
+}
+
+// Sudah lewat deadline (T-0) siklus saat ini?
+function isPastDeadline(tanggalApproval: string, reference: Date = new Date()): boolean {
+  const dm = dayMonthOf(tanggalApproval);
+  if (!dm) return false;
+  // deadline TERDEKAT DI MASA LALU (bukan next occurrence) -> kalau hari ini
+  // PAS di hari-bulan itu, anggap "sudah sampai" (>=).
+  const ref = dateOnly(reference);
+  let deadlineThisYear = new Date(ref.getFullYear(), dm.month, dm.day);
+  return ref >= deadlineThisYear;
+}
+
+// NOTE: resolusi email manager (departemen PIC -> department_managers ->
+// staff_directory) dilakukan di send_email.py (fungsi resolve_manager),
+// bukan di sini — Node cuma menyimpan manager_email_scheduled_at, Python
+// yang benar-benar mengeksekusi pengiriman & lookup manager-nya.
+
+// ── Buat/reset jadwal email 2-tahap untuk sebuah dokumen ────────────────────
+// Dipanggil saat dokumen masuk 'Menunggu' (baru dibuat / reaktivasi tahunan).
+async function createOrResetSchedule(
+  client: any,
+  nomorDokumen: string,
+  tanggalApproval: string,
+  needsReview: boolean | null
+): Promise<Date> {
   const now      = new Date();
-  if (needsReview === true) return now;
-  const autoDate = getScheduledSendDate(tanggalApproval);
-  if (now >= autoDate) return now;
-  return autoDate;
+  const deadline = currentCycleDeadline(tanggalApproval, now) as Date; // sudah divalidasi non-null sebelum dipanggil
+
+  // Kalau admin secara eksplisit menandai "Perlu Direview" saat create,
+  // kirim email PIC SEKARANG (itu memang perintah eksplisit admin, bukan
+  // auto-schedule). Selain itu, SELALU pakai tanggal T-2bulan yang
+  // sebenarnya — TIDAK di-"paksa jadi sekarang" walau kebetulan tanggal itu
+  // sudah lewat (mis. dokumen baru masuk siklus review setelah T-2bulan
+  // terlewat). Kalau sudah lewat, email tetap akan terkirim di polling
+  // send_email.py berikutnya (karena scheduled_email_at <= NOW()) — itu
+  // catch-up yang wajar, bukan alasan untuk memalsukan tanggalnya jadi hari ini.
+  const picScheduledAt = needsReview === true
+    ? now
+    : addMonths(deadline, -2);
+
+  const managerScheduledAt = addMonths(deadline, -1);
+
+  // NOTE: pakai pola SELECT-lalu-INSERT/UPDATE (bukan ON CONFLICT), karena
+  // belum dipastikan ada unique constraint di kolom nomor_dokumen pada tabel
+  // email_schedules — kode lama project ini juga selalu pakai pola ini
+  // (lihat autoScheduleAndActivate versi sebelumnya). Kalau ternyata memang
+  // ada unique constraint, boleh disederhanakan jadi ON CONFLICT nanti.
+  const existing = await client.query(
+    `SELECT id FROM email_schedules WHERE nomor_dokumen = $1 LIMIT 1`,
+    [nomorDokumen]
+  );
+
+  if (existing.rows.length > 0) {
+    await client.query(
+      `UPDATE email_schedules
+       SET scheduled_email_at          = $2,
+           email_status                = 'pending',
+           last_sent_at                = NULL,
+           manager_email_scheduled_at  = $3,
+           manager_email_status        = 'not_applicable',
+           manager_email_sent_at       = NULL,
+           manager_email_error         = NULL,
+           retry_count                 = 0,
+           error_message               = NULL,
+           updated_at                  = CURRENT_TIMESTAMP
+       WHERE nomor_dokumen = $1`,
+      [nomorDokumen, picScheduledAt, managerScheduledAt]
+    );
+  } else {
+    await client.query(
+      `INSERT INTO email_schedules
+         (nomor_dokumen, scheduled_email_at, email_status,
+          manager_email_scheduled_at, manager_email_status)
+       VALUES ($1, $2, 'pending', $3, 'not_applicable')`,
+      [nomorDokumen, picScheduledAt, managerScheduledAt]
+    );
+  }
+
+  return picScheduledAt;
 }
 
-function isScheduleDateReached(tanggalApproval: string): boolean {
-  return new Date() >= getScheduledSendDate(tanggalApproval);
-}
-
-function isScheduleMonthReached(tanggalApproval: string): boolean {
-  return isScheduleDateReached(tanggalApproval);
-}
-
-// ─── Langkah 1: auto-expire → Relevan setelah 2 bulan ────────────────────────
-async function autoExpire(
+// ─── Langkah 1: auto-set 'Relevan' TEPAT DI T-0 kalau belum ada status ──────
+async function autoExpireAtDeadline(
   client: any,
   nomorDokumen: string,
   tanggal: string,
   status: string
 ): Promise<string> {
-  if (status !== '-') return status;
-  if (!isPast2Months(tanggal)) return status;
+  if (status !== '-' && status !== 'Belum dikirim' && status !== 'Telah terkirim' && status !== 'Telah dibaca') {
+    return status;
+  }
+  if (!isPastDeadline(tanggal)) return status;
+
   await client.query(
     `UPDATE procedure_documents
      SET status = 'Relevan', updated_at = CURRENT_TIMESTAMP
-     WHERE nomor_dokumen = $1 AND status = '-'`,
+     WHERE nomor_dokumen = $1 AND status = $2`,
+    [nomorDokumen, status]
+  );
+  // Tandai schedule lama selesai (biar tidak terus dicoba kirim kalau masih pending)
+  await client.query(
+    `UPDATE email_schedules
+     SET email_status = CASE WHEN email_status = 'pending' THEN 'cancelled' ELSE email_status END,
+         manager_email_status = CASE WHEN manager_email_status IN ('pending') THEN 'skipped' ELSE manager_email_status END,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE nomor_dokumen = $1`,
     [nomorDokumen]
   );
   return 'Relevan';
 }
 
-// ─── Langkah 1b: auto-expire setelah email terkirim ──────────────────────────
-async function autoExpireAfterSent(
-  client: any,
-  nomorDokumen: string,
-  lastSentAt: string | null,
-  status: string
-): Promise<string> {
-  if (status !== 'Telah terkirim') return status;
-  if (!lastSentAt) return status;
-  if (!isPast2Months(lastSentAt)) return status;
-  await client.query(
-    `UPDATE procedure_documents
-     SET status = 'Relevan', updated_at = CURRENT_TIMESTAMP
-     WHERE nomor_dokumen = $1 AND status = 'Telah terkirim'`,
-    [nomorDokumen]
-  );
-  return 'Relevan';
-}
-
-// ─── Langkah 2: auto-reactivate → Menunggu ───────────────────────────────────
+// ─── Langkah 2: reaktivasi tahunan → 'Menunggu' + jadwal baru ──────────────
+// Dokumen yang sudah 'Relevan' dari siklus tahun lalu, dicek apakah siklus
+// TAHUN INI sudah masuk window (T-2bulan sudah tercapai).
 async function autoReactivate(
   client: any,
   nomorDokumen: string,
@@ -108,18 +196,40 @@ async function autoReactivate(
   status: string
 ): Promise<string> {
   if (status !== 'Relevan') return status;
-  if (isPast2Months(tanggal)) return status;
-  if (!isScheduleMonthReached(tanggal)) return status;
+
+  const deadline = currentCycleDeadline(tanggal);
+  if (!deadline) return status;
+
+  const picScheduleStart = addMonths(deadline, -2);
+  if (new Date() < picScheduleStart) return status; // belum masuk window siklus baru
+
+  // Kalau sudah pernah masuk siklus baru (ada email_schedules yang masih
+  // relevan utk deadline ini), jangan dobel-reset — cek lewat scheduled_email_at
+  // apakah sudah "mendekati" deadline sekarang (dalam 3 bulan ke depan).
+  const existing = await client.query(
+    `SELECT scheduled_email_at FROM email_schedules WHERE nomor_dokumen = $1`,
+    [nomorDokumen]
+  );
+  if (existing.rows.length > 0) {
+    const sched = new Date(existing.rows[0].scheduled_email_at);
+    const monthsDiff = (deadline.getFullYear() - sched.getFullYear()) * 12 + (deadline.getMonth() - sched.getMonth());
+    if (monthsDiff <= 2 && monthsDiff >= 0) {
+      // schedule yang ada masih untuk siklus deadline yang sama -> jangan reset
+      return status;
+    }
+  }
+
   await client.query(
     `UPDATE procedure_documents
      SET status = 'Menunggu', updated_at = CURRENT_TIMESTAMP
      WHERE nomor_dokumen = $1 AND status = 'Relevan'`,
     [nomorDokumen]
   );
+  await createOrResetSchedule(client, nomorDokumen, tanggal, null);
   return 'Menunggu';
 }
 
-// ─── Langkah 3: auto-schedule → Belum dikirim ────────────────────────────────
+// ─── Langkah 3: dari 'Menunggu' → 'Belum dikirim' (siap dikirim scheduler) ──
 async function autoScheduleAndActivate(
   client: any,
   nomorDokumen: string,
@@ -127,28 +237,15 @@ async function autoScheduleAndActivate(
   status: string
 ): Promise<string> {
   if (status !== 'Menunggu') return status;
+
   const check = await client.query(
     `SELECT id FROM email_schedules WHERE nomor_dokumen = $1 LIMIT 1`,
     [nomorDokumen]
   );
-  if (check.rows.length > 0) {
-    await client.query(
-      `UPDATE procedure_documents
-       SET status = 'Belum dikirim', updated_at = CURRENT_TIMESTAMP
-       WHERE nomor_dokumen = $1 AND status = 'Menunggu'`,
-      [nomorDokumen]
-    );
-    return 'Belum dikirim';
+  if (check.rows.length === 0) {
+    await createOrResetSchedule(client, nomorDokumen, tanggal, null);
   }
-  const docDate = new Date(tanggal);
-  if (isNaN(docDate.getTime())) return status;
-  const scheduledAt = resolveScheduledAt(tanggal, null);
-  await client.query(
-    `INSERT INTO email_schedules (nomor_dokumen, scheduled_email_at, email_status)
-     VALUES ($1, $2, 'pending')
-     ON CONFLICT DO NOTHING`,
-    [nomorDokumen, scheduledAt]
-  );
+
   await client.query(
     `UPDATE procedure_documents
      SET status = 'Belum dikirim', updated_at = CURRENT_TIMESTAMP
@@ -158,24 +255,29 @@ async function autoScheduleAndActivate(
   return 'Belum dikirim';
 }
 
-// ─── Master chain ─────────────────────────────────────────────────────────────
+// ─── Master chain ────────────────────────────────────────────────────────────
 async function runAutoStatusChain(
   client: any,
   nomorDokumen: string,
   tanggal: string,
-  dbStatus: string,
-  lastSentAt: string | null = null
+  dbStatus: string
 ): Promise<string> {
-  if (PROTECTED_STATUSES.includes(dbStatus)) return dbStatus;
-  if (dbStatus === 'Belum dikirim') return dbStatus;
-  if (dbStatus === 'Telah terkirim') {
-    return await autoExpireAfterSent(client, nomorDokumen, lastSentAt, dbStatus);
+  // 'Relevan' -> satu-satunya jalur yang perlu dicek reaktivasi tahunan.
+  if (dbStatus === 'Relevan') {
+    const afterReactivate = await autoReactivate(client, nomorDokumen, tanggal, dbStatus);
+    if (afterReactivate !== dbStatus) {
+      return await autoScheduleAndActivate(client, nomorDokumen, tanggal, afterReactivate);
+    }
+    return afterReactivate;
   }
-  const afterExpire     = await autoExpire(client, nomorDokumen, tanggal, dbStatus);
-  if (afterExpire !== dbStatus) return afterExpire;
-  const afterReactivate = await autoReactivate(client, nomorDokumen, tanggal, afterExpire);
-  const afterSchedule   = await autoScheduleAndActivate(client, nomorDokumen, tanggal, afterReactivate);
-  return afterSchedule;
+
+  // Revisi/Obsolete/status alur ACC -> diamkan sepenuhnya, menunggu admin.
+  if (PROTECTED_STATUSES.includes(dbStatus)) return dbStatus;
+
+  // Sisanya: '-', 'Belum dikirim', 'Telah terkirim', 'Telah dibaca'
+  // -> cek apakah sudah menyentuh deadline (T-0) tanpa PIC memberi status.
+  const afterDeadline = await autoExpireAtDeadline(client, nomorDokumen, tanggal, dbStatus);
+  return afterDeadline; // sama dengan dbStatus kalau belum lewat deadline
 }
 
 // ─── Resolve status awal saat dokumen baru ditambahkan ───────────────────────
@@ -186,19 +288,22 @@ async function resolveInitialStatus(
   needsReview: boolean | null = null
 ): Promise<string> {
   if (needsReview === false) return 'Relevan';
-  if (isExpiredForReview(tanggal)) return 'Relevan';
-  if (!isScheduleMonthReached(tanggal)) return 'Relevan';
-  if (needsReview === true || needsReview === null) {
-    const schedResult = await client.query(
-      `SELECT email_status FROM email_schedules WHERE nomor_dokumen = $1 LIMIT 1`,
-      [nomorDokumen]
-    );
-    if (schedResult.rows.length > 0) {
-      return schedResult.rows[0].email_status === 'sent' ? 'Telah terkirim' : 'Belum dikirim';
-    }
+
+  const deadline = currentCycleDeadline(tanggal);
+  if (!deadline) return 'Relevan';
+
+  const picScheduleStart = addMonths(deadline, -2);
+  const now = new Date();
+
+  if (needsReview === true) {
+    await createOrResetSchedule(client, nomorDokumen, tanggal, true);
     return 'Belum dikirim';
   }
-  return 'Relevan';
+
+  if (now < picScheduleStart) return 'Relevan'; // belum masuk window, tunggu siklus berjalan alami
+
+  await createOrResetSchedule(client, nomorDokumen, tanggal, null);
+  return 'Belum dikirim';
 }
 
 // ── GET ───────────────────────────────────────────────────────────────────────
@@ -238,7 +343,9 @@ export async function GET(request: NextRequest) {
         query = `
           SELECT pd.*,
                  es.last_sent_at,
-                 es.scheduled_email_at
+                 es.scheduled_email_at,
+                 es.manager_email_scheduled_at,
+                 es.manager_email_status
           FROM procedure_documents pd
           LEFT JOIN email_schedules es ON pd.nomor_dokumen = es.nomor_dokumen
           WHERE ${conditions.join(' OR ')}
@@ -248,7 +355,9 @@ export async function GET(request: NextRequest) {
         query = `
           SELECT pd.*,
                  es.last_sent_at,
-                 es.scheduled_email_at
+                 es.scheduled_email_at,
+                 es.manager_email_scheduled_at,
+                 es.manager_email_status
           FROM procedure_documents pd
           LEFT JOIN email_schedules es ON pd.nomor_dokumen = es.nomor_dokumen
           WHERE $1 = ANY(string_to_array(REPLACE(pd.pic, ' ', ''), ','))
@@ -260,7 +369,9 @@ export async function GET(request: NextRequest) {
       query = `
         SELECT pd.*,
                es.last_sent_at,
-               es.scheduled_email_at
+               es.scheduled_email_at,
+               es.manager_email_scheduled_at,
+               es.manager_email_status
         FROM procedure_documents pd
         LEFT JOIN email_schedules es ON pd.nomor_dokumen = es.nomor_dokumen
         ORDER BY pd.created_at DESC
@@ -276,8 +387,7 @@ export async function GET(request: NextRequest) {
           client,
           row.nomor_dokumen,
           row.tanggal_selesai_approval,
-          row.status,
-          row.last_sent_at
+          row.status
         );
 
         return {
@@ -294,10 +404,12 @@ export async function GET(request: NextRequest) {
           isCustom:               row.is_custom,
           createdAt:              row.created_at,
           updatedAt:              row.updated_at,
-          lastSentAt:             row.last_sent_at        ?? null,
-          scheduledEmailAt:       row.scheduled_email_at  ?? null,
-          lastReviewedAt:         row.last_reviewed_at    ?? null,
-          reviewSeenAt:           row.review_seen_at      ?? null,
+          lastSentAt:             row.last_sent_at              ?? null,
+          scheduledEmailAt:       row.scheduled_email_at        ?? null,
+          managerEmailScheduledAt: row.manager_email_scheduled_at ?? null,
+          managerEmailStatus:     row.manager_email_status      ?? 'not_applicable',
+          lastReviewedAt:         row.last_reviewed_at          ?? null,
+          reviewSeenAt:           row.review_seen_at            ?? null,
         };
       })
     );
@@ -317,6 +429,8 @@ export async function POST(request: NextRequest) {
   try {
     const body                      = await request.json();
     const needsReview: boolean|null = body.needsReview ?? null;
+
+    await client.query('BEGIN');
 
     const status = await resolveInitialStatus(
       client,
@@ -345,26 +459,9 @@ export async function POST(request: NextRequest) {
       ]
     );
 
-    const row = result.rows[0];
+    await client.query('COMMIT');
 
-    if (
-      status === 'Belum dikirim' &&
-      isScheduleMonthReached(body.tanggalSelesaiApproval) &&
-      !isExpiredForReview(body.tanggalSelesaiApproval)
-    ) {
-      const existingSched = await client.query(
-        `SELECT id FROM email_schedules WHERE nomor_dokumen = $1 LIMIT 1`,
-        [body.nomorDokumen]
-      );
-      if (existingSched.rows.length === 0) {
-        const scheduledAt = resolveScheduledAt(body.tanggalSelesaiApproval, needsReview);
-        await client.query(
-          `INSERT INTO email_schedules (nomor_dokumen, scheduled_email_at, email_status)
-           VALUES ($1, $2, 'pending')`,
-          [body.nomorDokumen, scheduledAt]
-        );
-      }
-    }
+    const row = result.rows[0];
 
     await logActivity({
       username:            'admin',
@@ -393,6 +490,7 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
   } catch (error: any) {
+    await client.query('ROLLBACK');
     console.error('Error creating procedure:', error);
     if (error.code === '23505') {
       return NextResponse.json({ error: 'Nomor dokumen sudah ada' }, { status: 409 });
