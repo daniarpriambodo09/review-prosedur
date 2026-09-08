@@ -2,10 +2,12 @@
 //
 // GET   — daftar semua staff, dengan info unit (department/section) yang
 //         sudah di-resolve jadi nama, supaya gampang ditampilkan di tabel.
-// PATCH — update unit_type/unit_id/is_manager satu staff (body: { kode,
-//         unitType, unitId, isManager }). Dipakai admin utk perbaiki hasil
+// POST  — tambah staff baru secara manual (body: { kode, email, nama,
+//         jabatanRaw?, unitType?, unitId?, isManager? }).
+// PATCH — update satu staff (body: { kode, email?, nama?, jabatanRaw?,
+//         unitType?, unitId?, isManager? }). Dipakai admin utk perbaiki hasil
 //         parsing otomatis yang meleset (mis. section yang ke-fallback ke
-//         'BELUM DIKELOMPOKKAN').
+//         'BELUM DIKELOMPOKKAN'), atau edit data staff biasa.
 
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
@@ -52,11 +54,65 @@ export async function GET() {
   }
 }
 
+export async function POST(request: NextRequest) {
+  const client = await pool.connect();
+  let kode = '';
+  try {
+    const body = await request.json();
+    kode             = (body.kode || '').trim().toUpperCase();
+    const email      = (body.email || '').trim();
+    const nama       = (body.nama || '').trim();
+    const jabatanRaw = body.jabatanRaw ? String(body.jabatanRaw).trim() : null;
+    const unitType   = body.unitType || null; // 'department' | 'section' | null
+    const unitId     = body.unitId || null;
+    const isManager  = typeof body.isManager === 'boolean' ? body.isManager : false;
+
+    if (!kode || !email || !nama) {
+      return NextResponse.json({ error: 'Kode, email, dan nama wajib diisi' }, { status: 400 });
+    }
+    if (unitType && !['department', 'section'].includes(unitType)) {
+      return NextResponse.json({ error: 'unitType harus department atau section' }, { status: 400 });
+    }
+    // PENTING: kode ini yang akan dicocokkan dengan kolom procedure_documents.pic
+    // (mis. 'AYS') — jadi harus konsisten dengan kode yang dipakai di sana.
+
+    const result = await client.query(
+      `INSERT INTO staff_directory (kode, email, nama, jabatan_raw, unit_type, unit_id, is_manager, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+       RETURNING *`,
+      [kode, email, nama, jabatanRaw, unitType, unitId, isManager]
+    );
+
+    return NextResponse.json(
+      {
+        kode:      result.rows[0].kode,
+        email:     result.rows[0].email,
+        nama:      result.rows[0].nama,
+        unitType:  result.rows[0].unit_type,
+        unitId:    result.rows[0].unit_id,
+        isManager: result.rows[0].is_manager,
+      },
+      { status: 201 }
+    );
+  } catch (error: any) {
+    console.error('Error creating staff:', error);
+    if (error.code === '23505') {
+      return NextResponse.json({ error: `Kode staff '${kode}' sudah dipakai` }, { status: 409 });
+    }
+    return NextResponse.json({ error: 'Failed to create staff' }, { status: 500 });
+  } finally {
+    client.release();
+  }
+}
+
 export async function PATCH(request: NextRequest) {
   const client = await pool.connect();
   try {
     const body = await request.json();
     const kode       = (body.kode || '').trim().toUpperCase();
+    const email      = body.email !== undefined ? String(body.email).trim() : undefined;
+    const nama       = body.nama !== undefined ? String(body.nama).trim() : undefined;
+    const jabatanRaw = body.jabatanRaw !== undefined ? (body.jabatanRaw ? String(body.jabatanRaw).trim() : null) : undefined;
     const unitType   = body.unitType; // 'department' | 'section' | null
     const unitId     = body.unitId ?? null;
     const isManager  = typeof body.isManager === 'boolean' ? body.isManager : undefined;
@@ -76,13 +132,19 @@ export async function PATCH(request: NextRequest) {
 
     const result = await client.query(
       `UPDATE staff_directory
-       SET unit_type  = $1,
-           unit_id    = $2,
-           is_manager = $3,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE kode = $4
+       SET email       = $1,
+           nama        = $2,
+           jabatan_raw = $3,
+           unit_type   = $4,
+           unit_id     = $5,
+           is_manager  = $6,
+           updated_at  = CURRENT_TIMESTAMP
+       WHERE kode = $7
        RETURNING *`,
       [
+        email !== undefined ? email : current.email,
+        nama !== undefined ? nama : current.nama,
+        jabatanRaw !== undefined ? jabatanRaw : current.jabatan_raw,
         unitType !== undefined ? unitType : current.unit_type,
         unitType !== undefined ? unitId   : current.unit_id,
         isManager !== undefined ? isManager : current.is_manager,
@@ -92,6 +154,8 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({
       kode:      result.rows[0].kode,
+      email:     result.rows[0].email,
+      nama:      result.rows[0].nama,
       unitType:  result.rows[0].unit_type,
       unitId:    result.rows[0].unit_id,
       isManager: result.rows[0].is_manager,

@@ -43,6 +43,15 @@ const PROTECTED_STATUSES = [
   'Ditolak',
 ];
 
+// Toleransi maintenance server — HARUS SAMA dengan GRACE_DAYS di
+// send_email.py. Kalau tanggal target (T-2bulan/T-1bulan) sudah lewat lebih
+// dari ini SEBELUM sempat ada yang membuka aplikasi (mis. server mati
+// beberapa hari), dokumen TIDAK direaktivasi cycle ini — tetap 'Relevan',
+// menunggu siklus tahun depan. Ini mencegah status 'Belum dikirim' muncul
+// tiba-tiba di UI untuk jadwal yang sudah pasti bakal di-skip oleh
+// send_email.py, sekaligus mencegah data email_schedules yang stale.
+const GRACE_DAYS = 1;
+
 // ── Helper tanggal: abaikan tahun, cari kemunculan hari-bulan berikutnya ────
 
 function dateOnly(d: Date): Date {
@@ -66,6 +75,28 @@ function nextOccurrence(month: number, day: number, reference: Date): Date {
 
 function addMonths(date: Date, delta: number, hour = 8): Date {
   return new Date(date.getFullYear(), date.getMonth() + delta, date.getDate(), hour, 0, 0);
+}
+
+// Tanggal 1 pada bulan (date.month + delta) — dipakai utk reminder PIC/Manager.
+// Contoh: deadline 3 Desember, delta -2 -> 1 Oktober (BUKAN 3 Oktober).
+// Kita cuma lihat BULAN dari deadline, bukan tanggal persisnya, sesuai
+// keputusan bisnis: reminder selalu jatuh di awal bulan.
+function addMonthsFirstDay(date: Date, delta: number, hour = 8): Date {
+  return new Date(date.getFullYear(), date.getMonth() + delta, 1, hour, 0, 0);
+}
+
+// Apakah "reference" (biasanya now) masih dalam window [target, target + GRACE_DAYS]?
+// Dipakai sebagai gate: kalau target sudah lewat lebih dari GRACE_DAYS
+// sebelum aplikasi sempat mengecek, JANGAN reaktivasi cycle ini — biar
+// konsisten dengan send_email.py yang juga akan menolak kirim susulan
+// setelah toleransi ini lewat.
+function isWithinGraceWindow(target: Date, reference: Date): boolean {
+  if (reference < target) return false; // belum sampai tanggalnya sama sekali
+  const graceEnd = new Date(
+    target.getFullYear(), target.getMonth(), target.getDate() + GRACE_DAYS,
+    23, 59, 59, 999
+  );
+  return reference <= graceEnd;
 }
 
 // Deadline (T-0) siklus AKTIF SEKARANG untuk sebuah tanggalApproval, dihitung
@@ -105,17 +136,18 @@ async function createOrResetSchedule(
 
   // Kalau admin secara eksplisit menandai "Perlu Direview" saat create,
   // kirim email PIC SEKARANG (itu memang perintah eksplisit admin, bukan
-  // auto-schedule). Selain itu, SELALU pakai tanggal T-2bulan yang
-  // sebenarnya — TIDAK di-"paksa jadi sekarang" walau kebetulan tanggal itu
-  // sudah lewat (mis. dokumen baru masuk siklus review setelah T-2bulan
-  // terlewat). Kalau sudah lewat, email tetap akan terkirim di polling
-  // send_email.py berikutnya (karena scheduled_email_at <= NOW()) — itu
-  // catch-up yang wajar, bukan alasan untuk memalsukan tanggalnya jadi hari ini.
+  // auto-schedule). Selain itu, reminder SELALU jatuh di TANGGAL 1 pada
+  // bulan (deadline - 2) — bukan tanggal persis (deadline - 2 bulan).
+  // Contoh: deadline 3 Desember -> PIC direminder 1 Oktober, bukan 3 Oktober.
+  // Kalau tanggal 1 itu ternyata sudah lewat, email tetap akan terkirim di
+  // polling send_email.py berikutnya SELAMA masih dalam masa toleransi
+  // maintenance (lihat send_email.py) — di luar itu, dianggap kelewat dan
+  // menunggu siklus tahun depan (tidak ada catch-up tak terbatas lagi).
   const picScheduledAt = needsReview === true
     ? now
-    : addMonths(deadline, -2);
+    : addMonthsFirstDay(deadline, -2);
 
-  const managerScheduledAt = addMonths(deadline, -1);
+  const managerScheduledAt = addMonthsFirstDay(deadline, -1);
 
   // NOTE: pakai pola SELECT-lalu-INSERT/UPDATE (bukan ON CONFLICT), karena
   // belum dipastikan ada unique constraint di kolom nomor_dokumen pada tabel
@@ -200,8 +232,19 @@ async function autoReactivate(
   const deadline = currentCycleDeadline(tanggal);
   if (!deadline) return status;
 
-  const picScheduleStart = addMonths(deadline, -2);
-  if (new Date() < picScheduleStart) return status; // belum masuk window siklus baru
+  const picScheduleStart = addMonthsFirstDay(deadline, -2);
+  const now = new Date();
+
+  if (now < picScheduleStart) return status; // belum masuk window siklus baru
+
+  if (!isWithinGraceWindow(picScheduleStart, now)) {
+    // Tanggal target (T-2bulan) sudah lewat lebih dari GRACE_DAYS SEBELUM
+    // sempat ada yang membuka aplikasi (mis. server mati beberapa hari).
+    // JANGAN reaktivasi cycle ini — biarkan tetap 'Relevan', tunggu siklus
+    // TAHUN DEPAN. Mencegah status 'Belum dikirim' muncul di UI utk jadwal
+    // yang toh akan ditolak send_email.py juga.
+    return status;
+  }
 
   // Kalau sudah pernah masuk siklus baru (ada email_schedules yang masih
   // relevan utk deadline ini), jangan dobel-reset — cek lewat scheduled_email_at
@@ -292,7 +335,7 @@ async function resolveInitialStatus(
   const deadline = currentCycleDeadline(tanggal);
   if (!deadline) return 'Relevan';
 
-  const picScheduleStart = addMonths(deadline, -2);
+  const picScheduleStart = addMonthsFirstDay(deadline, -2);
   const now = new Date();
 
   if (needsReview === true) {
@@ -301,6 +344,13 @@ async function resolveInitialStatus(
   }
 
   if (now < picScheduleStart) return 'Relevan'; // belum masuk window, tunggu siklus berjalan alami
+
+  if (!isWithinGraceWindow(picScheduleStart, now)) {
+    // Sama seperti autoReactivate: window T-2bulan sudah lewat lebih dari
+    // GRACE_DAYS sebelum dokumen ini ditambahkan -> jangan langsung 'Belum
+    // dikirim', tunggu siklus tahun depan.
+    return 'Relevan';
+  }
 
   await createOrResetSchedule(client, nomorDokumen, tanggal, null);
   return 'Belum dikirim';

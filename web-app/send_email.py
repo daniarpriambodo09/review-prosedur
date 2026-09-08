@@ -30,6 +30,12 @@ DB_CONFIG = {
     "port":     "5432",
 }
 
+# Toleransi maintenance server: berapa hari jadwal yang sudah lewat masih
+# boleh "susulan" terkirim (mis. server mati tepat di tanggal target, nyala
+# lagi besoknya -> tetap kekirim). LEBIH DARI ini dianggap kelewat & harus
+# menunggu siklus tahun berikutnya (TIDAK ada susulan tak terbatas).
+GRACE_DAYS = 1
+
 def log(level: str, message: str) -> None:
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{level}] {ts} - {message}", flush=True)
@@ -581,13 +587,62 @@ def send_manager_email(smtp_cfg: dict, receiver: str, manager_nama: str, dokumen
     log_info(f"Escalation email successfully sent to {receiver}")
 
 
+def sweep_stale_schedules(conn) -> None:
+    """
+    Jaring pengaman rutin — dijalankan di AWAL setiap siklus, SEBELUM
+    mengirim apapun. Menandai jadwal PIC/Manager yang sudah lewat masa
+    toleransi maintenance (GRACE_DAYS) sebagai 'failed'/'skipped', supaya
+    tidak menumpuk selamanya di status 'pending'/'not_applicable' menunggu
+    siklus tahun depan yang tidak akan pernah datang tepat waktu.
+    Tanpa ini, dokumen yang kelewat toleransi akan tetap 'pending' terus
+    dan berpotensi ikut ke-query lagi kalau grace window-nya berubah nanti.
+    """
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            UPDATE email_schedules
+            SET email_status = 'failed',
+                error_message = %s,
+                updated_at = NOW()
+            WHERE email_status = 'pending'
+              AND scheduled_email_at::date < (CURRENT_DATE - %s)
+        """, (
+            f"Dilewati otomatis: tanggal target sudah lewat masa toleransi maintenance ({GRACE_DAYS} hari) - menunggu siklus tahun berikutnya",
+            GRACE_DAYS,
+        ))
+        pic_swept = cur.rowcount
+
+        cur.execute("""
+            UPDATE email_schedules
+            SET manager_email_status = 'skipped',
+                manager_email_error = %s,
+                updated_at = NOW()
+            WHERE manager_email_status = 'not_applicable'
+              AND manager_email_scheduled_at IS NOT NULL
+              AND manager_email_scheduled_at::date < (CURRENT_DATE - %s)
+        """, (
+            f"Dilewati otomatis: tanggal target sudah lewat masa toleransi maintenance ({GRACE_DAYS} hari) - menunggu siklus tahun berikutnya",
+            GRACE_DAYS,
+        ))
+        manager_swept = cur.rowcount
+
+        conn.commit()
+        if pic_swept or manager_swept:
+            log_info(f"Sweep: {pic_swept} jadwal PIC & {manager_swept} jadwal manager ditandai kelewat (lewat toleransi {GRACE_DAYS} hari).")
+    except Exception as e:
+        conn.rollback()
+        log_error(f"Sweep stale schedules failed: {e}")
+    finally:
+        cur.close()
+
+
 def check_and_send_manager_emails(conn, smtp_cfg: dict) -> None:
-    # NOTE: kondisi query di bawah pakai '::date = CURRENT_DATE' (PERSIS hari
-    # ini), BUKAN '<= NOW()'. Ini keputusan sadar: email HANYA dikirim tepat
-    # di tanggal T-1bulan, tidak ada "susulan" untuk tanggal yang sudah
-    # lewat. Konsekuensinya: kalau scheduler ini kebetulan tidak jalan pas
-    # di hari H (server down, dsb), dokumen itu TIDAK akan dapat eskalasi
-    # manager sampai siklus tahun berikutnya. Trade-off ini disengaja.
+    # NOTE: kondisi query di bawah pakai window toleransi GRACE_DAYS hari
+    # (bukan exact-date, bukan '<= NOW()' tak terbatas). Reminder manager
+    # jatuh di tanggal 1 pada bulan (deadline - 1) — lihat
+    # app/api/procedures/route.ts (addMonthsFirstDay). Kalau lewat dari
+    # window ini, sweep_stale_schedules() di atas akan menandainya 'skipped'
+    # di siklus berikutnya, bukan menunggu di sini selamanya.
     log_info("Checking manager escalation schedules...")
 
     cur = conn.cursor()
@@ -603,8 +658,8 @@ def check_and_send_manager_emails(conn, smtp_cfg: dict) -> None:
               ON es.nomor_dokumen = pd.nomor_dokumen
             WHERE es.manager_email_status = 'not_applicable'
               AND es.manager_email_scheduled_at IS NOT NULL
-              AND es.manager_email_scheduled_at::date = CURRENT_DATE
-        """)
+              AND es.manager_email_scheduled_at::date BETWEEN (CURRENT_DATE - %s) AND CURRENT_DATE
+        """, (GRACE_DAYS,))
         rows = cur.fetchall()
     except Exception as e:
         log_error(f"Failed to fetch manager escalation candidates: {e}")
@@ -763,12 +818,14 @@ def send_email(smtp_cfg: dict, receiver: str, pic: str, dokumen_list: list) -> N
     log_info(f"Email successfully sent to {receiver}")
 
 def check_and_send_emails() -> None:
-    # NOTE: query di bawah pakai '::date = CURRENT_DATE' (PERSIS hari ini),
-    # BUKAN '<= NOW()'. Email PIC HANYA dikirim tepat di tanggal T-2bulan,
-    # tidak ada "susulan" untuk tanggal yang sudah lewat. Kalau scheduler ini
-    # kebetulan tidak jalan pas di hari H, dokumen itu tidak akan dapat email
-    # sampai siklus tahun berikutnya. Trade-off ini disengaja (lihat diskusi
-    # terkait di riwayat perubahan file ini).
+    # NOTE: query di bawah pakai window toleransi GRACE_DAYS hari (BUKAN
+    # exact-date, BUKAN '<= NOW()' tak terbatas). Email PIC jatuh di tanggal
+    # 1 pada bulan (deadline - 2) — lihat app/api/procedures/route.ts
+    # (addMonthsFirstDay). Kalau server sempat mati tepat di tanggal target,
+    # begitu nyala lagi (dalam GRACE_DAYS hari) tetap akan terkirim di run
+    # berikutnya. Lewat dari itu, sweep_stale_schedules() menandainya
+    # 'failed' dan menunggu siklus tahun depan — TIDAK ada susulan tak
+    # terbatas.
     log_info("Checking email schedules...")
 
     smtp_cfg = load_smtp_settings()
@@ -786,6 +843,10 @@ def check_and_send_emails() -> None:
         log_error(f"Cannot connect to database: {e}")
         return
 
+    # Sweep dulu SEBELUM query — supaya baris yang sudah lewat toleransi
+    # tidak ikut ke-load sebagai kandidat kirim di siklus ini.
+    sweep_stale_schedules(conn)
+
     cur = conn.cursor()
     try:
         cur.execute("""
@@ -799,11 +860,11 @@ def check_and_send_emails() -> None:
             JOIN procedure_documents pd
               ON es.nomor_dokumen = pd.nomor_dokumen
             WHERE es.email_status = 'pending'
-              AND es.scheduled_email_at::date = CURRENT_DATE
+              AND es.scheduled_email_at::date BETWEEN (CURRENT_DATE - %s) AND CURRENT_DATE
               AND pd.email IS NOT NULL
               AND pd.email != ''
             ORDER BY es.scheduled_email_at ASC
-        """)
+        """, (GRACE_DAYS,))
         rows = cur.fetchall()
     except Exception as e:
         log_error(f"Failed to fetch pending emails: {e}")

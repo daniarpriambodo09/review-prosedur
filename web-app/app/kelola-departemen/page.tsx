@@ -445,10 +445,153 @@ function SectionTab({
 // =============================================================================
 // Tab: Staff & Manager
 // =============================================================================
+function AddStaffForm({
+  departments, sections, onAdded,
+}: { departments: Department[]; sections: Section[]; onAdded: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [kode, setKode] = useState('');
+  const [email, setEmail] = useState('');
+  const [nama, setNama] = useState('');
+  const [jabatanRaw, setJabatanRaw] = useState('');
+  const [unitType, setUnitType] = useState<'department' | 'section' | ''>('');
+  const [unitId, setUnitId] = useState<number | ''>('');
+  const [isManager, setIsManager] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const reset = () => {
+    setKode(''); setEmail(''); setNama(''); setJabatanRaw('');
+    setUnitType(''); setUnitId(''); setIsManager(false);
+  };
+
+  const handleSubmit = async () => {
+    if (!kode.trim() || !email.trim() || !nama.trim()) {
+      alert('Kode, email, dan nama wajib diisi');
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch('/review-prosedur/api/staff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kode: kode.trim(),
+          email: email.trim(),
+          nama: nama.trim(),
+          jabatanRaw: jabatanRaw.trim() || null,
+          unitType: unitType || null,
+          unitId: unitType ? (unitId || null) : null,
+          isManager,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Gagal menambah staff');
+        return;
+      }
+      reset();
+      setOpen(false);
+      onAdded();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+        <button
+          onClick={() => setOpen(true)}
+          className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-all"
+        >
+          <Plus size={14} /> Tambah Staff
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-bold text-slate-900">Tambah Staff Baru</p>
+        <button onClick={() => { setOpen(false); reset(); }} className="text-slate-400 hover:text-slate-700">
+          <X size={16} />
+        </button>
+      </div>
+
+      <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+        Kode staff <strong>harus persis sama</strong> dengan kode PIC yang dipakai di kolom "PIC" pada
+        data prosedur (mis. <code>AYS</code>) — kalau beda, sistem tidak akan bisa mencocokkan dokumen ke orang ini.
+      </p>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-[11px] font-semibold text-slate-600 mb-1">Kode <span className="text-red-500">*</span></label>
+          <input value={kode} onChange={e => setKode(e.target.value.toUpperCase())} placeholder="mis. AYS" className={fieldCls} />
+        </div>
+        <div>
+          <label className="block text-[11px] font-semibold text-slate-600 mb-1">Email <span className="text-red-500">*</span></label>
+          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="nama@jai.co.id" className={fieldCls} />
+        </div>
+        <div className="col-span-2">
+          <label className="block text-[11px] font-semibold text-slate-600 mb-1">Nama Lengkap <span className="text-red-500">*</span></label>
+          <input value={nama} onChange={e => setNama(e.target.value)} placeholder="Nama lengkap" className={fieldCls} />
+        </div>
+        <div className="col-span-2">
+          <label className="block text-[11px] font-semibold text-slate-600 mb-1">Jabatan (opsional, teks bebas)</label>
+          <input value={jabatanRaw} onChange={e => setJabatanRaw(e.target.value)} placeholder="mis. PPC SPV" className={fieldCls} />
+        </div>
+        <div>
+          <label className="block text-[11px] font-semibold text-slate-600 mb-1">Tipe Unit</label>
+          <select value={unitType} onChange={e => { setUnitType(e.target.value as any); setUnitId(''); }} className={selectCls + ' w-full'}>
+            <option value="">Belum diset</option>
+            <option value="department">Departemen</option>
+            <option value="section">Section</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-[11px] font-semibold text-slate-600 mb-1">Unit</label>
+          <select
+            value={unitId}
+            onChange={e => setUnitId(e.target.value ? Number(e.target.value) : '')}
+            disabled={!unitType}
+            className={selectCls + ' w-full disabled:opacity-50 disabled:cursor-not-allowed'}
+          >
+            <option value="">Pilih…</option>
+            {(unitType === 'department' ? departments : unitType === 'section' ? sections : []).map((u: any) => (
+              <option key={u.id} value={u.id}>{u.nama}</option>
+            ))}
+          </select>
+        </div>
+        <div className="col-span-2">
+          <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
+            <input type="checkbox" checked={isManager} onChange={e => setIsManager(e.target.checked)} />
+            Staff ini adalah seorang manager
+          </label>
+        </div>
+      </div>
+
+      <div className="flex justify-end gap-2 pt-1">
+        <button onClick={() => { setOpen(false); reset(); }} disabled={saving} className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-xl">
+          Batal
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={saving}
+          className="inline-flex items-center gap-2 px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-all disabled:opacity-50"
+        >
+          {saving && <span className="animate-spin w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full" />}
+          {saving ? 'Menyimpan...' : 'Simpan Staff'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function StaffTab({
   staff, departments, sections, onRefresh,
 }: { staff: Staff[]; departments: Department[]; sections: Section[]; onRefresh: () => void }) {
   const [editingKode, setEditingKode] = useState<string | null>(null);
+  const [editEmail, setEditEmail] = useState('');
   const [editUnitType, setEditUnitType] = useState<'department' | 'section'>('department');
   const [editUnitId, setEditUnitId] = useState<number | ''>('');
   const [editIsManager, setEditIsManager] = useState(false);
@@ -456,6 +599,7 @@ function StaffTab({
 
   const startEdit = (s: Staff) => {
     setEditingKode(s.kode);
+    setEditEmail(s.email);
     setEditUnitType(s.unitType || 'department');
     setEditUnitId(s.unitId || '');
     setEditIsManager(s.isManager);
@@ -463,10 +607,13 @@ function StaffTab({
 
   const handleSave = async (kode: string) => {
     if (!editUnitId) { alert('Pilih unit (departemen/section) dulu'); return; }
+    if (!editEmail.trim()) { alert('Email tidak boleh kosong'); return; }
     const res = await fetch('/review-prosedur/api/staff', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kode, unitType: editUnitType, unitId: editUnitId, isManager: editIsManager }),
+      body: JSON.stringify({
+        kode, email: editEmail.trim(), unitType: editUnitType, unitId: editUnitId, isManager: editIsManager,
+      }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -483,9 +630,11 @@ function StaffTab({
 
   return (
     <div className="space-y-4">
+      <AddStaffForm departments={departments} sections={sections} onAdded={onRefresh} />
+
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex items-center justify-between">
         <p className="text-xs text-slate-500">
-          {staff.length} staff total. Klik <Pencil size={11} className="inline" /> untuk perbaiki unit / status manager.
+          {staff.length} staff total. Klik <Pencil size={11} className="inline" /> untuk perbaiki data / unit / status manager.
         </p>
         <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer">
           <input type="checkbox" checked={filterUnassigned} onChange={e => setFilterUnassigned(e.target.checked)} />
@@ -499,6 +648,7 @@ function StaffTab({
             <tr>
               <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-500 uppercase">Nama</th>
               <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-500 uppercase">Kode</th>
+              <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-500 uppercase">Email</th>
               <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-500 uppercase">Jabatan (Excel)</th>
               <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-500 uppercase">Unit</th>
               <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-500 uppercase">Manager?</th>
@@ -512,6 +662,13 @@ function StaffTab({
                 <tr key={s.kode} className={needsCheck ? 'bg-amber-50/40' : ''}>
                   <td className="px-4 py-2.5 text-xs font-medium text-slate-800">{s.nama}</td>
                   <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{s.kode}</td>
+                  <td className="px-4 py-2.5 text-xs">
+                    {editingKode === s.kode ? (
+                      <input type="email" value={editEmail} onChange={e => setEditEmail(e.target.value)} className={fieldCls} />
+                    ) : (
+                      <span className="text-slate-600">{s.email}</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 text-xs text-slate-500">{s.jabatanRaw || '-'}</td>
                   <td className="px-4 py-2.5 text-xs">
                     {editingKode === s.kode ? (
@@ -568,7 +725,7 @@ function StaffTab({
               );
             })}
             {displayedStaff.length === 0 && (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-xs text-slate-400">Tidak ada data</td></tr>
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-xs text-slate-400">Tidak ada data</td></tr>
             )}
           </tbody>
         </table>
