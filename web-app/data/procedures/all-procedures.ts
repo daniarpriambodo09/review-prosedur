@@ -24,6 +24,8 @@ export interface ProcedureDocument {
   owner: string;
   pic: string;
   email?: string;
+  /** 🆕 Block Activity — dari sheet "Matrik Approval NEW" atau diisi manual admin. */
+  blockActivity?: string | null;
   status: StatusType;
   isCustom?: boolean;
   deletedAt?: string;

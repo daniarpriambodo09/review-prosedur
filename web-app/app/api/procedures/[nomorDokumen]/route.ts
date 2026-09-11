@@ -25,6 +25,7 @@ export async function PATCH(
       owner,
       pic,
       email,
+      blockActivity, // 🆕
     } = body;
 
     if (!namaDokumen || !levelDokumen || !tanggalSelesaiApproval || !owner || !pic) {
@@ -64,8 +65,9 @@ export async function PATCH(
          owner                     = $6,
          pic                       = $7,
          email                     = $8,
+         block_activity            = $9,
          updated_at                = CURRENT_TIMESTAMP
-       WHERE nomor_dokumen = $9
+       WHERE nomor_dokumen = $10
        RETURNING *`,
       [
         namaDokumen,
@@ -76,6 +78,7 @@ export async function PATCH(
         owner,
         pic,
         email || '',
+        blockActivity ?? null, // 🆕
         nomorDokumen,
       ]
     );
@@ -93,6 +96,11 @@ export async function PATCH(
       );
       await client.query(
         `UPDATE document_reviews SET nomor_dokumen = $1 WHERE nomor_dokumen = $2`,
+        [finalNomor, nomorDokumen]
+      );
+      // 🆕 procedure_revision_notes ikut mengikuti kalau nomor dokumen berubah
+      await client.query(
+        `UPDATE procedure_revision_notes SET nomor_dokumen = $1 WHERE nomor_dokumen = $2`,
         [finalNomor, nomorDokumen]
       );
     }
@@ -119,6 +127,7 @@ export async function PATCH(
       owner: row.owner,
       pic: row.pic,
       email: row.email,
+      blockActivity: row.block_activity, // 🆕
       status: row.status,
     });
   } catch (error: any) {

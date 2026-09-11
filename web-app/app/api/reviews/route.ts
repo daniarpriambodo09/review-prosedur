@@ -4,12 +4,28 @@
 // — POST & PATCH: saat PIC submit review, set:
 //     last_reviewed_at = NOW()   ← timestamp review terbaru
 //     review_seen_at   = NULL    ← reset agar badge "Baru Direview" muncul kembali
+// — 🆕 activityType log SEKARANG dipecah berdasarkan status yang diberikan
+//   (review_relevan / review_revisi / review_obsolete), bukan 'review'
+//   generik lagi — supaya admin bisa filter "Aktivitas Terbaru" per status
+//   hasil review PIC (siapa & kapan kasih Relevan/Revisi/Obsolete), bukan
+//   semuanya nyampur di satu badge "Review".
 //
-// Tidak ada perubahan pada logika status, revisi, atau log activity.
+// Tidak ada perubahan pada logika status, revisi, atau kolom lainnya.
 
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
-import { logActivity } from '@/lib/activityLogger';
+import { logActivity, type ActivityType } from '@/lib/activityLogger';
+
+// 🆕 Map status hasil review ke activityType yang lebih spesifik.
+// Fallback ke 'review' generik kalau ada status di luar 3 ini (seharusnya
+// tidak pernah terjadi karena StatusType hanya mengizinkan Relevan/Revisi/
+// Obsolete untuk hasil review, tapi tetap dijaga supaya tidak error).
+function reviewActivityType(status: string): ActivityType {
+  if (status === 'Relevan')  return 'review_relevan';
+  if (status === 'Revisi')   return 'review_revisi';
+  if (status === 'Obsolete') return 'review_obsolete';
+  return 'review';
+}
 
 // ─── GET — Ambil review berdasarkan nomorDokumen dan bulan ────────────────────
 export async function GET(request: NextRequest) {
@@ -101,7 +117,7 @@ export async function POST(request: NextRequest) {
 
     await logActivity({
       username:            'user',
-      activityType:        'review',
+      activityType:        reviewActivityType(status), // 🆕
       activityDescription: `Review ${status} untuk ${namaDokumen}`,
       targetType:          'review',
       targetId:            nomorDokumen,
@@ -169,7 +185,7 @@ export async function PATCH(request: NextRequest) {
 
       await logActivity({
         username:            username || 'user',
-        activityType:        'review',
+        activityType:        reviewActivityType(review.status), // 🆕
         activityDescription: `Batch review ${review.status} untuk ${namaDokumen}`,
         targetType:          'review',
         targetId:            review.nomorDokumen,

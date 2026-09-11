@@ -22,6 +22,8 @@ import {
   ChevronUp, ChevronDown, FileText, CheckCircle2,
   RefreshCw, Clock, Eye, Pencil, Trash2, Users,
 } from 'lucide-react';
+import RevisionNotesModal from '@/components/status-review/RevisionNotesModal';
+import { FileClock } from 'lucide-react';
 
 // =============================================================================
 // Helpers — TIDAK DIUBAH
@@ -543,6 +545,7 @@ export default function StatusReviewPage() {
 
   // 🆕 BARU: dokumen yang kartu Approval-nya (Prepared/Checked/Approved) sedang dibuka
   const [approvalDoc, setApprovalDoc] = useState<{ nomorDokumen: string; namaDokumen: string } | null>(null);
+  const [revisionDoc, setRevisionDoc] = useState<{ nomorDokumen: string; namaDokumen: string; revisi?: string } | null>(null);
 
   // ── Load email schedules — TIDAK DIUBAH ────────────────────────────────────
   const loadEmailSchedules = useCallback(async () => {
@@ -692,6 +695,10 @@ export default function StatusReviewPage() {
   // 🆕 BARU: handler tombol Approval (Prepared/Checked/Approved) di kolom Aksi
   const handleApprovalClick = (nomorDokumen: string, namaDokumen: string) => {
     setApprovalDoc({ nomorDokumen, namaDokumen });
+  };
+
+  const handleRevisionNotesClick = (nomorDokumen: string, namaDokumen: string, revisi?: string) => {
+    setRevisionDoc({ nomorDokumen, namaDokumen, revisi });
   };
 
   const handleDownloadExcel = async () => {
@@ -1111,6 +1118,13 @@ export default function StatusReviewPage() {
                                 <Users size={13} />
                               </button>
                               <button
+                                onClick={() => handleRevisionNotesClick(row.nomorDokumen, row.namaDokumen, row.revisi)}
+                                className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all"
+                                title="Catatan Perubahan (Record Revisi)"
+                              >
+                                <FileClock size={13} />
+                              </button>
+                              <button
                                 onClick={() => handleDocumentClick(row.nomorDokumen, row.namaDokumen, row.status)}
                                 className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-all"
                                 title="Lihat dokumen"
@@ -1237,6 +1251,14 @@ export default function StatusReviewPage() {
           onClose={() => setApprovalDoc(null)}
           nomorDokumen={approvalDoc?.nomorDokumen || ''}
           namaDokumen={approvalDoc?.namaDokumen || ''}
+        />
+        
+        <RevisionNotesModal
+          isOpen={revisionDoc !== null}
+          onClose={() => setRevisionDoc(null)}
+          nomorDokumen={revisionDoc?.nomorDokumen || ''}
+          namaDokumen={revisionDoc?.namaDokumen || ''}
+          currentRevisi={revisionDoc?.revisi}
         />
 
       </AdminLayout>

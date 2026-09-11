@@ -87,6 +87,14 @@ const ACTIVITY_TYPE_CONFIG: Record<string, { label: string; badgeCls: string; do
   upload:           { label: 'Upload',          badgeCls: 'bg-green-100 text-green-700',    dot: 'bg-green-500'   },
   download:         { label: 'Download',        badgeCls: 'bg-cyan-100 text-cyan-700',      dot: 'bg-cyan-500'    },
   review:           { label: 'Review',          badgeCls: 'bg-purple-100 text-purple-700',  dot: 'bg-purple-500'  },
+  // 🆕 Dipecah dari 'review' generik — supaya admin bisa filter kapan &
+  // siapa yang memberi status Relevan/Revisi/Obsolete pada suatu dokumen,
+  // bukan cuma badge "Review" yang menyamaratakan semuanya. Log LAMA yang
+  // masih bertipe 'review' (sebelum perubahan ini) tetap tampil lewat entri
+  // 'review' di atas — tidak hilang, cuma tidak ikut ter-pecah.
+  review_relevan:   { label: 'Relevan',         badgeCls: 'bg-emerald-100 text-emerald-700',dot: 'bg-emerald-500' },
+  review_revisi:    { label: 'Revisi',          badgeCls: 'bg-amber-100 text-amber-700',    dot: 'bg-amber-500'   },
+  review_obsolete:  { label: 'Obsolete',        badgeCls: 'bg-red-100 text-red-700',        dot: 'bg-red-500'     },
   archive:          { label: 'Archive',         badgeCls: 'bg-amber-100 text-amber-700',    dot: 'bg-amber-500'   },
   restore:          { label: 'Restore',         badgeCls: 'bg-emerald-100 text-emerald-700',dot: 'bg-emerald-500' },
   delete:           { label: 'Delete',          badgeCls: 'bg-red-100 text-red-700',        dot: 'bg-red-500'     },

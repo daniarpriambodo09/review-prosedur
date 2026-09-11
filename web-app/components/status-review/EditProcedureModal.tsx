@@ -20,6 +20,7 @@ interface EditValues {
   owner: string;
   pic: string;
   email: string;
+  blockActivity: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -134,6 +135,7 @@ export default function EditProcedureModal({
   const [values,   setValues]   = useState<EditValues>({
     namaDokumen: '', nomorDokumen: '', levelDokumen: '',
     tanggalSelesaiApproval: '', revisi: '0', owner: '', pic: '', email: '',
+    blockActivity: '',
   });
   const [isSaving, setIsSaving] = useState(false);
   const [error,    setError]    = useState('');
@@ -157,6 +159,7 @@ export default function EditProcedureModal({
         owner:                  procedure.owner,
         pic:                    procedure.pic,
         email:                  procedure.email ?? '',
+        blockActivity:          procedure.blockActivity ?? '',
       });
       setError('');
     }
@@ -266,6 +269,7 @@ export default function EditProcedureModal({
             owner:                  values.owner,
             pic:                    values.pic,
             email:                  values.email,
+            blockActivity:          values.blockActivity,
           }),
         }
       );
@@ -314,7 +318,7 @@ export default function EditProcedureModal({
   const labelMap: Record<keyof EditValues, string> = {
     namaDokumen: 'Nama', nomorDokumen: 'Nomor', levelDokumen: 'Level',
     tanggalSelesaiApproval: 'Tanggal', revisi: 'Revisi',
-    owner: 'Owner', pic: 'PIC', email: 'Email',
+    owner: 'Owner', pic: 'PIC', email: 'Email', blockActivity: 'Block Activity',
   };
   const changedFields = procedure
     ? (Object.keys(values) as (keyof EditValues)[]).filter(key => {
@@ -512,6 +516,21 @@ export default function EditProcedureModal({
                   disabled={isSaving}
                   minRows={1}
                   maxRows={3}
+                  className={fieldCls}
+                />
+              </div>
+
+              {/* 🆕 Block Activity */}
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+                  Block Activity
+                </label>
+                <input
+                  type="text"
+                  value={values.blockActivity}
+                  onChange={e => change('blockActivity', e.target.value)}
+                  placeholder="Masukkan block activity (opsional)"
+                  disabled={isSaving}
                   className={fieldCls}
                 />
               </div>

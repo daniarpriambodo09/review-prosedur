@@ -1,23 +1,37 @@
 procedure_management=# \dt
-                 List of relations
- Schema |         Name          | Type  |  Owner
---------+-----------------------+-------+----------
- public | activity_logs         | table | postgres
- public | arsip_prosedur        | table | postgres
- public | backup_schedules      | table | postgres
- public | document_reviews      | table | postgres
- public | email_schedules       | table | postgres
- public | pic_activities        | table | postgres
- public | pic_document_requests | table | postgres
- public | pic_documents         | table | postgres
- public | pic_otp               | table | postgres
- public | pic_requests          | table | postgres
- public | pic_review_requests   | table | postgres
- public | pic_users             | table | postgres
- public | procedure_documents   | table | postgres
- public | procedure_files       | table | postgres
- public | users                 | table | postgres
-(15 rows)
+                   List of relations
+ Schema |            Name            | Type  |  Owner
+--------+----------------------------+-------+----------
+ public | activity_logs              | table | postgres
+ public | admin_notification_deletes | table | postgres
+ public | arsip_prosedur             | table | postgres
+ public | backup_schedules           | table | postgres
+ public | department_managers        | table | postgres
+ public | departments                | table | postgres
+ public | document_annotation_events | table | postgres
+ public | document_annotations       | table | postgres
+ public | document_reviews           | table | postgres
+ public | email_schedules            | table | postgres
+ public | pic_activities             | table | postgres
+ public | pic_document_requests      | table | postgres
+ public | pic_documents              | table | postgres
+ public | pic_notification_deletes   | table | postgres
+ public | pic_notification_reads     | table | postgres
+ public | pic_otp                    | table | postgres
+ public | pic_requests               | table | postgres
+ public | pic_review_requests        | table | postgres
+ public | pic_users                  | table | postgres
+ public | procedure_approval_actions | table | postgres
+ public | procedure_approval_cycles  | table | postgres
+ public | procedure_approvers        | table | postgres
+ public | procedure_documents        | table | postgres
+ public | procedure_files            | table | postgres
+ public | sections                   | table | postgres
+ public | smtp_settings              | table | postgres
+ public | staff_directory            | table | postgres
+ public | user_password_views        | table | postgres
+ public | users                      | table | postgres
+(29 rows)
 
 
 procedure_management=# \d activity_logs
@@ -1086,3 +1100,74 @@ procedure_management=# \d pic_notification_reads
 Indexes:
     "pic_notification_reads_pkey" PRIMARY KEY, btree (pic_id, notification_id)
     "idx_notif_reads_pic" btree (pic_id)
+
+procedure_management=# \d department_managers
+                      Table "public.department_managers"
+    Column     |            Type             | Collation | Nullable | Default
+---------------+-----------------------------+-----------+----------+---------
+ department_id | integer                     |           | not null |
+ manager_kode  | character varying(10)       |           | not null |
+ assigned_at   | timestamp without time zone |           | not null | now()
+Indexes:
+    "department_managers_pkey" PRIMARY KEY, btree (department_id, manager_kode)
+Foreign-key constraints:
+    "department_managers_department_id_fkey" FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE
+    "department_managers_manager_kode_fkey" FOREIGN KEY (manager_kode) REFERENCES staff_directory(kode) ON DELETE CASCADE
+
+procedure_management=# \d departments
+                                        Table "public.departments"
+   Column   |            Type             | Collation | Nullable |                 Default
+------------+-----------------------------+-----------+----------+-----------------------------------------
+ id         | integer                     |           | not null | nextval('departments_id_seq'::regclass)
+ nama       | character varying(100)      |           | not null |
+ created_at | timestamp without time zone |           | not null | now()
+ updated_at | timestamp without time zone |           | not null | now()
+Indexes:
+    "departments_pkey" PRIMARY KEY, btree (id)
+    "departments_nama_key" UNIQUE CONSTRAINT, btree (nama)
+Referenced by:
+    TABLE "department_managers" CONSTRAINT "department_managers_department_id_fkey" FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE
+    TABLE "sections" CONSTRAINT "sections_department_id_fkey" FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE RESTRICT
+
+procedure_management=# \d sections
+                                          Table "public.sections"
+    Column     |            Type             | Collation | Nullable |               Default
+---------------+-----------------------------+-----------+----------+--------------------------------------
+ id            | integer                     |           | not null | nextval('sections_id_seq'::regclass)
+ nama          | character varying(100)      |           | not null |
+ department_id | integer                     |           | not null |
+ created_at    | timestamp without time zone |           | not null | now()
+ updated_at    | timestamp without time zone |           | not null | now()
+Indexes:
+    "sections_pkey" PRIMARY KEY, btree (id)
+    "idx_sections_department_id" btree (department_id)
+    "sections_nama_key" UNIQUE CONSTRAINT, btree (nama)
+Foreign-key constraints:
+    "sections_department_id_fkey" FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE RESTRICT
+
+
+procedure_management=#
+
+procedure_management=# \d staff_directory
+                       Table "public.staff_directory"
+   Column    |            Type             | Collation | Nullable | Default
+-------------+-----------------------------+-----------+----------+---------
+ kode        | character varying(10)       |           | not null |
+ email       | character varying(255)      |           | not null |
+ nama        | character varying(255)      |           | not null |
+ jabatan_raw | character varying(150)      |           |          |
+ unit_type   | character varying(10)       |           |          |
+ unit_id     | integer                     |           |          |
+ is_manager  | boolean                     |           | not null | false
+ updated_at  | timestamp without time zone |           | not null | now()
+Indexes:
+    "staff_directory_pkey" PRIMARY KEY, btree (kode)
+    "idx_staff_directory_is_manager" btree (is_manager)
+    "idx_staff_directory_unit" btree (unit_type, unit_id)
+Check constraints:
+    "staff_directory_unit_type_check" CHECK (unit_type::text = ANY (ARRAY['department'::character varying, 'section'::character varying]::text[]))
+Referenced by:
+    TABLE "department_managers" CONSTRAINT "department_managers_manager_kode_fkey" FOREIGN KEY (manager_kode) REFERENCES staff_directory(kode) ON DELETE CASCADE
+
+
+procedure_management=#

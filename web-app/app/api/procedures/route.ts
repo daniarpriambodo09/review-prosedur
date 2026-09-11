@@ -450,6 +450,7 @@ export async function GET(request: NextRequest) {
           owner:                  row.owner,
           pic:                    row.pic,
           email:                  row.email,
+          blockActivity:          row.block_activity              ?? null,
           status:                 resolvedStatus,
           isCustom:               row.is_custom,
           createdAt:              row.created_at,
@@ -492,8 +493,8 @@ export async function POST(request: NextRequest) {
     const result = await client.query(
       `INSERT INTO procedure_documents
          (nama_dokumen, nomor_dokumen, level_dokumen, tanggal_selesai_approval,
-          revisi, owner, pic, email, status, is_custom)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          revisi, owner, pic, email, block_activity, status, is_custom)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
       [
         body.namaDokumen,
@@ -504,6 +505,7 @@ export async function POST(request: NextRequest) {
         body.owner,
         body.pic,
         body.email || '',
+        body.blockActivity || null,
         status,
         true,
       ]
@@ -532,6 +534,7 @@ export async function POST(request: NextRequest) {
         owner:                  row.owner,
         pic:                    row.pic,
         email:                  row.email,
+        blockActivity:          row.block_activity,
         status:                 row.status,
         isCustom:               row.is_custom,
         lastReviewedAt:         null,

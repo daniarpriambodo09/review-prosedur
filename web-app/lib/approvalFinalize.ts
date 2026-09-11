@@ -4,15 +4,21 @@
 // status 'completed' (Approved sudah ACC semua). Tugasnya:
 //   1. Ambil semua orang yang sudah ACC di cycle ini, per role.
 //   2. Generate halaman 1 baru (template + QR code + nama, baris dinamis).
-//   3. Gabungkan dengan halaman 2+ dari file dokumen yang sedang aktif.
-//   4. Simpan hasil gabungan sebagai VERSI BARU di procedure_files
+//   3. 🆕 Ambil block_activity + riwayat Catatan Perubahan (procedure_revision_notes),
+//      lalu generate halaman TERAKHIR baru (template Catatan Perubahan).
+//   4. Gabungkan: halaman 1 baru + halaman tengah dari file aktif + halaman
+//      terakhir baru — mengganti halaman terakhir LAMA kalau dokumen ini
+//      sebelumnya sudah pernah memakai template tsb (uses_last_page_template),
+//      atau menambahkannya kalau belum pernah.
+//   5. Simpan hasil gabungan sebagai VERSI BARU di procedure_files
 //      (mengikuti pola versioning yang sama dengan upload manual admin).
-//   5. Set procedure_approval_cycles.final_file_id ke versi baru itu.
-//   6. Set status dokumen jadi 'Relevan' + sync document_reviews.
+//   6. Set procedure_approval_cycles.final_file_id ke versi baru itu, dan
+//      set procedure_documents.uses_last_page_template = true.
+//   7. Set status dokumen jadi 'Relevan' + sync document_reviews.
 //
 // Kalau proses generate PDF gagal (mis. file asli corrupt), fungsi ini TIDAK
 // membuat dokumen macet — tetap set status 'Relevan' memakai file yang sudah
-// ada (tanpa halaman 1 diganti), lalu mencatat activity log berisi peringatan
+// ada (tanpa halaman diganti), lalu mencatat activity log berisi peringatan
 // supaya admin tahu perlu upload ulang manual.
 
 import type { PoolClient } from 'pg';
@@ -22,7 +28,8 @@ import path from 'path';
 import { logActivity } from './activityLogger';
 import { getActiveSmtpSettings } from './mailer';
 import { generateFirstPage, type ApprovalPerson } from './pdfFirstPage';
-import { replaceFirstPage } from './pdfMerge';
+import { generateLastPage, type RevisionEntry } from './pdfLastPage';
+import { assembleFinalDocument } from './pdfMerge';
 
 const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads', 'documents');
 
@@ -53,13 +60,31 @@ async function syncRelevanStatus(
   );
 }
 
+/** 🆕 Ambil semua entri Catatan Perubahan milik dokumen, urut kronologis menaik. */
+async function fetchRevisionEntries(client: PoolClient, nomorDokumen: string): Promise<RevisionEntry[]> {
+  const result = await client.query(
+    `SELECT rev_no, catatan_perubahan, tanggal_selesai_approval, oleh
+     FROM procedure_revision_notes
+     WHERE nomor_dokumen = $1
+     ORDER BY urutan ASC, id ASC`,
+    [nomorDokumen]
+  );
+  return result.rows.map((row) => ({
+    revNo: row.rev_no,
+    catatanPerubahan: row.catatan_perubahan,
+    tanggalSelesaiApproval: row.tanggal_selesai_approval,
+    oleh: row.oleh,
+  }));
+}
+
 export async function finalizeApprovalCycle(
   client: PoolClient,
   cycleId: number,
   nomorDokumen: string
 ): Promise<void> {
   const docResult = await client.query(
-    `SELECT nama_dokumen, level_dokumen, tanggal_selesai_approval, revisi
+    `SELECT nama_dokumen, level_dokumen, tanggal_selesai_approval, revisi,
+            block_activity, uses_last_page_template
      FROM procedure_documents WHERE nomor_dokumen = $1`,
     [nomorDokumen]
   );
@@ -69,6 +94,8 @@ export async function finalizeApprovalCycle(
   const levelDokumen            = docResult.rows[0].level_dokumen;
   const tanggalSelesaiApproval  = docResult.rows[0].tanggal_selesai_approval;
   const currentRevisi           = docResult.rows[0].revisi;
+  const blockActivity           = docResult.rows[0].block_activity;
+  const hadLastPageTemplate     = docResult.rows[0].uses_last_page_template === true;
 
   // Ambil semua approver yang sudah ACC di cycle ini, per role
   const actionsResult = await client.query(
@@ -90,7 +117,7 @@ export async function finalizeApprovalCycle(
     });
   }
 
-  // Ambil file aktif saat ini (yang akan diganti halaman 1-nya)
+  // Ambil file aktif saat ini (yang akan diganti halaman pertama & terakhirnya)
   const activeFileResult = await client.query(
     `SELECT id, file_name, file_path FROM active_procedure_files WHERE nomor_dokumen = $1`,
     [nomorDokumen]
@@ -103,7 +130,7 @@ export async function finalizeApprovalCycle(
     await logActivity({
       username: 'system',
       activityType: 'update',
-      activityDescription: `Approval selesai untuk ${namaDokumen}, tapi tidak ada file PDF aktif untuk diperbarui halaman 1-nya. Status tetap diubah ke Relevan.`,
+      activityDescription: `Approval selesai untuk ${namaDokumen}, tapi tidak ada file PDF aktif untuk diperbarui halaman 1 & halaman terakhirnya. Status tetap diubah ke Relevan.`,
       targetType: 'procedure',
       targetId: nomorDokumen,
     });
@@ -127,16 +154,30 @@ export async function finalizeApprovalCycle(
       appUrl,
     });
 
-    // 2. Baca file aktif saat ini dari disk, gabungkan
+    // 2. 🆕 Ambil riwayat Catatan Perubahan & generate halaman terakhir baru
+    const revisionEntries = await fetchRevisionEntries(client, nomorDokumen);
+    const newLastPageBytes = await generateLastPage({
+      nomorDokumen,
+      namaDokumen,
+      blockActivity,
+      entries: revisionEntries,
+    });
+
+    // 3. Baca file aktif saat ini dari disk, gabungkan (halaman 1 + tengah + terakhir)
     const relativePath = activeFile.file_path.startsWith('/')
       ? activeFile.file_path.slice(1)
       : activeFile.file_path;
     const originalAbsolutePath = path.join(process.cwd(), 'public', relativePath);
     const originalBytes = await readFile(originalAbsolutePath);
 
-    const mergedBytes = await replaceFirstPage(originalBytes, newFirstPageBytes);
+    const mergedBytes = await assembleFinalDocument(
+      originalBytes,
+      newFirstPageBytes,
+      newLastPageBytes,
+      hadLastPageTemplate
+    );
 
-    // 3. Simpan sebagai versi baru (mengikuti pola versioning upload manual)
+    // 4. Simpan sebagai versi baru (mengikuti pola versioning upload manual)
     const versionResult = await client.query(
       `SELECT COALESCE(MAX(version), 0) + 1 AS next_version
        FROM procedure_files WHERE nomor_dokumen = $1`,
@@ -178,12 +219,20 @@ export async function finalizeApprovalCycle(
       [newFileId, cycleId]
     );
 
+    // 🆕 Tandai dokumen ini sudah memakai template halaman terakhir, supaya
+    // proses berikutnya (revisi selanjutnya) MENGGANTI halaman terakhir,
+    // bukan menambah halaman baru lagi.
+    await client.query(
+      `UPDATE procedure_documents SET uses_last_page_template = TRUE WHERE nomor_dokumen = $1`,
+      [nomorDokumen]
+    );
+
     await syncRelevanStatus(client, nomorDokumen, tanggalSelesaiApproval, currentRevisi);
 
     await logActivity({
       username: 'system',
       activityType: 'upload',
-      activityDescription: `Halaman 1 dokumen ${namaDokumen} otomatis diperbarui dengan hasil approval (Prepared/Checked/Approved) — versi ${nextVersion}`,
+      activityDescription: `Halaman 1 & halaman terakhir dokumen ${namaDokumen} otomatis diperbarui dengan hasil approval (Prepared/Checked/Approved) dan Catatan Perubahan — versi ${nextVersion}`,
       targetType: 'file',
       targetId: nomorDokumen,
     });
@@ -195,7 +244,7 @@ export async function finalizeApprovalCycle(
     await logActivity({
       username: 'system',
       activityType: 'update',
-      activityDescription: `Approval selesai untuk ${namaDokumen}, tapi GAGAL memperbarui halaman 1 dokumen (error teknis). Status tetap diubah ke Relevan menggunakan file lama — mohon cek/upload ulang manual jika perlu.`,
+      activityDescription: `Approval selesai untuk ${namaDokumen}, tapi GAGAL memperbarui halaman 1/halaman terakhir dokumen (error teknis). Status tetap diubah ke Relevan menggunakan file lama — mohon cek/upload ulang manual jika perlu.`,
       targetType: 'procedure',
       targetId: nomorDokumen,
     });
