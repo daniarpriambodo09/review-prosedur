@@ -7,8 +7,6 @@ export type ActivityType =
   | 'upload'
   | 'download'
   | 'review'
-  // 🆕 Dipecah dari 'review' generik supaya admin bisa filter per status hasil
-  // review (PIC memberi status Relevan/Revisi/Obsolete pada dokumen).
   | 'review_relevan'
   | 'review_revisi'
   | 'review_obsolete'
