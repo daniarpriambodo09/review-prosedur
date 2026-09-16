@@ -1,13 +1,11 @@
 // app/api/staff/route.ts
 //
 // GET   — daftar semua staff, dengan info unit (department/section) yang
-//         sudah di-resolve jadi nama, supaya gampang ditampilkan di tabel.
-// POST  — tambah staff baru secara manual (body: { kode, email, nama,
-//         jabatanRaw?, unitType?, unitId?, isManager? }).
-// PATCH — update satu staff (body: { kode, email?, nama?, jabatanRaw?,
-//         unitType?, unitId?, isManager? }). Dipakai admin utk perbaiki hasil
-//         parsing otomatis yang meleset (mis. section yang ke-fallback ke
-//         'BELUM DIKELOMPOKKAN'), atau edit data staff biasa.
+//         sudah di-resolve jadi nama.
+// POST  — tambah staff baru secara manual.
+// PATCH — update satu staff. 🆕 sekarang termasuk field `jabatan` (role
+//         singkat, mis. SPV/SSPV/MGR — terpisah dari jabatan_raw yang
+//         merupakan teks mentah asli dari Excel).
 
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
@@ -17,7 +15,7 @@ export async function GET() {
   try {
     const result = await client.query(`
       SELECT
-        s.kode, s.email, s.nama, s.jabatan_raw, s.unit_type, s.unit_id, s.is_manager,
+        s.kode, s.email, s.nama, s.jabatan_raw, s.jabatan, s.unit_type, s.unit_id, s.is_manager,
         CASE
           WHEN s.unit_type = 'department' THEN d1.nama
           WHEN s.unit_type = 'section'    THEN sec.nama
@@ -39,6 +37,7 @@ export async function GET() {
         email:                row.email,
         nama:                 row.nama,
         jabatanRaw:           row.jabatan_raw,
+        jabatan:              row.jabatan,
         unitType:             row.unit_type,
         unitId:               row.unit_id,
         unitNama:             row.unit_nama,
@@ -63,6 +62,7 @@ export async function POST(request: NextRequest) {
     const email      = (body.email || '').trim();
     const nama       = (body.nama || '').trim();
     const jabatanRaw = body.jabatanRaw ? String(body.jabatanRaw).trim() : null;
+    const jabatan    = body.jabatan ? String(body.jabatan).trim() : null;
     const unitType   = body.unitType || null; // 'department' | 'section' | null
     const unitId     = body.unitId || null;
     const isManager  = typeof body.isManager === 'boolean' ? body.isManager : false;
@@ -74,13 +74,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'unitType harus department atau section' }, { status: 400 });
     }
     // PENTING: kode ini yang akan dicocokkan dengan kolom procedure_documents.pic
-    // (mis. 'AYS') — jadi harus konsisten dengan kode yang dipakai di sana.
 
     const result = await client.query(
-      `INSERT INTO staff_directory (kode, email, nama, jabatan_raw, unit_type, unit_id, is_manager, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+      `INSERT INTO staff_directory
+         (kode, email, nama, jabatan_raw, jabatan, unit_type, unit_id, is_manager, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
        RETURNING *`,
-      [kode, email, nama, jabatanRaw, unitType, unitId, isManager]
+      [kode, email, nama, jabatanRaw, jabatan, unitType, unitId, isManager]
     );
 
     return NextResponse.json(
@@ -88,6 +88,7 @@ export async function POST(request: NextRequest) {
         kode:      result.rows[0].kode,
         email:     result.rows[0].email,
         nama:      result.rows[0].nama,
+        jabatan:   result.rows[0].jabatan,
         unitType:  result.rows[0].unit_type,
         unitId:    result.rows[0].unit_id,
         isManager: result.rows[0].is_manager,
@@ -109,13 +110,13 @@ export async function PATCH(request: NextRequest) {
   const client = await pool.connect();
   try {
     const body = await request.json();
-    const kode       = (body.kode || '').trim().toUpperCase();
-    const email      = body.email !== undefined ? String(body.email).trim() : undefined;
-    const nama       = body.nama !== undefined ? String(body.nama).trim() : undefined;
-    const jabatanRaw = body.jabatanRaw !== undefined ? (body.jabatanRaw ? String(body.jabatanRaw).trim() : null) : undefined;
-    const unitType   = body.unitType; // 'department' | 'section' | null
-    const unitId     = body.unitId ?? null;
-    const isManager  = typeof body.isManager === 'boolean' ? body.isManager : undefined;
+    const kode      = (body.kode || '').trim().toUpperCase();
+    const email     = body.email !== undefined ? String(body.email).trim() : undefined;
+    const nama      = body.nama !== undefined ? String(body.nama).trim() : undefined;
+    const jabatan   = body.jabatan !== undefined ? (body.jabatan ? String(body.jabatan).trim() : null) : undefined;
+    const unitType  = body.unitType; // 'department' | 'section' | null
+    const unitId    = body.unitId ?? null;
+    const isManager = typeof body.isManager === 'boolean' ? body.isManager : undefined;
 
     if (!kode) {
       return NextResponse.json({ error: 'Kode staff wajib diisi' }, { status: 400 });
@@ -134,7 +135,7 @@ export async function PATCH(request: NextRequest) {
       `UPDATE staff_directory
        SET email       = $1,
            nama        = $2,
-           jabatan_raw = $3,
+           jabatan     = $3,
            unit_type   = $4,
            unit_id     = $5,
            is_manager  = $6,
@@ -144,7 +145,7 @@ export async function PATCH(request: NextRequest) {
       [
         email !== undefined ? email : current.email,
         nama !== undefined ? nama : current.nama,
-        jabatanRaw !== undefined ? jabatanRaw : current.jabatan_raw,
+        jabatan !== undefined ? jabatan : current.jabatan,
         unitType !== undefined ? unitType : current.unit_type,
         unitType !== undefined ? unitId   : current.unit_id,
         isManager !== undefined ? isManager : current.is_manager,
@@ -156,6 +157,7 @@ export async function PATCH(request: NextRequest) {
       kode:      result.rows[0].kode,
       email:     result.rows[0].email,
       nama:      result.rows[0].nama,
+      jabatan:   result.rows[0].jabatan,
       unitType:  result.rows[0].unit_type,
       unitId:    result.rows[0].unit_id,
       isManager: result.rows[0].is_manager,

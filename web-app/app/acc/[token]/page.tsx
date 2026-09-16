@@ -5,6 +5,12 @@
 // backend (app/api/acc/[token]/route.ts) menandai ACC dan otomatis
 // melanjutkan ke tahap berikutnya (Prepared -> Checked -> Approved) atau
 // menyelesaikan cycle jika tahap terakhir sudah selesai.
+//
+// 🆕 Di bagian bawah ada Diskusi Dokumen — chat real-time dengan admin dan
+// approver lain. Chat SENGAJA ditampilkan di semua kondisi (termasuk setelah
+// orang ini sudah ACC, setelah dokumen maju ke tahap berikutnya, maupun
+// setelah cycle ditolak/selesai) — sesuai alur: yang dibatasi oleh tahap
+// hanyalah tombol Setujui/Tolak, bukan kemampuan berkomunikasi.
 
 'use client';
 
@@ -12,6 +18,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import AnnotatablePDFViewer from '@/components/documents/AnnotatablePDFViewer';
 import VersionToggleBar from '@/components/documents/VersionToggleBar';
+import DocumentChat from '@/components/chat/DocumentChat';
 
 interface RejectionInfo {
   role: 'prepared' | 'checked' | 'approved';
@@ -483,6 +490,16 @@ export default function AccPage() {
               </div>
             )
           )}
+
+          {/* 🆕 Diskusi dengan admin & approver lain.
+              Sengaja DI LUAR semua kondisi di atas — chat tetap tersedia
+              setelah Anda ACC, setelah dokumen maju ke tahap berikutnya,
+              maupun setelah cycle ditolak/selesai. */}
+          <DocumentChat
+            accToken={token}
+            myEmail={info.email}
+            subtitle={info.namaDokumen}
+          />
         </div>
 
         <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-100">

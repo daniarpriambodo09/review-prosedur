@@ -764,7 +764,7 @@ def send_email(smtp_cfg: dict, receiver: str, pic: str, dokumen_list: list) -> N
     password     = smtp_cfg["smtp_password"]
     has_auth     = bool(username and password)
 
-    review_link = f"{app_url}/review-prosedur/review-page-owner/{quote(str(pic), safe='')}"
+    review_link = f"{app_url}/review-prosedur/pic-login"
 
     log_info(
         f"Sending email to {receiver} (PIC: {pic}) | "

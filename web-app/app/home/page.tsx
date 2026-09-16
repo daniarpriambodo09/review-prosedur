@@ -7,6 +7,7 @@ import { getAllProcedures, ProcedureDocument, StatusType } from '@/data/procedur
 import { useAuth } from '@/contexts/AuthContext';
 import DocumentModal from '@/components/documents/DocumentModal';
 import EmailScheduleModal from '@/components/status-review/EmailScheduleModal';
+import SectionReviewChart from '@/components/dashboard/SectionReviewChart';
 import {
   FileText, CheckCircle2, RefreshCw, Clock, TrendingUp,
   Plus, CalendarClock, Archive, Users, Settings, Activity,
@@ -471,6 +472,9 @@ export default function HomePage() {
               subtitle={`${stats.menunggu} menunggu · ${stats.terkirim} terkirim · ${stats.terbaca} terbaca`}
             />
           </div>
+
+          {/* ── Grafik Total vs Sudah Direview per Section — GLOBAL, semua PIC ── */}
+          <SectionReviewChart />
 
           {/* ── Review Progress + Dokumen ──────────────────────────────────── */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">

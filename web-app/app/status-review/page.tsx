@@ -994,16 +994,9 @@ export default function StatusReviewPage() {
               <table className="w-full">
                 <thead className="bg-slate-50/80 border-b border-slate-200">
                   <tr>
-                    {sTh('Nama Dokumen',          'namaDokumen')}
-                    {sTh('Nomor Dokumen',         'nomorDokumen')}
-                    {sTh('Level',                 'levelDokumen')}
-                    {sTh('Tgl Approval',          'tanggalSelesaiApproval')}
-                    {sTh('Revisi',                'revisi')}
-                    {plainTh('Owner')}
-                    {sTh('PIC',                   'pic')}
-                    {plainTh('Email')}
+                    {sTh('Nama Dokumen',  'namaDokumen')}
+                    {sTh('Nomor Dokumen', 'nomorDokumen')}
                     {plainTh('Status')}
-                    {plainTh('Jadwal Email')}
                     {plainTh('Aksi')}
                   </tr>
                 </thead>
@@ -1019,55 +1012,40 @@ export default function StatusReviewPage() {
                             showBadge ? 'bg-violet-50/30' : index % 2 === 1 ? 'bg-slate-50/30' : ''
                           }`}
                         >
-                          {/* Nama dokumen bisa diklik → DocumentModal */}
-                          <td className="px-4 py-2 max-w-[220px]">
-                            <button
-                              onClick={() => handleDocumentClick(row.nomorDokumen, row.namaDokumen, row.status)}
+                          {/* 🆕 Nama dokumen sekarang mengarah ke halaman detail */}
+                          <td className="px-4 py-2 max-w-[320px]">
+                            <Link
+                              href={`/status-review/${encodeURIComponent(row.nomorDokumen)}`}
                               className="text-left text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline underline-offset-2 transition-colors line-clamp-2"
                             >
                               <Highlight text={row.namaDokumen} keyword={debouncedSearch} />
-                            </button>
+                            </Link>
                           </td>
 
                           {/* Nomor Dokumen */}
                           <td className="px-4 py-2 text-xs text-slate-600 font-mono whitespace-nowrap">
                             <Highlight text={row.nomorDokumen} keyword={debouncedSearch} />
                           </td>
-
-                          {/* Level */}
-                          <td className="px-4 py-2 text-xs text-slate-600">
-                            {row.levelDokumen}
-                          </td>
-
-                          {/* Tgl Approval */}
-                          <td className="px-4 py-2 text-xs text-slate-600 whitespace-nowrap">
-                            <Highlight text={formatToDDMonYYYY(row.tanggalSelesaiApproval)} keyword={debouncedSearch} />
-                          </td>
-
-                          {/* Revisi */}
-                          <td className="px-4 py-2 text-xs text-slate-600 text-center">
-                            <Highlight text={String(row.revisi ?? '')} keyword={debouncedSearch} />
-                          </td>
-
-                          {/* Owner */}
-                          <td className="px-4 py-2 text-xs text-slate-600">
-                            <Highlight text={row.owner} keyword={debouncedSearch} />
-                          </td>
-
-                          {/* PIC */}
-                          <td className="px-4 py-2 text-xs text-slate-600 whitespace-nowrap">
-                            <Highlight text={row.pic} keyword={debouncedSearch} />
-                          </td>
-
-                          {/* Email */}
-                          <td className="px-4 py-2 text-xs text-slate-500 whitespace-nowrap">
-                            <Highlight text={row.email || '-'} keyword={debouncedSearch} />
-                          </td>
-
-                          {/* Status + badge "Baru Direview" */}
+                          
+                          {/* Status + indikator jadwal email aktif + badge "Baru Direview" */}
                           <td className="px-4 py-2">
                             <div className="flex flex-col gap-1.5 items-start">
-                              <StatusBadge status={row.status} />
+                              <div className="flex items-center gap-1.5">
+                                <StatusBadge status={row.status} />
+                                {schedule && schedule.emailStatus !== 'cancelled' && !isScheduleExpired(schedule) && (
+                                  <Link
+                                    href={`/status-review/${encodeURIComponent(row.nomorDokumen)}`}
+                                    title={`Ada jadwal email aktif (${schedule.emailStatus === 'sent' ? 'sudah terkirim' : 'menunggu dikirim'}) — klik untuk detail`}
+                                    className="inline-flex hover:scale-125 transition-transform"
+                                  >
+                                    <span
+                                      className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                                        schedule.emailStatus === 'sent' ? 'bg-emerald-500' : 'bg-amber-500'
+                                      }`}
+                                    />
+                                  </Link>
+                                )}
+                              </div>
                               {showBadge && row.lastReviewedAt && (
                                 <RecentlyReviewedBadge
                                   lastReviewedAt={row.lastReviewedAt}
@@ -1077,37 +1055,7 @@ export default function StatusReviewPage() {
                             </div>
                           </td>
 
-                          {/* Jadwal Email — baris tunggal ringkas + titik detail */}
-                          <td className="px-4 py-2">
-                            {schedule && schedule.emailStatus !== 'cancelled' && !isScheduleExpired(schedule) ? (
-                              <div className="flex items-center gap-1.5 text-xs flex-wrap">
-                                <span className="font-medium text-slate-700 whitespace-nowrap">
-                                  {new Date(schedule.scheduledEmailAt).toLocaleDateString('id-ID', {
-                                    day: '2-digit', month: 'short', year: 'numeric',
-                                  })}
-                                </span>
-                                <span className="text-slate-400">
-                                  {new Date(schedule.scheduledEmailAt).toLocaleTimeString('id-ID', {
-                                    hour: '2-digit', minute: '2-digit',
-                                  })}
-                                </span>
-                                <EmailStatusBadge status={schedule.emailStatus} />
-                                <EmailScheduleDot
-                                  schedule={schedule}
-                                  isOpen={openScheduleDetail === row.nomorDokumen}
-                                  onToggle={() =>
-                                    setOpenScheduleDetail(prev =>
-                                      prev === row.nomorDokumen ? null : row.nomorDokumen
-                                    )
-                                  }
-                                />
-                              </div>
-                            ) : (
-                              <span className="text-slate-300 text-xs">—</span>
-                            )}
-                          </td>
-
-                          {/* Aksi — 🆕 BARU: tombol Approval ditambahkan di sini */}
+                          {/* Aksi — tidak berubah */}
                           <td className="px-4 py-2">
                             <div className="flex items-center gap-1">
                               <button
@@ -1152,7 +1100,7 @@ export default function StatusReviewPage() {
                     })
                   ) : (
                     <tr>
-                      <td colSpan={11} className="px-5 py-14 text-center">
+                      <td colSpan={4} className="px-5 py-14 text-center">
                         <FileText size={40} className="mx-auto mb-3 text-slate-300" />
                         <p className="text-sm font-medium text-slate-500">
                           {hasFilter ? 'Tidak ada dokumen yang sesuai filter' : 'Belum ada data prosedur'}

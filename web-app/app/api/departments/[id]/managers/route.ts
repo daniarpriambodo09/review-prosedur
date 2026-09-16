@@ -1,5 +1,8 @@
 // app/api/departments/[id]/managers/route.ts
 //
+// TIDAK BERUBAH dari versi sebelumnya — disalin ulang di sini supaya paket
+// file yang di-download lengkap satu folder /api/departments.
+//
 // POST   — assign seorang staff jadi manager departemen ini (body: { kode }).
 //          Otomatis set staff_directory.is_manager = TRUE juga.
 // DELETE — lepas assignment manager dari departemen ini (body: { kode }).

@@ -10,6 +10,7 @@ import PICDocumentsList from '@/components/pic/PICDocumentsList';
 import PICActivityLog from '@/components/pic/PICActivityLog';
 import RequestReviewModal from '@/components/pic/RequestReviewModal';
 import RequestNewDocumentModal from '@/components/pic/RequestNewDocumentModal';
+import SectionReviewChart from '@/components/dashboard/SectionReviewChart';
 import Link from 'next/link';
 
 interface PICDashboardData {
@@ -190,6 +191,13 @@ export default function PICDashboardPage() {
 
         {/* Stats */}
         {dashboardData && <PICStatsCards stats={dashboardData.stats} />}
+
+        {/* 🆕 Grafik Total vs Sudah Direview per Section — GLOBAL, sama untuk
+            semua PIC & admin. Diletakkan paling atas, tepat di bawah stat
+            cards dan sebelum tombol aksi / daftar dokumen. */}
+        <div className="mb-5">
+          <SectionReviewChart />
+        </div>
 
         {/* Action Buttons — CHANGED: gap-4→gap-3, mb-8→mb-5, py-3→py-2, text-sm ditambah */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">

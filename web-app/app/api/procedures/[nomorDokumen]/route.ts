@@ -103,6 +103,11 @@ export async function PATCH(
         `UPDATE procedure_revision_notes SET nomor_dokumen = $1 WHERE nomor_dokumen = $2`,
         [finalNomor, nomorDokumen]
       );
+
+      await client.query(
+        `UPDATE document_chat_messages SET nomor_dokumen = $1 WHERE nomor_dokumen = $2`,
+        [finalNomor, nomorDokumen]
+      );
     }
 
     await client.query('COMMIT');

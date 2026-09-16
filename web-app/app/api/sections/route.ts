@@ -1,7 +1,12 @@
 // app/api/sections/route.ts
 //
-// GET  — daftar semua section + nama departemen induk + jumlah staff.
-// POST — buat section baru (body: { nama, departmentId }).
+// GET  — daftar semua section: nama departemen induk (nullable), jumlah
+//        dokumen di procedure_documents yang Owner-nya cocok, dan jumlah
+//        staff yang ter-assign ke section ini.
+// POST — buat section baru (berdiri sendiri, department_id = NULL).
+//        Section TIDAK lagi wajib punya departemen induk saat dibuat —
+//        admin bisa memasukkannya ke sebuah Departemen belakangan dari
+//        tab Departemen di /kelola-departemen.
 
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
@@ -12,14 +17,20 @@ export async function GET() {
     const result = await client.query(`
       SELECT
         s.id, s.nama, s.department_id, d.nama AS department_nama,
+        COALESCE(doc.doc_count, 0) AS doc_count,
         COALESCE(stf.staff_count, 0) AS staff_count
       FROM sections s
-      JOIN departments d ON d.id = s.department_id
+      LEFT JOIN departments d ON d.id = s.department_id
+      LEFT JOIN (
+        SELECT TRIM(owner) AS owner_nama, COUNT(*) AS doc_count
+        FROM procedure_documents
+        GROUP BY TRIM(owner)
+      ) doc ON doc.owner_nama = s.nama
       LEFT JOIN (
         SELECT unit_id, COUNT(*) AS staff_count
         FROM staff_directory WHERE unit_type = 'section' GROUP BY unit_id
       ) stf ON stf.unit_id = s.id
-      ORDER BY d.nama ASC, s.nama ASC
+      ORDER BY s.nama ASC
     `);
 
     return NextResponse.json(
@@ -28,6 +39,7 @@ export async function GET() {
         nama:           row.nama,
         departmentId:   row.department_id,
         departmentNama: row.department_nama,
+        docCount:       Number(row.doc_count),
         staffCount:     Number(row.staff_count),
       }))
     );
@@ -42,30 +54,26 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const client = await pool.connect();
   try {
-    const body        = await request.json();
-    const nama         = (body.nama || '').trim();
-    const departmentId = body.departmentId;
+    const body = await request.json();
+    const nama = (body.nama || '').trim();
 
-    if (!nama || !departmentId) {
-      return NextResponse.json({ error: 'Nama section dan departemen induk wajib diisi' }, { status: 400 });
+    if (!nama) {
+      return NextResponse.json({ error: 'Nama section wajib diisi' }, { status: 400 });
     }
 
     const result = await client.query(
-      `INSERT INTO sections (nama, department_id) VALUES ($1, $2) RETURNING *`,
-      [nama, departmentId]
+      `INSERT INTO sections (nama, department_id) VALUES ($1, NULL) RETURNING *`,
+      [nama]
     );
 
     return NextResponse.json(
-      { id: result.rows[0].id, nama: result.rows[0].nama, departmentId: result.rows[0].department_id },
+      { id: result.rows[0].id, nama: result.rows[0].nama, departmentId: null },
       { status: 201 }
     );
   } catch (error: any) {
     console.error('Error creating section:', error);
     if (error.code === '23505') {
       return NextResponse.json({ error: 'Nama section sudah ada' }, { status: 409 });
-    }
-    if (error.code === '23503') {
-      return NextResponse.json({ error: 'Departemen induk tidak valid' }, { status: 400 });
     }
     return NextResponse.json({ error: 'Failed to create section' }, { status: 500 });
   } finally {

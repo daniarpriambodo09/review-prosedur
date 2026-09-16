@@ -18,6 +18,8 @@ export async function GET(request: NextRequest) {
         es.last_sent_at,
         es.retry_count,
         es.error_message,
+        es.cycle_deadline_at,
+        es.is_manual,
         es.created_at,
         es.updated_at,
         pd.nama_dokumen,
@@ -45,6 +47,8 @@ export async function GET(request: NextRequest) {
       lastSentAt: row.last_sent_at,
       retryCount: row.retry_count,
       errorMessage: row.error_message,
+      cycleDeadlineAt: row.cycle_deadline_at,
+      isManual: row.is_manual,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       namaDokumen: row.nama_dokumen,
@@ -60,6 +64,19 @@ export async function GET(request: NextRequest) {
 }
 
 // PUT
+//
+// 🆕 Dipakai fitur "Atur Jadwal" di /status-review. Selain menyimpan tanggal
+// kirim, sekarang juga menghitung:
+//   - cycle_deadline_at          = tanggal ini + 2 bulan (T-0, dipakai
+//                                  app/api/procedures/route.ts untuk
+//                                  menentukan kapan dokumen auto-jadi Relevan)
+//   - manager_email_scheduled_at = tanggal ini + 1 bulan (eskalasi manager
+//                                  kalau PIC belum review dalam 1 bulan)
+//   - is_manual = TRUE           = penanda bahwa jadwal ini dibuat manual
+//                                  oleh admin, BUKAN siklus tahunan otomatis
+//                                  — dibaca oleh app/api/reviews/route.ts
+//                                  untuk tahu kapan tanggal_selesai_approval
+//                                  perlu di-reset ke tanggal review.
 export async function PUT(request: NextRequest) {
   const client = await pool.connect();
   try {
@@ -86,6 +103,22 @@ export async function PUT(request: NextRequest) {
       }
     }
 
+    const currentScheduleStatus = emailStatus || 'pending';
+
+    // Saat admin bikin/reset jadwal MANUAL (emailStatus 'pending'), hitung
+    // cycle_deadline_at (T-0, 2 bulan dari tanggal ini) dan
+    // manager_email_scheduled_at (T+1 bulan) — supaya jadwal manual punya
+    // siklus lengkap yang SAMA seperti reminder otomatis (email PIC ->
+    // eskalasi manager kalau 1 bulan belum direview -> auto Relevan kalau
+    // 2 bulan total belum direview).
+    let cycleDeadlineAt: Date | null = null;
+    let managerScheduledAt: Date | null = null;
+    if (currentScheduleStatus === 'pending') {
+      const base = new Date(scheduledEmailAt);
+      cycleDeadlineAt    = new Date(base.getFullYear(), base.getMonth() + 2, base.getDate(), base.getHours(), base.getMinutes());
+      managerScheduledAt = new Date(base.getFullYear(), base.getMonth() + 1, base.getDate(), base.getHours(), base.getMinutes());
+    }
+
     await client.query('BEGIN');
 
     // Upsert email schedule
@@ -99,24 +132,28 @@ export async function PUT(request: NextRequest) {
       result = await client.query(
         `UPDATE email_schedules
          SET
-           scheduled_email_at = $1,
-           email_status       = COALESCE($2, 'pending'),
-           error_message      = NULL,
-           updated_at         = CURRENT_TIMESTAMP
-         WHERE nomor_dokumen = $3
+           scheduled_email_at          = $1,
+           email_status                = $2::varchar,
+           error_message               = NULL,
+           last_sent_at                = CASE WHEN $2::varchar = 'pending' THEN NULL ELSE last_sent_at END,
+           cycle_deadline_at           = COALESCE($3, cycle_deadline_at),
+           manager_email_scheduled_at  = COALESCE($4, manager_email_scheduled_at),
+           manager_email_status        = CASE WHEN $2::varchar = 'pending' THEN 'not_applicable' ELSE manager_email_status END,
+           is_manual                   = CASE WHEN $2::varchar = 'pending' THEN TRUE ELSE is_manual END,
+           updated_at                  = CURRENT_TIMESTAMP
+         WHERE nomor_dokumen = $5
          RETURNING *`,
-        [scheduledEmailAt, emailStatus || 'pending', nomorDokumen]
+        [scheduledEmailAt, currentScheduleStatus, cycleDeadlineAt, managerScheduledAt, nomorDokumen]
       );
     } else {
       result = await client.query(
-        `INSERT INTO email_schedules (nomor_dokumen, scheduled_email_at, email_status)
-         VALUES ($1, $2, $3)
+        `INSERT INTO email_schedules
+           (nomor_dokumen, scheduled_email_at, email_status, cycle_deadline_at, manager_email_scheduled_at, manager_email_status, is_manual)
+         VALUES ($1, $2, $3, $4, $5, 'not_applicable', TRUE)
          RETURNING *`,
-        [nomorDokumen, scheduledEmailAt, emailStatus || 'pending']
+        [nomorDokumen, scheduledEmailAt, currentScheduleStatus, cycleDeadlineAt, managerScheduledAt]
       );
     }
-
-    const currentScheduleStatus = emailStatus || 'pending';
 
     if (currentScheduleStatus === 'pending') {
       // Admin secara eksplisit membuat/mengupdate jadwal baru →

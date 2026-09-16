@@ -26,6 +26,35 @@
 // kolom procedure_documents.pic) dicocokkan ke staff dengan is_manager=true
 // di departemen yang sama (termasuk manager gabungan departemen, mis.
 // 'FATP-EXIM').
+//
+// ============================================================================
+// 🆕 FIX — cycle_deadline_at eksplisit (bug jadwal manual langsung ter-cancel)
+// ============================================================================
+// SEBELUMNYA, autoExpireAtDeadline() menghitung ulang T-0 dari hari-bulan
+// tanggalSelesaiApproval dicocokkan ke TAHUN BERJALAN setiap kali endpoint ini
+// diakses. Untuk dokumen yang hari-bulan approvalnya sudah lewat di tahun ini
+// (kasus umum untuk dokumen lama), itu membuat fungsi tsb SELALU menganggap
+// "sudah lewat deadline" sepanjang sisa tahun — termasuk untuk jadwal yang
+// BARU SAJA dibuat admin lewat "Atur Jadwal" di /status-review, sehingga
+// status & jadwal langsung dibatalkan lagi di request berikutnya.
+//
+// SEKARANG deadline (T-0) disimpan eksplisit di kolom email_schedules.
+// cycle_deadline_at setiap kali sebuah siklus (baik otomatis tahunan maupun
+// manual dari admin) dibuat/di-reset — autoExpireAtDeadline() tinggal
+// membaca kolom ini, tidak menebak-nebak lagi.
+//
+// 🆕 FIX — is_manual (tanggal approval ikut pindah kalau direview di bawah
+// jadwal manual)
+// ============================================================================
+// Kalau admin mengatur jadwal manual (Atur Jadwal) untuk dokumen yang
+// tanggal_selesai_approval aslinya sudah sangat lampau, dan PIC benar-benar
+// mereview dokumen itu, maka tanggal_selesai_approval di-reset ke TANGGAL
+// REVIEW tsb (lihat app/api/reviews/route.ts) — supaya siklus tahunan
+// berikutnya berpatokan ke tanggal yang relevan, bukan tanggal lampau yang
+// sudah tidak berarti. Flag is_manual di email_schedules menandai jadwal mana
+// yang "manual" (di-set oleh app/api/email-schedules/route.ts PUT), berbeda
+// dari jadwal siklus tahunan otomatis (createOrResetSchedule di bawah, yang
+// SELALU set is_manual = FALSE).
 // ============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -100,19 +129,21 @@ function isWithinGraceWindow(target: Date, reference: Date): boolean {
 }
 
 // Deadline (T-0) siklus AKTIF SEKARANG untuk sebuah tanggalApproval, dihitung
-// dari "reference" (biasanya "now"). Ini basis semua perhitungan T-2bulan/T-1bulan.
+// dari "reference" (biasanya "now"). Ini basis semua perhitungan T-2bulan/T-1bulan
+// UNTUK SIKLUS OTOMATIS TAHUNAN. Untuk siklus manual (Atur Jadwal), deadline
+// TIDAK dihitung dari sini — lihat cycle_deadline_at di email_schedules.
 function currentCycleDeadline(tanggalApproval: string, reference: Date = new Date()): Date | null {
   const dm = dayMonthOf(tanggalApproval);
   if (!dm) return null;
   return nextOccurrence(dm.month, dm.day, reference);
 }
 
-// Sudah lewat deadline (T-0) siklus saat ini?
+// Sudah lewat deadline (T-0) siklus saat ini? HANYA dipakai sebagai fallback
+// di autoExpireAtDeadline() untuk baris email_schedules lama yang belum
+// punya cycle_deadline_at terisi.
 function isPastDeadline(tanggalApproval: string, reference: Date = new Date()): boolean {
   const dm = dayMonthOf(tanggalApproval);
   if (!dm) return false;
-  // deadline TERDEKAT DI MASA LALU (bukan next occurrence) -> kalau hari ini
-  // PAS di hari-bulan itu, anggap "sudah sampai" (>=).
   const ref = dateOnly(reference);
   let deadlineThisYear = new Date(ref.getFullYear(), dm.month, dm.day);
   return ref >= deadlineThisYear;
@@ -125,6 +156,9 @@ function isPastDeadline(tanggalApproval: string, reference: Date = new Date()): 
 
 // ── Buat/reset jadwal email 2-tahap untuk sebuah dokumen ────────────────────
 // Dipanggil saat dokumen masuk 'Menunggu' (baru dibuat / reaktivasi tahunan).
+// is_manual SELALU FALSE di sini — jalur ini khusus SIKLUS OTOMATIS TAHUNAN.
+// Jadwal MANUAL (Atur Jadwal oleh admin) dibuat lewat
+// app/api/email-schedules/route.ts (PUT), bukan lewat fungsi ini.
 async function createOrResetSchedule(
   client: any,
   nomorDokumen: string,
@@ -139,21 +173,17 @@ async function createOrResetSchedule(
   // auto-schedule). Selain itu, reminder SELALU jatuh di TANGGAL 1 pada
   // bulan (deadline - 2) — bukan tanggal persis (deadline - 2 bulan).
   // Contoh: deadline 3 Desember -> PIC direminder 1 Oktober, bukan 3 Oktober.
-  // Kalau tanggal 1 itu ternyata sudah lewat, email tetap akan terkirim di
-  // polling send_email.py berikutnya SELAMA masih dalam masa toleransi
-  // maintenance (lihat send_email.py) — di luar itu, dianggap kelewat dan
-  // menunggu siklus tahun depan (tidak ada catch-up tak terbatas lagi).
   const picScheduledAt = needsReview === true
     ? now
     : addMonthsFirstDay(deadline, -2);
 
   const managerScheduledAt = addMonthsFirstDay(deadline, -1);
 
-  // NOTE: pakai pola SELECT-lalu-INSERT/UPDATE (bukan ON CONFLICT), karena
-  // belum dipastikan ada unique constraint di kolom nomor_dokumen pada tabel
-  // email_schedules — kode lama project ini juga selalu pakai pola ini
-  // (lihat autoScheduleAndActivate versi sebelumnya). Kalau ternyata memang
-  // ada unique constraint, boleh disederhanakan jadi ON CONFLICT nanti.
+  // 🆕 cycleDeadline disimpan EKSPLISIT — inilah yang dipakai
+  // autoExpireAtDeadline() untuk menentukan T-0, BUKAN dihitung ulang dari
+  // tanggalApproval setiap kali endpoint ini diakses.
+  const cycleDeadline = deadline;
+
   const existing = await client.query(
     `SELECT id FROM email_schedules WHERE nomor_dokumen = $1 LIMIT 1`,
     [nomorDokumen]
@@ -169,19 +199,21 @@ async function createOrResetSchedule(
            manager_email_status        = 'not_applicable',
            manager_email_sent_at       = NULL,
            manager_email_error         = NULL,
+           cycle_deadline_at           = $4,
+           is_manual                   = FALSE,
            retry_count                 = 0,
            error_message               = NULL,
            updated_at                  = CURRENT_TIMESTAMP
        WHERE nomor_dokumen = $1`,
-      [nomorDokumen, picScheduledAt, managerScheduledAt]
+      [nomorDokumen, picScheduledAt, managerScheduledAt, cycleDeadline]
     );
   } else {
     await client.query(
       `INSERT INTO email_schedules
          (nomor_dokumen, scheduled_email_at, email_status,
-          manager_email_scheduled_at, manager_email_status)
-       VALUES ($1, $2, 'pending', $3, 'not_applicable')`,
-      [nomorDokumen, picScheduledAt, managerScheduledAt]
+          manager_email_scheduled_at, manager_email_status, cycle_deadline_at, is_manual)
+       VALUES ($1, $2, 'pending', $3, 'not_applicable', $4, FALSE)`,
+      [nomorDokumen, picScheduledAt, managerScheduledAt, cycleDeadline]
     );
   }
 
@@ -189,6 +221,14 @@ async function createOrResetSchedule(
 }
 
 // ─── Langkah 1: auto-set 'Relevan' TEPAT DI T-0 kalau belum ada status ──────
+// 🐛 FIX: deadline (T-0) SEKARANG dibaca dari cycle_deadline_at milik jadwal
+// yang sedang aktif — BUKAN dihitung ulang dari hari-bulan tanggalSelesai-
+// Approval yang dicocokkan ke "tahun ini". Cara lama itu bug: begitu hari-
+// bulan tsb sudah lewat DI TAHUN INI (hampir selalu true untuk dokumen yang
+// sudah lama ada di sistem), isPastDeadline() akan SELALU bernilai true
+// sepanjang sisa tahun — termasuk untuk jadwal yang BARU SAJA dibuat admin
+// lewat "Atur Jadwal" di /status-review, sehingga langsung dibatalkan lagi
+// di request berikutnya.
 async function autoExpireAtDeadline(
   client: any,
   nomorDokumen: string,
@@ -198,7 +238,23 @@ async function autoExpireAtDeadline(
   if (status !== '-' && status !== 'Belum dikirim' && status !== 'Telah terkirim' && status !== 'Telah dibaca') {
     return status;
   }
-  if (!isPastDeadline(tanggal)) return status;
+
+  const scheduleResult = await client.query(
+    `SELECT cycle_deadline_at FROM email_schedules WHERE nomor_dokumen = $1 LIMIT 1`,
+    [nomorDokumen]
+  );
+
+  let pastDeadline: boolean;
+  if (scheduleResult.rows.length > 0 && scheduleResult.rows[0].cycle_deadline_at) {
+    pastDeadline = new Date() >= new Date(scheduleResult.rows[0].cycle_deadline_at);
+  } else {
+    // Fallback — jadwal lama yang dibuat sebelum kolom cycle_deadline_at ada.
+    // Akan otomatis terisi begitu jadwal ini di-reset (reaktivasi tahunan
+    // atau Atur Jadwal manual), setelah itu tidak lagi lewat jalur ini.
+    pastDeadline = isPastDeadline(tanggal);
+  }
+
+  if (!pastDeadline) return status;
 
   await client.query(
     `UPDATE procedure_documents

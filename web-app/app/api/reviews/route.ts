@@ -4,27 +4,56 @@
 // — POST & PATCH: saat PIC submit review, set:
 //     last_reviewed_at = NOW()   ← timestamp review terbaru
 //     review_seen_at   = NULL    ← reset agar badge "Baru Direview" muncul kembali
-// — 🆕 activityType log SEKARANG dipecah berdasarkan status yang diberikan
+// — activityType log dipecah berdasarkan status yang diberikan
 //   (review_relevan / review_revisi / review_obsolete), bukan 'review'
 //   generik lagi — supaya admin bisa filter "Aktivitas Terbaru" per status
-//   hasil review PIC (siapa & kapan kasih Relevan/Revisi/Obsolete), bukan
-//   semuanya nyampur di satu badge "Review".
-//
-// Tidak ada perubahan pada logika status, revisi, atau kolom lainnya.
+//   hasil review PIC.
+// — 🆕 Kalau dokumen ini direview di bawah jadwal MANUAL (is_manual = TRUE
+//   di email_schedules — di-set oleh app/api/email-schedules/route.ts saat
+//   admin klik "Atur Jadwal"), tanggal_selesai_approval OTOMATIS di-reset ke
+//   TANGGAL REVIEW INI (hari ini), lalu is_manual dikembalikan ke FALSE.
+//   Ini supaya siklus tahunan berikutnya berpatokan ke tanggal review yang
+//   baru & relevan, bukan tanggal approval lama yang sudah tidak berarti.
+//   Untuk review yang terjadi lewat siklus tahunan biasa (is_manual = FALSE
+//   atau tidak ada baris jadwal sama sekali), tanggal_selesai_approval TIDAK
+//   disentuh — perilaku lama tetap berlaku.
 
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { logActivity, type ActivityType } from '@/lib/activityLogger';
 
-// 🆕 Map status hasil review ke activityType yang lebih spesifik.
-// Fallback ke 'review' generik kalau ada status di luar 3 ini (seharusnya
-// tidak pernah terjadi karena StatusType hanya mengizinkan Relevan/Revisi/
-// Obsolete untuk hasil review, tapi tetap dijaga supaya tidak error).
+// Map status hasil review ke activityType yang lebih spesifik.
 function reviewActivityType(status: string): ActivityType {
   if (status === 'Relevan')  return 'review_relevan';
   if (status === 'Revisi')   return 'review_revisi';
   if (status === 'Obsolete') return 'review_obsolete';
   return 'review';
+}
+
+// 🆕 Kalau dokumen ini sedang dalam jadwal manual, reset tanggal_selesai_approval
+// ke hari ini & matikan flag is_manual. Dipanggil setelah status/revisi
+// tersimpan, di dalam transaksi yang sama.
+async function maybeResetApprovalDateForManualSchedule(
+  client: any,
+  nomorDokumen: string
+): Promise<void> {
+  const scheduleCheck = await client.query(
+    `SELECT is_manual FROM email_schedules WHERE nomor_dokumen = $1`,
+    [nomorDokumen]
+  );
+  if (!scheduleCheck.rows[0]?.is_manual) return;
+
+  await client.query(
+    `UPDATE procedure_documents
+     SET tanggal_selesai_approval = CURRENT_DATE, updated_at = CURRENT_TIMESTAMP
+     WHERE nomor_dokumen = $1`,
+    [nomorDokumen]
+  );
+  await client.query(
+    `UPDATE email_schedules SET is_manual = FALSE, updated_at = CURRENT_TIMESTAMP
+     WHERE nomor_dokumen = $1`,
+    [nomorDokumen]
+  );
 }
 
 // ─── GET — Ambil review berdasarkan nomorDokumen dan bulan ────────────────────
@@ -113,11 +142,15 @@ export async function POST(request: NextRequest) {
       [status, revisi, nomorDokumen]
     );
 
+    // 🆕 Reset tanggal_selesai_approval kalau dokumen ini direview di bawah
+    // jadwal manual (Atur Jadwal).
+    await maybeResetApprovalDateForManualSchedule(client, nomorDokumen);
+
     await client.query('COMMIT');
 
     await logActivity({
       username:            'user',
-      activityType:        reviewActivityType(status), // 🆕
+      activityType:        reviewActivityType(status),
       activityDescription: `Review ${status} untuk ${namaDokumen}`,
       targetType:          'review',
       targetId:            nomorDokumen,
@@ -183,9 +216,13 @@ export async function PATCH(request: NextRequest) {
         [review.status, review.revisi, review.nomorDokumen]
       );
 
+      // 🆕 Sama seperti di POST — reset tanggal_selesai_approval kalau
+      // dokumen ini direview di bawah jadwal manual (Atur Jadwal).
+      await maybeResetApprovalDateForManualSchedule(client, review.nomorDokumen);
+
       await logActivity({
         username:            username || 'user',
-        activityType:        reviewActivityType(review.status), // 🆕
+        activityType:        reviewActivityType(review.status),
         activityDescription: `Batch review ${review.status} untuk ${namaDokumen}`,
         targetType:          'review',
         targetId:            review.nomorDokumen,

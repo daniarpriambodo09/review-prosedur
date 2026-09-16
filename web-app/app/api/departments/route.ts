@@ -1,8 +1,9 @@
 // app/api/departments/route.ts
 //
-// GET  — daftar semua departemen, termasuk jumlah section, jumlah staff,
-//        dan daftar manager (nama+email) yang di-assign ke departemen itu.
-// POST — buat departemen baru.
+// GET  — daftar semua departemen: jumlah staff LANGSUNG di departemen ini
+//        (bukan lewat section), daftar manager, dan daftar Section yang
+//        sudah dimasukkan ke departemen ini.
+// POST — buat departemen baru (kosong, belum ada section).
 
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
@@ -13,14 +14,10 @@ export async function GET() {
     const result = await client.query(`
       SELECT
         d.id, d.nama, d.created_at, d.updated_at,
-        COALESCE(sec.section_count, 0)  AS section_count,
-        COALESCE(stf.staff_count, 0)    AS staff_count,
-        COALESCE(mgr.managers, '[]')    AS managers
+        COALESCE(stf.staff_count, 0) AS staff_count,
+        COALESCE(mgr.managers, '[]')  AS managers,
+        COALESCE(sec.sections, '[]')  AS sections
       FROM departments d
-      LEFT JOIN (
-        SELECT department_id, COUNT(*) AS section_count
-        FROM sections GROUP BY department_id
-      ) sec ON sec.department_id = d.id
       LEFT JOIN (
         SELECT unit_id, COUNT(*) AS staff_count
         FROM staff_directory WHERE unit_type = 'department' GROUP BY unit_id
@@ -32,18 +29,25 @@ export async function GET() {
         JOIN staff_directory s ON s.kode = dm.manager_kode
         GROUP BY dm.department_id
       ) mgr ON mgr.department_id = d.id
+      LEFT JOIN (
+        SELECT department_id,
+               json_agg(json_build_object('id', id, 'nama', nama) ORDER BY nama) AS sections
+        FROM sections
+        WHERE department_id IS NOT NULL
+        GROUP BY department_id
+      ) sec ON sec.department_id = d.id
       ORDER BY d.nama ASC
     `);
 
     return NextResponse.json(
       result.rows.map(row => ({
-        id:           row.id,
-        nama:         row.nama,
-        createdAt:    row.created_at,
-        updatedAt:    row.updated_at,
-        sectionCount: Number(row.section_count),
-        staffCount:   Number(row.staff_count),
-        managers:     row.managers,
+        id:         row.id,
+        nama:       row.nama,
+        createdAt:  row.created_at,
+        updatedAt:  row.updated_at,
+        staffCount: Number(row.staff_count),
+        managers:   row.managers,
+        sections:   row.sections,
       }))
     );
   } catch (error) {
