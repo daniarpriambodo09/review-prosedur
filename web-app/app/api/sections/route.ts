@@ -27,9 +27,9 @@ export async function GET() {
         GROUP BY TRIM(owner)
       ) doc ON doc.owner_nama = s.nama
       LEFT JOIN (
-        SELECT unit_id, COUNT(*) AS staff_count
-        FROM staff_directory WHERE unit_type = 'section' GROUP BY unit_id
-      ) stf ON stf.unit_id = s.id
+        SELECT section_id, COUNT(DISTINCT staff_kode) AS staff_count
+        FROM staff_sections GROUP BY section_id
+      ) stf ON stf.section_id = s.id
       ORDER BY s.nama ASC
     `);
 

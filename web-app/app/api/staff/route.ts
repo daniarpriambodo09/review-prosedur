@@ -15,7 +15,22 @@ export async function GET() {
   try {
     const result = await client.query(`
       SELECT
-        s.kode, s.email, s.nama, s.jabatan_raw, s.jabatan, s.unit_type, s.unit_id, s.is_manager,
+        s.kode,
+        s.email,
+        s.nama,
+        s.jabatan_raw,
+        s.jabatan,
+        s.is_manager,
+        s.unit_type,
+        s.unit_id,
+        CASE
+          WHEN s.unit_type = 'department' THEN s.unit_id
+          ELSE NULL
+        END AS department_id,
+        CASE
+          WHEN s.unit_type = 'department' THEN d1.nama
+          ELSE NULL
+        END AS department_nama,
         CASE
           WHEN s.unit_type = 'department' THEN d1.nama
           WHEN s.unit_type = 'section'    THEN sec.nama
@@ -23,7 +38,23 @@ export async function GET() {
         CASE
           WHEN s.unit_type = 'section' THEN d2.nama
           ELSE NULL
-        END AS parent_department_nama
+        END AS parent_department_nama,
+        COALESCE(
+          (
+            SELECT json_agg(
+              json_build_object(
+                'id', sc.id,
+                'nama', sc.nama,
+                'departmentNama', d_sec.nama
+              ) ORDER BY sc.nama
+            )
+            FROM staff_sections ss
+            JOIN sections sc ON sc.id = ss.section_id
+            LEFT JOIN departments d_sec ON d_sec.id = sc.department_id
+            WHERE ss.staff_kode = s.kode
+          ),
+          '[]'::json
+        ) AS sections
       FROM staff_directory s
       LEFT JOIN departments d1 ON s.unit_type = 'department' AND d1.id = s.unit_id
       LEFT JOIN sections    sec ON s.unit_type = 'section'    AND sec.id = s.unit_id
@@ -38,6 +69,9 @@ export async function GET() {
         nama:                 row.nama,
         jabatanRaw:           row.jabatan_raw,
         jabatan:              row.jabatan,
+        sections:             row.sections || [],
+        departmentId:         row.department_id,
+        departmentNama:       row.department_nama,
         unitType:             row.unit_type,
         unitId:               row.unit_id,
         unitNama:             row.unit_nama,
@@ -63,9 +97,24 @@ export async function POST(request: NextRequest) {
     const nama       = (body.nama || '').trim();
     const jabatanRaw = body.jabatanRaw ? String(body.jabatanRaw).trim() : null;
     const jabatan    = body.jabatan ? String(body.jabatan).trim() : null;
-    const unitType   = body.unitType || null; // 'department' | 'section' | null
-    const unitId     = body.unitId || null;
     const isManager  = typeof body.isManager === 'boolean' ? body.isManager : false;
+
+    // Support sectionIds + departmentId, or legacy unitType + unitId
+    const sectionIds: number[] = Array.isArray(body.sectionIds)
+      ? body.sectionIds.map((id: any) => Number(id)).filter((n: number) => !isNaN(n))
+      : [];
+    const departmentId: number | null = body.departmentId ? Number(body.departmentId) : null;
+
+    let unitType = body.unitType || null;
+    let unitId = body.unitId || null;
+
+    if (departmentId) {
+      unitType = 'department';
+      unitId = departmentId;
+    } else if (sectionIds.length > 0) {
+      unitType = 'section';
+      unitId = sectionIds[0];
+    }
 
     if (!kode || !email || !nama) {
       return NextResponse.json({ error: 'Kode, email, dan nama wajib diisi' }, { status: 400 });
@@ -73,7 +122,8 @@ export async function POST(request: NextRequest) {
     if (unitType && !['department', 'section'].includes(unitType)) {
       return NextResponse.json({ error: 'unitType harus department atau section' }, { status: 400 });
     }
-    // PENTING: kode ini yang akan dicocokkan dengan kolom procedure_documents.pic
+
+    await client.query('BEGIN');
 
     const result = await client.query(
       `INSERT INTO staff_directory
@@ -83,19 +133,43 @@ export async function POST(request: NextRequest) {
       [kode, email, nama, jabatanRaw, jabatan, unitType, unitId, isManager]
     );
 
+    // Sync staff_sections
+    if (sectionIds.length > 0) {
+      for (const sId of sectionIds) {
+        await client.query(
+          `INSERT INTO staff_sections (staff_kode, section_id)
+           VALUES ($1, $2)
+           ON CONFLICT (staff_kode, section_id) DO NOTHING`,
+          [kode, sId]
+        );
+      }
+    } else if (unitType === 'section' && unitId) {
+      await client.query(
+        `INSERT INTO staff_sections (staff_kode, section_id)
+         VALUES ($1, $2)
+         ON CONFLICT (staff_kode, section_id) DO NOTHING`,
+        [kode, unitId]
+      );
+    }
+
+    await client.query('COMMIT');
+
     return NextResponse.json(
       {
-        kode:      result.rows[0].kode,
-        email:     result.rows[0].email,
-        nama:      result.rows[0].nama,
-        jabatan:   result.rows[0].jabatan,
-        unitType:  result.rows[0].unit_type,
-        unitId:    result.rows[0].unit_id,
-        isManager: result.rows[0].is_manager,
+        kode:         result.rows[0].kode,
+        email:        result.rows[0].email,
+        nama:         result.rows[0].nama,
+        jabatan:      result.rows[0].jabatan,
+        sectionIds:   sectionIds,
+        departmentId: departmentId,
+        unitType:     result.rows[0].unit_type,
+        unitId:       result.rows[0].unit_id,
+        isManager:    result.rows[0].is_manager,
       },
       { status: 201 }
     );
   } catch (error: any) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('Error creating staff:', error);
     if (error.code === '23505') {
       return NextResponse.json({ error: `Kode staff '${kode}' sudah dipakai` }, { status: 409 });
@@ -114,15 +188,20 @@ export async function PATCH(request: NextRequest) {
     const email     = body.email !== undefined ? String(body.email).trim() : undefined;
     const nama      = body.nama !== undefined ? String(body.nama).trim() : undefined;
     const jabatan   = body.jabatan !== undefined ? (body.jabatan ? String(body.jabatan).trim() : null) : undefined;
-    const unitType  = body.unitType; // 'department' | 'section' | null
-    const unitId    = body.unitId ?? null;
     const isManager = typeof body.isManager === 'boolean' ? body.isManager : undefined;
+
+    const sectionIds: number[] | undefined = Array.isArray(body.sectionIds)
+      ? body.sectionIds.map((id: any) => Number(id)).filter((n: number) => !isNaN(n))
+      : undefined;
+    const departmentId: number | null | undefined = body.departmentId !== undefined
+      ? (body.departmentId ? Number(body.departmentId) : null)
+      : undefined;
+
+    let unitType = body.unitType; // 'department' | 'section' | null
+    let unitId = body.unitId !== undefined ? body.unitId : undefined;
 
     if (!kode) {
       return NextResponse.json({ error: 'Kode staff wajib diisi' }, { status: 400 });
-    }
-    if (unitType && !['department', 'section'].includes(unitType)) {
-      return NextResponse.json({ error: 'unitType harus department atau section' }, { status: 400 });
     }
 
     const existing = await client.query(`SELECT * FROM staff_directory WHERE kode = $1`, [kode]);
@@ -130,6 +209,29 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Staff tidak ditemukan' }, { status: 404 });
     }
     const current = existing.rows[0];
+
+    // Determine unit_type & unit_id if sectionIds or departmentId were provided
+    if (departmentId !== undefined || sectionIds !== undefined) {
+      const activeDeptId = departmentId !== undefined ? departmentId : (current.unit_type === 'department' ? current.unit_id : null);
+      const activeSectionIds = sectionIds !== undefined ? sectionIds : [];
+
+      if (activeDeptId) {
+        unitType = 'department';
+        unitId = activeDeptId;
+      } else if (activeSectionIds.length > 0) {
+        unitType = 'section';
+        unitId = activeSectionIds[0];
+      } else if (departmentId === null && sectionIds !== undefined && activeSectionIds.length === 0) {
+        unitType = null;
+        unitId = null;
+      }
+    }
+
+    if (unitType && !['department', 'section'].includes(unitType)) {
+      return NextResponse.json({ error: 'unitType harus department atau section' }, { status: 400 });
+    }
+
+    await client.query('BEGIN');
 
     const result = await client.query(
       `UPDATE staff_directory
@@ -153,16 +255,39 @@ export async function PATCH(request: NextRequest) {
       ]
     );
 
+    // Sync staff_sections if sectionIds was provided
+    if (sectionIds !== undefined) {
+      await client.query(`DELETE FROM staff_sections WHERE staff_kode = $1`, [kode]);
+      for (const sId of sectionIds) {
+        await client.query(
+          `INSERT INTO staff_sections (staff_kode, section_id)
+           VALUES ($1, $2)
+           ON CONFLICT (staff_kode, section_id) DO NOTHING`,
+          [kode, sId]
+        );
+      }
+    } else if (unitType === 'section' && unitId) {
+      await client.query(
+        `INSERT INTO staff_sections (staff_kode, section_id)
+         VALUES ($1, $2)
+         ON CONFLICT (staff_kode, section_id) DO NOTHING`,
+        [kode, unitId]
+      );
+    }
+
+    await client.query('COMMIT');
+
     return NextResponse.json({
-      kode:      result.rows[0].kode,
-      email:     result.rows[0].email,
-      nama:      result.rows[0].nama,
-      jabatan:   result.rows[0].jabatan,
-      unitType:  result.rows[0].unit_type,
-      unitId:    result.rows[0].unit_id,
-      isManager: result.rows[0].is_manager,
+      kode:         result.rows[0].kode,
+      email:        result.rows[0].email,
+      nama:         result.rows[0].nama,
+      jabatan:      result.rows[0].jabatan,
+      unitType:     result.rows[0].unit_type,
+      unitId:       result.rows[0].unit_id,
+      isManager:    result.rows[0].is_manager,
     });
   } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('Error updating staff:', error);
     return NextResponse.json({ error: 'Failed to update staff' }, { status: 500 });
   } finally {

@@ -99,7 +99,7 @@ export async function DELETE(
     const { id } = await params;
 
     const staffCheck = await client.query(
-      `SELECT COUNT(*)::int AS count FROM staff_directory WHERE unit_type = 'section' AND unit_id = $1`,
+      `SELECT COUNT(DISTINCT staff_kode)::int AS count FROM staff_sections WHERE section_id = $1`,
       [id]
     );
     if (staffCheck.rows[0].count > 0) {

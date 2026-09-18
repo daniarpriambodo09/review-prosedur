@@ -6,16 +6,23 @@
 // sepenuhnya self-contained: dropdown bulan sendiri, fetch sendiri, tidak
 // butuh prop apapun dari parent.
 //
+// 🆕 Dirombak: area bar (+ gridline) sekarang dikunci dalam kontainer tinggi
+// tetap yang TERPISAH dari baris label di bawahnya — supaya sumbu Y selalu
+// pas sejajar dengan puncak/dasar bar, tidak terpengaruh tinggi label. Label
+// section TIDAK lagi dirotasi diagonal (rawan terpotong oleh overflow-hidden
+// card) — sekarang horizontal, dipotong rapi dengan ellipsis kalau kepanjangan
+// (nama lengkap tetap muncul lewat tooltip saat hover). Badge persentase per
+// kolom dan ringkasan persentase di header dihapus — diganti angka
+// "direview/total" polos yang selalu tampil.
+//
 // Kolom otomatis membagi rata lebar container (flex-1) supaya SEMUA section
-// langsung terlihat tanpa perlu scroll, berapapun jumlahnya — konsekuensinya
-// kolom akan menyempit kalau section-nya banyak, makanya label section
-// dirotasi supaya tetap terbaca meski kolomnya sempit.
+// langsung terlihat tanpa perlu scroll, berapapun jumlahnya.
 //
 // Sengaja TIDAK pakai library chart (recharts/chart.js/dll) supaya tidak
 // menambah dependency baru — semua digambar manual pakai div + Tailwind.
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { BarChart3, TrendingUp } from 'lucide-react';
+import { BarChart3 } from 'lucide-react';
 
 const MONTH_NAMES_ID = [
   'Januari','Februari','Maret','April','Mei','Juni',
@@ -39,11 +46,10 @@ const dropdownStyle = {
   backgroundPosition: 'right 12px center',
 };
 
-const CHART_HEIGHT = 176; // area plotting bar (px), tidak termasuk label bawah
+const CHART_HEIGHT = 176; // area plotting bar (px) — dikunci, terpisah dari label
 
 function niceMax(value: number): number {
   if (value <= 0) return 4;
-  // Bulatkan ke atas ke kelipatan "rapi" (1/2/5 x 10^n) supaya gridline enak dibaca
   const magnitude = Math.pow(10, Math.floor(Math.log10(value)));
   const normalized = value / magnitude;
   let niceNormalized;
@@ -54,58 +60,42 @@ function niceMax(value: number): number {
   return niceNormalized * magnitude;
 }
 
-function SectionColumn({ stat, maxValue }: { stat: SectionStat; maxValue: number }) {
+// Bar saja (Total + Sudah Direview) — hidup di dalam kontainer tinggi tetap
+// CHART_HEIGHT, sejajar persis dengan gridline & sumbu Y.
+function SectionBars({ stat, maxValue }: { stat: SectionStat; maxValue: number }) {
   const totalHeightPct    = maxValue > 0 ? Math.max((stat.total / maxValue) * 100, stat.total > 0 ? 3 : 0) : 0;
   const reviewedHeightPct = maxValue > 0 ? Math.max((stat.reviewed / maxValue) * 100, stat.reviewed > 0 ? 3 : 0) : 0;
-  const pct = stat.total > 0 ? Math.round((stat.reviewed / stat.total) * 100) : 0;
-  const fullyReviewed = stat.total > 0 && stat.reviewed === stat.total;
 
   return (
-    <div className="group flex flex-col items-center flex-1 min-w-0 px-1">
-      {/* Badge persentase */}
-      <span
-        className={`mb-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap transition-colors ${fullyReviewed ? 'bg-emerald-100 text-emerald-700' : pct > 0 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-400'}`}
-      >
-        {pct}%
-      </span>
-
-      {/* Area bar */}
-      <div
-        className="relative w-full flex items-end justify-center gap-[3px]"
-        style={{ height: CHART_HEIGHT }}
-        title={`${stat.label}\nTotal: ${stat.total}\nSudah direview: ${stat.reviewed} (${pct}%)`}
-      >
-        {/* Bar Total */}
-        <div className="relative w-2.5 sm:w-3 rounded-t-md bg-slate-100 flex items-end overflow-hidden" style={{ height: '100%' }}>
-          <div
-            className="w-full rounded-t-md bg-gradient-to-t from-blue-600 to-blue-400 transition-all duration-500 ease-out group-hover:brightness-110"
-            style={{ height: `${totalHeightPct}%` }}
-          />
-        </div>
-        {/* Bar Reviewed */}
-        <div className="relative w-2.5 sm:w-3 rounded-t-md bg-slate-100 flex items-end overflow-hidden" style={{ height: '100%' }}>
-          <div
-            className="w-full rounded-t-md bg-gradient-to-t from-emerald-600 to-emerald-400 transition-all duration-500 ease-out group-hover:brightness-110"
-            style={{ height: `${reviewedHeightPct}%` }}
-          />
-        </div>
+    <div
+      className="group flex-1 min-w-0 h-full flex items-end justify-center gap-[3px] px-1"
+      title={`${stat.label} — Total: ${stat.total}, Sudah direview: ${stat.reviewed}`}
+    >
+      <div className="relative w-2.5 sm:w-3 h-full rounded-t-md bg-slate-100 flex items-end overflow-hidden">
+        <div
+          className="w-full rounded-t-md bg-gradient-to-t from-blue-600 to-blue-400 transition-all duration-500 ease-out group-hover:brightness-110"
+          style={{ height: `${totalHeightPct}%` }}
+        />
       </div>
-
-      {/* Label section — diperbaiki agar tidak terpotong */}
-      <div className="h-16 flex items-start justify-center w-full mt-2">
-        <span
-          className="text-[10px] font-semibold text-slate-600 whitespace-nowrap block origin-top-left group-hover:text-slate-900 transition-colors"
-          // Rotasi -45deg dengan translateX positif untuk mengkompensasi pergeseran ke kiri saat rotasi CCW
-          style={{ transform: 'rotate(-45deg) translateX(10px)' }}
-          title={stat.label}
-        >
-          {stat.label}
-        </span>
+      <div className="relative w-2.5 sm:w-3 h-full rounded-t-md bg-slate-100 flex items-end overflow-hidden">
+        <div
+          className="w-full rounded-t-md bg-gradient-to-t from-emerald-600 to-emerald-400 transition-all duration-500 ease-out group-hover:brightness-110"
+          style={{ height: `${reviewedHeightPct}%` }}
+        />
       </div>
+    </div>
+  );
+}
 
-      {/* Angka — muncul saat hover */}
-      <p className="text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity -mt-1 whitespace-nowrap">
+// Label + angka di bawah bar — HORIZONTAL, dipotong rapi (bukan dirotasi).
+function SectionLabel({ stat }: { stat: SectionStat }) {
+  return (
+    <div className="flex-1 min-w-0 px-1 pt-2 text-center" title={stat.label}>
+      <p className="text-[10px] text-slate-500 font-medium whitespace-nowrap">
         {stat.reviewed}/{stat.total}
+      </p>
+      <p className="text-[10px] font-semibold text-slate-600 truncate">
+        {stat.label}
       </p>
     </div>
   );
@@ -135,13 +125,12 @@ export default function SectionReviewChart() {
 
   useEffect(() => { loadStats(selectedMonth); }, [selectedMonth, loadStats]);
 
-  const maxTotal   = useMemo(() => stats.reduce((max, s) => Math.max(max, s.total), 0), [stats]);
-  const chartMax   = useMemo(() => niceMax(maxTotal), [maxTotal]);
-  const gridTicks  = useMemo(() => [1, 0.75, 0.5, 0.25, 0].map(f => Math.round(chartMax * f)), [chartMax]);
+  const maxTotal  = useMemo(() => stats.reduce((max, s) => Math.max(max, s.total), 0), [stats]);
+  const chartMax  = useMemo(() => niceMax(maxTotal), [maxTotal]);
+  const gridTicks = useMemo(() => [1, 0.75, 0.5, 0.25, 0].map(f => Math.round(chartMax * f)), [chartMax]);
 
   const grandTotal    = stats.reduce((sum, s) => sum + s.total, 0);
   const grandReviewed = stats.reduce((sum, s) => sum + s.reviewed, 0);
-  const grandPct       = grandTotal > 0 ? Math.round((grandReviewed / grandTotal) * 100) : 0;
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -179,9 +168,8 @@ export default function SectionReviewChart() {
           </span>
         </div>
         {grandTotal > 0 && (
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500">
-            <TrendingUp size={13} className={grandPct === 100 ? 'text-emerald-500' : 'text-blue-500'} />
-            {grandReviewed}/{grandTotal} dokumen ({grandPct}%) sudah direview bulan ini
+          <span className="text-xs font-semibold text-slate-500">
+            {grandReviewed}/{grandTotal} dokumen sudah direview bulan ini
           </span>
         )}
       </div>
@@ -202,24 +190,34 @@ export default function SectionReviewChart() {
           </div>
         ) : (
           <div className="flex">
-            {/* Sumbu Y — diperbaiki: hapus pb-[74px] agar label '0' sejajar dengan dasar grafik */}
-            <div className="flex flex-col justify-between text-[10px] text-slate-400 pr-2 flex-shrink-0" style={{ height: CHART_HEIGHT }}>
+            {/* Sumbu Y — tinggi PERSIS CHART_HEIGHT, jadi selalu sejajar dengan bar */}
+            <div
+              className="flex flex-col justify-between text-[10px] text-slate-400 pr-2 flex-shrink-0"
+              style={{ height: CHART_HEIGHT }}
+            >
               {gridTicks.map((tick, i) => <span key={i} className="leading-none">{tick}</span>)}
             </div>
 
-            {/* Plot area — gridline + kolom */}
-            <div className="relative flex-1 min-w-0">
-              {/* Gridlines horizontal */}
-              <div className="absolute left-0 right-0 top-0 flex flex-col justify-between pointer-events-none" style={{ height: CHART_HEIGHT }}>
-                {gridTicks.map((_, i) => (
-                  <div key={i} className={`w-full border-t ${i === gridTicks.length - 1 ? 'border-slate-300' : 'border-slate-100'}`} />
-                ))}
+            {/* Plot + label */}
+            <div className="flex-1 min-w-0">
+              {/* Area bar — tinggi tetap, gridline & bar dikunci absolute di sini SAJA */}
+              <div className="relative" style={{ height: CHART_HEIGHT }}>
+                <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
+                  {gridTicks.map((_, i) => (
+                    <div key={i} className={`w-full border-t ${i === gridTicks.length - 1 ? 'border-slate-300' : 'border-slate-100'}`} />
+                  ))}
+                </div>
+                <div className="absolute inset-0 flex items-end">
+                  {stats.map(stat => (
+                    <SectionBars key={stat.label} stat={stat} maxValue={chartMax} />
+                  ))}
+                </div>
               </div>
 
-              {/* Kolom-kolom section */}
-              <div className="relative flex items-end">
+              {/* Label — di LUAR kontainer bar, tidak memengaruhi tinggi/alignment sumbu Y */}
+              <div className="flex">
                 {stats.map(stat => (
-                  <SectionColumn key={stat.label} stat={stat} maxValue={chartMax} />
+                  <SectionLabel key={stat.label} stat={stat} />
                 ))}
               </div>
             </div>

@@ -132,6 +132,14 @@ export async function POST(request: NextRequest) {
            WHERE kode = $8`,
           [email, nama, jabatanRaw, role, unitId ? 'section' : null, unitId, isManager, targetKode]
         );
+        if (unitId) {
+          await client.query(
+            `INSERT INTO staff_sections (staff_kode, section_id)
+             VALUES ($1, $2)
+             ON CONFLICT (staff_kode, section_id) DO NOTHING`,
+            [targetKode, unitId]
+          );
+        }
         updated++;
       } else if (kodeExcel) {
         await client.query(
@@ -149,6 +157,14 @@ export async function POST(request: NextRequest) {
              updated_at  = CURRENT_TIMESTAMP`,
           [kodeExcel, email, nama, jabatanRaw, role, unitId ? 'section' : null, unitId, isManager]
         );
+        if (unitId) {
+          await client.query(
+            `INSERT INTO staff_sections (staff_kode, section_id)
+             VALUES ($1, $2)
+             ON CONFLICT (staff_kode, section_id) DO NOTHING`,
+            [kodeExcel, unitId]
+          );
+        }
         staffByKode.add(kodeExcel);
         staffByNama.set(normalize(nama), kodeExcel);
         created++;

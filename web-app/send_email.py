@@ -166,12 +166,12 @@ def resolve_managers(cur, pic_field: str) -> list[dict]:
     cur.execute("""
         SELECT DISTINCT sm.email, sm.nama
         FROM staff_directory sp
-        LEFT JOIN sections sec
-          ON sp.unit_type = 'section' AND sec.id = sp.unit_id
+        LEFT JOIN staff_sections ss ON ss.staff_kode = sp.kode
+        LEFT JOIN sections sec ON sec.id = COALESCE(ss.section_id, CASE WHEN sp.unit_type = 'section' THEN sp.unit_id END)
         JOIN department_managers dm
           ON dm.department_id = CASE
                WHEN sp.unit_type = 'department' THEN sp.unit_id
-               WHEN sp.unit_type = 'section'    THEN sec.department_id
+               ELSE sec.department_id
              END
         JOIN staff_directory sm ON sm.kode = dm.manager_kode
         WHERE sp.kode = %s
@@ -398,29 +398,19 @@ def _build_plain_body(pic: str, dokumen_list: list, review_link: str) -> str:
     ]
     return "\n".join(lines)
 
+
 def _build_manager_html_body(manager_nama: str, dokumen_list: list) -> str:
     """
-    dokumen_list: list of dict {nama, nomor, pic} — pic di sini nama/kode PIC
-    pemilik dokumen (bisa beda-beda PIC per baris kalau manager membawahi
-    lebih dari satu PIC di departemennya).
+    dokumen_list: list of dict {nama, nomor, pic} — hanya `nama` yang
+    ditampilkan di body (sesuai format informasi ke departemen, bukan
+    tabel detail per-PIC).
     """
-    rows_html = ""
-    for i, doc in enumerate(dokumen_list, 1):
-        bg = "#fff8f0" if i % 2 == 0 else "#ffffff"
-        nama_safe  = html.escape(str(doc["nama"]))
-        nomor_safe = html.escape(str(doc["nomor"]))
-        pic_safe   = html.escape(str(doc["pic"]))
-        rows_html += (
-            f'<tr style="background-color:{bg};">'
-            f'<td style="padding:10px 14px;border-bottom:1px solid #e8e8e8;'
-            f'color:#555;font-size:13px;">{i}</td>'
-            f'<td style="padding:10px 14px;border-bottom:1px solid #e8e8e8;'
-            f'color:#333;font-size:13px;">{nama_safe}</td>'
-            f'<td style="padding:10px 14px;border-bottom:1px solid #e8e8e8;'
-            f'color:#666;font-size:13px;">{nomor_safe}</td>'
-            f'<td style="padding:10px 14px;border-bottom:1px solid #e8e8e8;'
-            f'color:#666;font-size:13px;">{pic_safe}</td>'
-            f'</tr>'
+    items_html = ""
+    for doc in dokumen_list:
+        nama_safe = html.escape(str(doc["nama"]))
+        items_html += (
+            f'<li style="margin-bottom:6px;color:#333;font-size:14px;line-height:1.6;">'
+            f'{nama_safe}</li>'
         )
 
     manager_safe = html.escape(str(manager_nama or "Bapak/Ibu"))
@@ -431,7 +421,7 @@ def _build_manager_html_body(manager_nama: str, dokumen_list: list) -> str:
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
-  <title>Eskalasi Review Prosedur</title>
+  <title>Informasi Review Prosedur</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f4f6f8;font-family:Arial,Helvetica,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0"
@@ -447,7 +437,7 @@ def _build_manager_html_body(manager_nama: str, dokumen_list: list) -> str:
                        border-radius:8px 8px 0 0;">
               <h1 style="margin:0;color:#ffffff;font-size:20px;
                          font-weight:700;letter-spacing:0.3px;">
-                Eskalasi: Dokumen Belum Direview
+                Informasi Review Prosedur
               </h1>
               <p style="margin:6px 0 0;color:#fde3d0;font-size:13px;">
                 Procedure Management System
@@ -457,37 +447,30 @@ def _build_manager_html_body(manager_nama: str, dokumen_list: list) -> str:
           <tr>
             <td style="padding:28px 32px;">
               <p style="margin:0 0 16px;color:#333;font-size:15px;line-height:1.6;">
-                Dear. {manager_safe},
+                Yth. Bapak/Ibu {manager_safe},
               </p>
-              <p style="margin:0 0 24px;color:#555;font-size:14px;line-height:1.6;">
-                Dokumen prosedur berikut sudah diingatkan ke PIC terkait sejak
-                1 bulan lalu, namun belum diberikan status review. Mohon bantu
-                mengingatkan PIC yang bersangkutan secara langsung agar
-                dokumen segera direview sebelum batas waktu.
+              <p style="margin:0 0 16px;color:#555;font-size:14px;line-height:1.6;">
+                Kami ingin menginformasikan bahwa terdapat beberapa prosedur pada
+                departemen Bapak/Ibu yang perlu dilakukan review untuk memastikan
+                prosedur tersebut masih relevan dan sesuai dengan proses yang
+                berjalan saat ini.
               </p>
-              <table width="100%" cellpadding="0" cellspacing="0"
-                     style="border:1px solid #e0e0e0;border-radius:6px;
-                            border-collapse:collapse;margin-bottom:8px;">
-                <thead>
-                  <tr style="background-color:#fff1e6;">
-                    <th style="padding:10px 14px;text-align:left;color:#444;
-                               font-size:13px;font-weight:700;border-bottom:2px solid #f0d8c0;
-                               width:36px;">#</th>
-                    <th style="padding:10px 14px;text-align:left;color:#444;
-                               font-size:13px;font-weight:700;border-bottom:2px solid #f0d8c0;">
-                      Nama Dokumen</th>
-                    <th style="padding:10px 14px;text-align:left;color:#444;
-                               font-size:13px;font-weight:700;border-bottom:2px solid #f0d8c0;">
-                      Nomor</th>
-                    <th style="padding:10px 14px;text-align:left;color:#444;
-                               font-size:13px;font-weight:700;border-bottom:2px solid #f0d8c0;">
-                      PIC</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows_html}
-                </tbody>
-              </table>
+              <p style="margin:0 0 8px;color:#333;font-size:14px;line-height:1.6;">
+                Adapun prosedur yang perlu direview adalah sebagai berikut :
+              </p>
+              <ul style="margin:0 0 20px;padding-left:22px;">
+                {items_html}
+              </ul>
+              <p style="margin:0 0 16px;color:#555;font-size:14px;line-height:1.6;">
+                Untuk proses review selanjutnya akan dilakukan oleh Supervisor terkait.
+              </p>
+              <p style="margin:0 0 16px;color:#555;font-size:14px;line-height:1.6;">
+                Email ini kami sampaikan sebagai informasi, mengenai adanya
+                prosedur yang perlu direview pada departemen Bapak/Ibu.
+              </p>
+              <p style="margin:0;color:#333;font-size:14px;line-height:1.6;">
+                Terimakasih atas perhatian dan kerja samanya.
+              </p>
             </td>
           </tr>
           <tr>
@@ -512,20 +495,25 @@ def _build_manager_html_body(manager_nama: str, dokumen_list: list) -> str:
 
 def _build_manager_plain_body(manager_nama: str, dokumen_list: list) -> str:
     lines = [
-        f"Dear. {manager_nama or 'Bapak/Ibu'},",
+        f"Yth. Bapak/Ibu {manager_nama or 'Bapak/Ibu'},",
         "",
-        "Dokumen prosedur berikut sudah diingatkan ke PIC terkait sejak 1 bulan",
-        "lalu, namun belum diberikan status review. Mohon bantu mengingatkan PIC",
-        "yang bersangkutan secara langsung agar dokumen segera direview sebelum",
-        "batas waktu.",
+        "Kami ingin menginformasikan bahwa terdapat beberapa prosedur pada",
+        "departemen Bapak/Ibu yang perlu dilakukan review untuk memastikan",
+        "prosedur tersebut masih relevan dan sesuai dengan proses yang berjalan",
+        "saat ini.",
         "",
+        "Adapun prosedur yang perlu direview adalah sebagai berikut :",
     ]
-    for i, doc in enumerate(dokumen_list, 1):
-        lines.append(f"  {i}. {doc['nama']} ({doc['nomor']}) — PIC: {doc['pic']}")
+    for doc in dokumen_list:
+        lines.append(f"  - {doc['nama']}")
     lines += [
         "",
-        "Terima kasih.",
-        "Procedure Management System",
+        "Untuk proses review selanjutnya akan dilakukan oleh Supervisor terkait.",
+        "",
+        "Email ini kami sampaikan sebagai informasi, mengenai adanya prosedur",
+        "yang perlu direview pada departemen Bapak/Ibu.",
+        "",
+        "Terimakasih atas perhatian dan kerja samanya.",
     ]
     return "\n".join(lines)
 
@@ -548,7 +536,7 @@ def send_manager_email(smtp_cfg: dict, receiver: str, manager_nama: str, dokumen
     sender_domain = email_sender.split("@")[-1] if "@" in email_sender else smtp_host
 
     msg = EmailMessage()
-    msg["Subject"]    = "Eskalasi: Dokumen Prosedur Belum Direview PIC"
+    msg["Subject"]    = "Informasi: Prosedur Perlu Direview pada Departemen Anda"
     msg["From"]       = email_sender
     msg["To"]         = receiver
     msg["Date"]       = formatdate(localtime=True)

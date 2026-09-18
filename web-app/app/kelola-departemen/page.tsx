@@ -1,16 +1,15 @@
 // app/kelola-departemen/page.tsx
 //
-// 🆕 DIROMBAK TOTAL:
-// - Section sekarang = representasi kolom Owner di procedure_documents
-//   (tabel "Daftar Dokumen Prosedur" di /status-review). Section berdiri
-//   sendiri (tidak wajib punya departemen induk).
-// - Mengubah nama Section otomatis meng-cascade-update Owner di semua
-//   dokumen (aktif & arsip) yang masih memakai nama lama.
-// - Section bisa "dinaikkan" jadi Departemen baru (tombol Promote).
-// - Departemen sekarang dibentuk dengan MEMASUKKAN Section yang sudah
-//   terdaftar (bukan sebaliknya seperti versi lama).
-// - Staff punya kolom Jabatan yang bisa diedit manual atau di-import dari
-//   sheet "list PIC" pada file Excel Matrik Approval Review Prosedur.
+// Section = representasi kolom Owner di procedure_documents (tabel "Daftar
+// Dokumen Prosedur" di /status-review). Section berdiri sendiri (tidak wajib
+// punya departemen induk). Mengubah nama Section otomatis meng-cascade-update
+// Owner di semua dokumen (aktif & arsip) yang masih memakai nama lama.
+// Section bisa "dinaikkan" jadi Departemen baru (tombol Promote).
+// Departemen dibentuk dengan MEMASUKKAN Section yang sudah terdaftar.
+// Staff punya kolom Jabatan yang bisa diedit manual atau di-import dari
+// sheet "list PIC" pada file Excel Matrik Approval Review Prosedur, dan bisa
+// memegang LEBIH DARI SATU Section sekaligus (staff_sections, many-to-many),
+// plus opsional di-assign langsung ke sebuah Departemen.
 'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
@@ -84,6 +83,85 @@ function TabButton({
       <Icon size={15} />
       {label}
     </button>
+  );
+}
+
+// =============================================================================
+// Multi-picker Section — dipakai di form Tambah Staff & baris edit Staff.
+// Bukan <select> biasa (yang cuma bisa 1 nilai) — ini chip + tombol
+// "+ Tambah section" yang bisa diklik berkali-kali untuk menambahkan lebih
+// dari satu section ke staff yang sama (mis. staff "HR-IR SSPV" -> section
+// HR dan IR sekaligus).
+// =============================================================================
+function SectionMultiPicker({
+  sections, selectedIds, onChange,
+}: { sections: SectionItem[]; selectedIds: number[]; onChange: (ids: number[]) => void }) {
+  const [picking, setPicking] = useState(false);
+  const [pick, setPick] = useState<number | ''>('');
+
+  const selected  = sections.filter(s => selectedIds.includes(s.id));
+  const available = sections.filter(s => !selectedIds.includes(s.id));
+
+  const addSection = () => {
+    if (!pick) return;
+    onChange([...selectedIds, Number(pick)]);
+    setPick('');
+    setPicking(false);
+  };
+
+  const removeSection = (id: number) => onChange(selectedIds.filter(x => x !== id));
+
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap gap-1">
+        {selected.length === 0 && <span className="text-xs text-slate-400 italic">Belum ada section</span>}
+        {selected.map(s => (
+          <span key={s.id} className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 bg-blue-50 text-blue-700 rounded-full text-[11px] font-medium border border-blue-100">
+            {s.nama}
+            <button type="button" onClick={() => removeSection(s.id)} className="w-3.5 h-3.5 flex items-center justify-center rounded-full hover:bg-blue-200 transition-colors">
+              <X size={9} />
+            </button>
+          </span>
+        ))}
+      </div>
+      {picking ? (
+        <div className="flex items-center gap-1">
+          <select
+            value={pick}
+            onChange={e => setPick(e.target.value ? Number(e.target.value) : '')}
+            className={`${selectCls} py-1 px-2 text-xs w-28`}
+            autoFocus
+          >
+            <option value="">Pilih…</option>
+            {available.map(s => <option key={s.id} value={s.id}>{s.nama}</option>)}
+          </select>
+          <button
+            type="button"
+            onClick={addSection}
+            disabled={!pick}
+            className="px-2 py-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-[11px] font-bold rounded-lg shrink-0 transition-all shadow-xs cursor-pointer"
+          >
+            OK
+          </button>
+          <button
+            type="button"
+            onClick={() => { setPicking(false); setPick(''); }}
+            className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg shrink-0 transition-all cursor-pointer"
+            title="Batal"
+          >
+            <X size={13} />
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setPicking(true)}
+          className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-800 transition-colors cursor-pointer"
+        >
+          <Plus size={11} /> Tambah section
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -213,15 +291,15 @@ function SectionTab({
       </div>
 
       {/* List section */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <table className="w-full">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-x-auto">
+        <table className="w-full min-w-[700px]">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
-              <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-500 uppercase">Section</th>
-              <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-500 uppercase">Departemen Induk</th>
-              <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-500 uppercase">Dokumen</th>
-              <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-500 uppercase">Staff</th>
-              <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-500 uppercase">Aksi</th>
+              <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider min-w-[140px]">Section</th>
+              <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider min-w-[200px]">Departemen Induk</th>
+              <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider min-w-[80px]">Dokumen</th>
+              <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider min-w-[80px]">Staff</th>
+              <th className="px-4 py-3 text-right text-[11px] font-bold text-slate-500 uppercase tracking-wider min-w-[120px]">Aksi</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -244,28 +322,28 @@ function SectionTab({
                 </td>
                 <td className="px-4 py-2.5 text-xs text-slate-500">{s.docCount}</td>
                 <td className="px-4 py-2.5 text-xs text-slate-500">{s.staffCount}</td>
-                <td className="px-4 py-2.5">
+                <td className="px-4 py-2.5 text-right whitespace-nowrap">
                   {editingId === s.id ? (
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => handleSaveEdit(s)} className="text-xs font-semibold text-blue-600">Simpan</button>
-                      <button onClick={() => setEditingId(null)} className="text-xs text-slate-400">Batal</button>
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button onClick={() => handleSaveEdit(s)} className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition-all cursor-pointer">Simpan</button>
+                      <button onClick={() => setEditingId(null)} className="px-2 py-1 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg text-xs font-medium transition-all cursor-pointer">Batal</button>
                     </div>
                   ) : (
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center justify-end gap-1">
                       <button onClick={() => { setEditingId(s.id); setEditingNama(s.nama); }}
                         title="Ganti nama"
-                        className="w-6 h-6 flex items-center justify-center rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50">
-                        <Pencil size={12} />
+                        className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 cursor-pointer transition-colors">
+                        <Pencil size={13} />
                       </button>
                       <button onClick={() => handlePromote(s)}
                         title="Naikkan jadi Departemen"
-                        className="w-6 h-6 flex items-center justify-center rounded-lg text-slate-400 hover:text-violet-600 hover:bg-violet-50">
-                        <ArrowUpCircle size={13} />
+                        className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-violet-600 hover:bg-violet-50 cursor-pointer transition-colors">
+                        <ArrowUpCircle size={14} />
                       </button>
                       <button onClick={() => handleDelete(s)}
                         title="Hapus section"
-                        className="w-6 h-6 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50">
-                        <Trash2 size={12} />
+                        className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer transition-colors">
+                        <Trash2 size={13} />
                       </button>
                     </div>
                   )}
@@ -567,55 +645,6 @@ function DepartemenTab({
   );
 }
 
-function SectionMultiPicker({
-  sections, selectedIds, onChange,
-}: { sections: SectionItem[]; selectedIds: number[]; onChange: (ids: number[]) => void }) {
-  const [picking, setPicking] = useState(false);
-  const [pick, setPick] = useState<number | ''>('');
-
-  const selected  = sections.filter(s => selectedIds.includes(s.id));
-  const available = sections.filter(s => !selectedIds.includes(s.id));
-
-  const addSection = () => {
-    if (!pick) return;
-    onChange([...selectedIds, Number(pick)]);
-    setPick('');
-    setPicking(false);
-  };
-
-  const removeSection = (id: number) => onChange(selectedIds.filter(x => x !== id));
-
-  return (
-    <div>
-      <div className="flex flex-wrap gap-1.5 mb-1.5">
-        {selected.length === 0 && <span className="text-xs text-slate-400 italic">Belum ada section</span>}
-        {selected.map(s => (
-          <span key={s.id} className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 bg-blue-50 text-blue-700 rounded-full text-[11px] font-medium">
-            {s.nama}
-            <button type="button" onClick={() => removeSection(s.id)} className="w-3.5 h-3.5 flex items-center justify-center rounded-full hover:bg-blue-200">
-              <X size={9} />
-            </button>
-          </span>
-        ))}
-      </div>
-      {picking ? (
-        <div className="flex items-center gap-1.5">
-          <select value={pick} onChange={e => setPick(e.target.value ? Number(e.target.value) : '')} className={selectCls}>
-            <option value="">Pilih section…</option>
-            {available.map(s => <option key={s.id} value={s.id}>{s.nama}</option>)}
-          </select>
-          <button type="button" onClick={addSection} className="text-xs font-semibold text-blue-600 px-1.5">OK</button>
-          <button type="button" onClick={() => setPicking(false)} className="text-slate-400 px-1"><X size={13} /></button>
-        </div>
-      ) : (
-        <button type="button" onClick={() => setPicking(true)} className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-800">
-          <Plus size={11} /> Tambah section
-        </button>
-      )}
-    </div>
-  );
-}
-
 // =============================================================================
 // Tab: Staff & Manager
 // =============================================================================
@@ -721,7 +750,7 @@ function AddStaffForm({
         </div>
         <div className="col-span-2">
           <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-            Departemen <span className="font-normal text-slate-400">(opsional)</span>
+            Departemen <span className="font-normal text-slate-400">(opsional — kalau staff ini bertanggung jawab langsung di level departemen)</span>
           </label>
           <select value={departmentId} onChange={e => setDepartmentId(e.target.value ? Number(e.target.value) : '')} className={selectCls + ' w-full'}>
             <option value="">Tidak ada</option>
@@ -752,7 +781,6 @@ function AddStaffForm({
     </div>
   );
 }
-
 
 function ImportExcelButton({ onImported }: { onImported: (result: any) => void }) {
   const [importing, setImporting] = useState(false);
@@ -788,7 +816,7 @@ function ImportExcelButton({ onImported }: { onImported: (result: any) => void }
         className="hidden"
         onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
       />
-            <button
+      <button
         onClick={() => inputRef.current?.click()}
         disabled={importing}
         className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl transition-all disabled:opacity-50"
@@ -803,12 +831,13 @@ function ImportExcelButton({ onImported }: { onImported: (result: any) => void }
 }
 
 function StaffTab({
-  staff, sections, onRefresh,
-}: { staff: Staff[]; sections: SectionItem[]; onRefresh: () => void }) {
+  staff, sections, departments, onRefresh,
+}: { staff: Staff[]; sections: SectionItem[]; departments: DepartmentItem[]; onRefresh: () => void }) {
   const [editingKode, setEditingKode] = useState<string | null>(null);
   const [editEmail, setEditEmail] = useState('');
   const [editJabatan, setEditJabatan] = useState('');
-  const [editUnitId, setEditUnitId] = useState<number | ''>('');
+  const [editSectionIds, setEditSectionIds] = useState<number[]>([]);
+  const [editDepartmentId, setEditDepartmentId] = useState<number | ''>('');
   const [editIsManager, setEditIsManager] = useState(false);
   const [filterUnassigned, setFilterUnassigned] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
@@ -817,7 +846,8 @@ function StaffTab({
     setEditingKode(s.kode);
     setEditEmail(s.email);
     setEditJabatan(s.jabatan || '');
-    setEditUnitId(s.unitType === 'section' ? (s.unitId || '') : '');
+    setEditSectionIds((s.sections ?? []).map(sec => sec.id));
+    setEditDepartmentId(s.departmentId ?? '');
     setEditIsManager(s.isManager);
   };
 
@@ -830,8 +860,8 @@ function StaffTab({
         kode,
         email: editEmail.trim(),
         jabatan: editJabatan.trim() || null,
-        unitType: editUnitId ? 'section' : null,
-        unitId: editUnitId || null,
+        sectionIds: editSectionIds,
+        departmentId: editDepartmentId || null,
         isManager: editIsManager,
       }),
     });
@@ -845,13 +875,13 @@ function StaffTab({
   };
 
   const displayedStaff = filterUnassigned
-    ? staff.filter(s => !s.unitType)
+    ? staff.filter(s => (s.sections ?? []).length === 0 && !s.departmentId)
     : staff;
 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 flex-wrap">
-        <AddStaffForm sections={sections} onAdded={onRefresh} />
+        <AddStaffForm sections={sections} departments={departments} onAdded={onRefresh} />
         <ImportExcelButton onImported={result => { setImportResult(result); onRefresh(); }} />
       </div>
 
@@ -883,38 +913,39 @@ function StaffTab({
         </p>
         <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer">
           <input type="checkbox" checked={filterUnassigned} onChange={e => setFilterUnassigned(e.target.checked)} />
-          Tampilkan yang belum punya section saja
+          Tampilkan yang belum punya section/departemen saja
         </label>
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <table className="w-full">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-x-auto">
+        <table className="w-full min-w-[820px]">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
-              <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-500 uppercase">Nama</th>
-              <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-500 uppercase">Kode</th>
-              <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-500 uppercase">Email</th>
-              <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-500 uppercase">Jabatan</th>
-              <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-500 uppercase">Section</th>
-              <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-500 uppercase">Manager?</th>
-              <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-500 uppercase">Aksi</th>
+              <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider">Nama</th>
+              <th className="px-2 py-2.5 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider w-16">Kode</th>
+              <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider w-48">Email</th>
+              <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider w-28">Jabatan</th>
+              <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider w-44">Section</th>
+              <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider w-32">Departemen</th>
+              <th className="px-2 py-2.5 text-center text-[11px] font-bold text-slate-500 uppercase tracking-wider w-20">Manager?</th>
+              <th className="px-3.5 py-2.5 text-right text-[11px] font-bold text-slate-500 uppercase tracking-wider w-24">Aksi</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {displayedStaff.map(s => {
-              const needsCheck = !s.unitType;
+              const needsCheck = (s.sections ?? []).length === 0 && !s.departmentId;
               return (
                 <tr key={s.kode} className={needsCheck ? 'bg-amber-50/40' : ''}>
-                  <td className="px-4 py-2.5 text-xs font-medium text-slate-800">{s.nama}</td>
-                  <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{s.kode}</td>
-                  <td className="px-4 py-2.5 text-xs">
+                  <td className="px-3.5 py-2 text-xs font-medium text-slate-800">{s.nama}</td>
+                  <td className="px-2 py-2 text-xs font-mono text-slate-500">{s.kode}</td>
+                  <td className="px-3.5 py-2 text-xs">
                     {editingKode === s.kode ? (
                       <input type="email" value={editEmail} onChange={e => setEditEmail(e.target.value)} className={fieldCls} />
                     ) : (
                       <span className="text-slate-600">{s.email}</span>
                     )}
                   </td>
-                  <td className="px-4 py-2.5 text-xs">
+                  <td className="px-3.5 py-2 text-xs">
                     {editingKode === s.kode ? (
                       <input value={editJabatan} onChange={e => setEditJabatan(e.target.value)} placeholder="mis. SPV" className={fieldCls} />
                     ) : (
@@ -924,26 +955,49 @@ function StaffTab({
                       <p className="text-[10px] text-slate-400 mt-0.5">Excel: {s.jabatanRaw}</p>
                     )}
                   </td>
-                  <td className="px-4 py-2.5 text-xs">
+                  <td className="px-3.5 py-2 text-xs">
                     {editingKode === s.kode ? (
-                      <select value={editUnitId} onChange={e => setEditUnitId(e.target.value ? Number(e.target.value) : '')} className={selectCls}>
-                        <option value="">Belum diset</option>
-                        {sections.map(sec => <option key={sec.id} value={sec.id}>{sec.nama}</option>)}
-                      </select>
+                      <SectionMultiPicker sections={sections} selectedIds={editSectionIds} onChange={setEditSectionIds} />
                     ) : (
-                      <span className="inline-flex items-center gap-1">
-                        {needsCheck && <AlertTriangle size={12} className="text-amber-500" />}
-                        {s.unitNama || <em className="text-slate-400">belum diset</em>}
-                        {s.parentDepartmentNama && <span className="text-slate-400"> ({s.parentDepartmentNama})</span>}
-                      </span>
+                      <div className="flex items-start gap-1">
+                        {needsCheck && <AlertTriangle size={12} className="text-amber-500 flex-shrink-0 mt-0.5" />}
+                        {(s.sections ?? []).length === 0 ? (
+                          <em className="text-slate-400">belum diset</em>
+                        ) : (
+                          <div className="flex flex-wrap gap-1">
+                            {(s.sections ?? []).map(sec => (
+                              <span key={sec.id} className="inline-flex items-center px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded text-[10px] font-medium border border-blue-100">
+                                {sec.nama}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     )}
                   </td>
-                  <td className="px-4 py-2.5 text-xs">
+                  <td className="px-3.5 py-2 text-xs">
                     {editingKode === s.kode ? (
-                      <button onClick={() => setEditIsManager(v => !v)} className="inline-flex items-center gap-1">
+                      <select value={editDepartmentId} onChange={e => setEditDepartmentId(e.target.value ? Number(e.target.value) : '')} className={selectCls + ' w-full'}>
+                        <option value="">Tidak ada</option>
+                        {departments.map(d => <option key={d.id} value={d.id}>{d.nama}</option>)}
+                      </select>
+                    ) : (
+                      s.departmentNama
+                        ? <span className="inline-flex items-center px-2 py-0.5 bg-violet-50 text-violet-700 rounded text-[10px] font-medium border border-violet-100">{s.departmentNama}</span>
+                        : <span className="text-slate-400">-</span>
+                    )}
+                  </td>
+                  <td className="px-2 py-2 text-xs text-center">
+                    {editingKode === s.kode ? (
+                      <button
+                        type="button"
+                        onClick={() => setEditIsManager(v => !v)}
+                        className="inline-flex items-center justify-center p-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                        title={editIsManager ? 'Manager (Klik untuk ubah)' : 'Bukan Manager (Klik untuk ubah)'}
+                      >
                         {editIsManager
-                          ? <ShieldCheck size={16} className="text-emerald-600" />
-                          : <ShieldOff size={16} className="text-slate-300" />}
+                          ? <ShieldCheck size={18} className="text-emerald-600" />
+                          : <ShieldOff size={18} className="text-slate-300" />}
                       </button>
                     ) : (
                       s.isManager
@@ -951,15 +1005,32 @@ function StaffTab({
                         : <span className="text-slate-400">-</span>
                     )}
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td className="px-3.5 py-2 whitespace-nowrap text-right">
                     {editingKode === s.kode ? (
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => handleSave(s.kode)} className="text-xs font-semibold text-blue-600">Simpan</button>
-                        <button onClick={() => setEditingKode(null)} className="text-xs text-slate-400">Batal</button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleSave(s.kode)}
+                          className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-all cursor-pointer"
+                        >
+                          Simpan
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingKode(null)}
+                          className="px-2 py-1 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg text-xs font-medium transition-all cursor-pointer"
+                        >
+                          Batal
+                        </button>
                       </div>
                     ) : (
-                      <button onClick={() => startEdit(s)} className="w-6 h-6 flex items-center justify-center rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50">
-                        <Pencil size={12} />
+                      <button
+                        type="button"
+                        onClick={() => startEdit(s)}
+                        className="w-7 h-7 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-all cursor-pointer"
+                        title="Edit staff"
+                      >
+                        <Pencil size={13} />
                       </button>
                     )}
                   </td>
@@ -967,7 +1038,7 @@ function StaffTab({
               );
             })}
             {displayedStaff.length === 0 && (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-xs text-slate-400">Tidak ada data</td></tr>
+              <tr><td colSpan={8} className="px-4 py-8 text-center text-xs text-slate-400">Tidak ada data</td></tr>
             )}
           </tbody>
         </table>
@@ -1005,7 +1076,7 @@ export default function KelolaDepartemenPage() {
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
-  const needsReviewCount = staff.filter(s => !s.unitType).length;
+  const needsReviewCount = staff.filter(s => (s.sections ?? []).length === 0 && !s.departmentId).length;
 
   if (loading) {
     return (
@@ -1034,7 +1105,7 @@ export default function KelolaDepartemenPage() {
             <div className="flex items-center gap-2.5 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3">
               <AlertTriangle size={16} className="text-amber-500 flex-shrink-0" />
               <p className="text-xs text-amber-800">
-                Ada <strong>{needsReviewCount} staff</strong> yang belum punya Section —
+                Ada <strong>{needsReviewCount} staff</strong> yang belum punya Section maupun Departemen —
                 cek di tab <strong>Staff & Manager</strong>.
               </p>
             </div>
@@ -1048,7 +1119,7 @@ export default function KelolaDepartemenPage() {
 
           {tab === 'section'    && <SectionTab sections={sections} departments={departments} onRefresh={loadAll} />}
           {tab === 'departemen' && <DepartemenTab departments={departments} sections={sections} staff={staff} onRefresh={loadAll} />}
-          {tab === 'staff'      && <StaffTab staff={staff} sections={sections} onRefresh={loadAll} />}
+          {tab === 'staff'      && <StaffTab staff={staff} sections={sections} departments={departments} onRefresh={loadAll} />}
         </div>
       </AdminLayout>
     </ProtectedRoute>
