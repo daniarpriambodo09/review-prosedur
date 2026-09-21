@@ -101,10 +101,10 @@ export default function PDFViewer({ filePath, fileName }: PDFViewerProps) {
         - IDM tidak bisa mengintersep blob: URL
       */}
       <object
-        data={blobUrl}
+        data={`${blobUrl}#toolbar=1&navpanes=0`}
         type="application/pdf"
         className="w-full h-full border-0"
-        style={{ minHeight: '600px', display: 'block' }}
+        style={{ minHeight: '600px', width: '100%', height: '100%', display: 'block' }}
       >
         {/* Fallback jika browser tidak support <object> untuk PDF */}
         <div className="w-full flex flex-col items-center justify-center gap-3 py-16">
@@ -112,7 +112,7 @@ export default function PDFViewer({ filePath, fileName }: PDFViewerProps) {
           <a
             href={blobUrl}
             download={fileName}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition-colors"
           >
             Download PDF
           </a>

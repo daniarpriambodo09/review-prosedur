@@ -21,6 +21,7 @@ import {
   Search, X, Plus, Calendar, Download, Archive,
   ChevronUp, ChevronDown, FileText, CheckCircle2,
   RefreshCw, Clock, Eye, Pencil, Trash2, Users,
+  CalendarX,
 } from 'lucide-react';
 import RevisionNotesModal from '@/components/status-review/RevisionNotesModal';
 import { FileClock } from 'lucide-react';
@@ -528,6 +529,7 @@ export default function StatusReviewPage() {
     tanggalSelesaiApproval: '', owner: '', pic: '', email: '',
   });
   const [needsReview, setNeedsReview] = useState<boolean | null>(null);
+  const [requestIdToComplete, setRequestIdToComplete] = useState<number | null>(null);
 
   const [editingProcedure, setEditingProcedure] = useState<ProcedureDocument | null>(null);
   const [isEditModalOpen,  setIsEditModalOpen]  = useState(false);
@@ -608,6 +610,34 @@ export default function StatusReviewPage() {
     const t = setTimeout(() => setDebouncedSearch(searchValue), 300);
     return () => clearTimeout(t);
   }, [searchValue]);
+
+  // 🆕 Cek URL query param untuk membuka modal tambah prosedur dari request PIC
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('addProcedure') === 'true' || params.get('action') === 'add') {
+        const title = params.get('title') || '';
+        const pic = params.get('pic') || '';
+        const email = params.get('email') || '';
+        const reqId = params.get('requestId') || '';
+        setNewProcedure(prev => ({
+          ...prev,
+          namaDokumen: title || prev.namaDokumen,
+          pic: pic || prev.pic,
+          email: email || prev.email,
+        }));
+        if (reqId) {
+          setRequestIdToComplete(Number(reqId));
+        }
+        setIsAddModalOpen(true);
+      }
+      if (params.get('search')) {
+        const s = params.get('search') || '';
+        setSearchValue(s);
+        setDebouncedSearch(s);
+      }
+    }
+  }, []);
 
   // Tutup popover detail jadwal email saat klik di luar area popover/titik
   useEffect(() => {
@@ -701,6 +731,27 @@ export default function StatusReviewPage() {
     setRevisionDoc({ nomorDokumen, namaDokumen, revisi });
   };
 
+  const handleCancelSchedule = async (nomorDokumen: string, namaDokumen: string) => {
+    const confirmed = window.confirm(
+      `Batalkan jadwal pengiriman email untuk "${namaDokumen}"?\n\nStatus dokumen akan dikembalikan ke status sebelumnya (Relevan/Revisi).`
+    );
+    if (!confirmed) return;
+
+    try {
+      const res = await fetch(`/review-prosedur/api/email-schedules?nomorDokumen=${encodeURIComponent(nomorDokumen)}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Gagal membatalkan jadwal');
+
+      alert(`Jadwal email berhasil dibatalkan.\nStatus dokumen dikembalikan ke: ${data.restoredStatus || 'Relevan'}`);
+      await Promise.all([loadData(false), loadEmailSchedules()]);
+    } catch (err: any) {
+      console.error('Error cancelling schedule:', err);
+      alert('Gagal membatalkan jadwal: ' + (err.message || 'Unknown error'));
+    }
+  };
+
   const handleDownloadExcel = async () => {
     try {
       const exportData = filteredData.map(doc => ({
@@ -749,7 +800,12 @@ export default function StatusReviewPage() {
       const response = await fetch('/review-prosedur/api/procedures', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...newProcedure, revisi: '0', needsReview }),
+        body: JSON.stringify({
+          ...newProcedure,
+          revisi: '0',
+          needsReview,
+          requestId: requestIdToComplete,
+        }),
       });
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
@@ -766,6 +822,7 @@ export default function StatusReviewPage() {
         tanggalSelesaiApproval: '', owner: '', pic: '', email: '',
       });
       setNeedsReview(null);
+      setRequestIdToComplete(null);
       setIsAddModalOpen(false);
       setCurrentPage(1);
       alert('Prosedur berhasil ditambahkan!');
@@ -1086,6 +1143,15 @@ export default function StatusReviewPage() {
                               >
                                 <Pencil size={13} />
                               </button>
+                              {schedule && schedule.emailStatus === 'pending' && (
+                                <button
+                                  onClick={() => handleCancelSchedule(row.nomorDokumen, row.namaDokumen)}
+                                  className="w-7 h-7 flex items-center justify-center rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 transition-all"
+                                  title="Batalkan jadwal email (Kembali ke status sebelumnya)"
+                                >
+                                  <CalendarX size={14} />
+                                </button>
+                              )}
                               <button
                                 onClick={() => handleDeleteProcedure(row.nomorDokumen)}
                                 className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all"
@@ -1191,6 +1257,9 @@ export default function StatusReviewPage() {
           }}
           procedures={dataWithStatus}
           emailSchedules={emailSchedules}
+          onScheduleChange={async () => {
+            await Promise.all([loadData(false), loadEmailSchedules()]);
+          }}
         />
 
         {/* ApprovalCard — 🆕 BARU: kartu Prepared / Checked / Approved */}

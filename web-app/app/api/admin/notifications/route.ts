@@ -131,6 +131,38 @@ export async function GET(request: NextRequest) {
           AND d.notification_type = 'document_annotated'
           AND d.admin_id = $1
       )
+      UNION ALL
+      SELECT
+        m.id,
+        0                                     AS "picId",
+        COALESCE(m.sender_nama, m.sender_email) AS "picFullName",
+        m.sender_email                        AS "picEmail",
+        COALESCE(pd3.nama_dokumen, m.nomor_dokumen) AS title,
+        m.nomor_dokumen                       AS "nomorDokumen",
+        pd3.nama_dokumen                      AS "namaDokumen",
+        m.message                             AS description,
+        NULL                                  AS reason,
+        ('Pesan chat dari ' ||
+          CASE LOWER(m.sender_role)
+            WHEN 'prepared' THEN 'Prepared'
+            WHEN 'checked'  THEN 'Checked'
+            WHEN 'approved' THEN 'Approved'
+            ELSE m.sender_role
+          END)                                AS notes,
+        'info'                                AS status,
+        COALESCE(m.admin_read, false)         AS "isRead",
+        m.created_at                          AS "createdAt",
+        m.admin_read_at                       AS "readAt",
+        'chat_message'                        AS type
+      FROM document_chat_messages m
+      LEFT JOIN procedure_documents pd3 ON pd3.nomor_dokumen = m.nomor_dokumen
+      WHERE LOWER(m.sender_role) IN ('prepared', 'checked', 'approved')
+        AND NOT EXISTS (
+          SELECT 1 FROM admin_notification_deletes d
+          WHERE d.notification_id = m.id
+            AND d.notification_type = 'chat_message'
+            AND d.admin_id = $1
+        )
       ORDER BY "createdAt" DESC
     `, [adminId]);
 
@@ -170,6 +202,16 @@ export async function GET(request: NextRequest) {
             SELECT 1 FROM admin_notification_deletes d
             WHERE d.notification_id = ae.id
               AND d.notification_type = 'document_annotated'
+              AND d.admin_id = $1
+          )
+        UNION ALL
+        SELECT m.id, 'chat_message' AS type FROM document_chat_messages m
+        WHERE LOWER(m.sender_role) IN ('prepared', 'checked', 'approved')
+          AND COALESCE(m.admin_read, false) = false
+          AND NOT EXISTS (
+            SELECT 1 FROM admin_notification_deletes d
+            WHERE d.notification_id = m.id
+              AND d.notification_type = 'chat_message'
               AND d.admin_id = $1
           )
       ) as unread
@@ -226,6 +268,13 @@ export async function PATCH(request: NextRequest) {
         WHERE admin_read = false
       `, [readBy]);
 
+      // 🆕 Tandai semua notifikasi pesan chat approver sebagai sudah dibaca juga
+      await client.query(`
+        UPDATE document_chat_messages
+        SET admin_read = true, admin_read_at = COALESCE(admin_read_at, NOW()), admin_read_by = COALESCE(admin_read_by, $1)
+        WHERE LOWER(sender_role) IN ('prepared', 'checked', 'approved') AND (admin_read = false OR admin_read IS NULL)
+      `, [readBy]);
+
       return NextResponse.json({ success: true });
     } else if (id && type) {
       if (type === 'approval_rejected') {
@@ -241,6 +290,13 @@ export async function PATCH(request: NextRequest) {
           UPDATE document_annotation_events
           SET admin_read = true, admin_read_at = COALESCE(admin_read_at, NOW()), admin_read_by = COALESCE(admin_read_by, $1)
           WHERE id = $2 AND admin_read = false
+        `, [readBy, id]);
+      } else if (type === 'chat_message') {
+        // 🆕 Notifikasi chat dari salah satu approver (prepared, checked, approved)
+        await client.query(`
+          UPDATE document_chat_messages
+          SET admin_read = true, admin_read_at = COALESCE(admin_read_at, NOW()), admin_read_by = COALESCE(admin_read_by, $1)
+          WHERE id = $2 AND (admin_read = false OR admin_read IS NULL)
         `, [readBy, id]);
       } else {
         const table = type === 'new_document' ? 'pic_document_requests' : 'pic_review_requests';
@@ -270,7 +326,7 @@ export async function PATCH(request: NextRequest) {
 }
 
 // DELETE — Soft-delete notifikasi untuk admin tertentu
-// Body: { id: number; type: 'new_document' | 'review_request' | 'approval_rejected'; adminId?: string }
+// Body: { id: number; type: 'new_document' | 'review_request' | 'approval_rejected' | 'document_annotated' | 'chat_message'; adminId?: string }
 export async function DELETE(request: NextRequest) {
   const client = await pool.connect();
   try {
@@ -288,9 +344,9 @@ export async function DELETE(request: NextRequest) {
         { status: 400 }
       );
     }
-    if (type !== 'new_document' && type !== 'review_request' && type !== 'approval_rejected' && type !== 'document_annotated') {
+    if (type !== 'new_document' && type !== 'review_request' && type !== 'approval_rejected' && type !== 'document_annotated' && type !== 'chat_message') {
       return NextResponse.json(
-        { error: 'type harus "new_document", "review_request", "approval_rejected", atau "document_annotated"' },
+        { error: 'type harus "new_document", "review_request", "approval_rejected", "document_annotated", atau "chat_message"' },
         { status: 400 }
       );
     }

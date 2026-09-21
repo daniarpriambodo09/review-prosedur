@@ -173,12 +173,24 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const isAdmin = senderRole === 'admin';
     const insertResult = await client.query(
       `INSERT INTO document_chat_messages
-         (nomor_dokumen, cycle_id, sender_role, sender_nama, sender_email, message, reply_to_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+         (nomor_dokumen, cycle_id, sender_role, sender_nama, sender_email, message, reply_to_id, admin_read, admin_read_at, admin_read_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING id, nomor_dokumen, sender_role, sender_nama, sender_email, message, created_at, reply_to_id`,
-      [nomorDokumen, cycleId, senderRole, senderNama, senderEmail, message, replyToId]
+      [
+        nomorDokumen,
+        cycleId,
+        senderRole,
+        senderNama,
+        senderEmail,
+        message,
+        replyToId,
+        isAdmin,
+        isAdmin ? new Date() : null,
+        isAdmin ? 'admin' : null,
+      ]
     );
 
     const row = insertResult.rows[0];

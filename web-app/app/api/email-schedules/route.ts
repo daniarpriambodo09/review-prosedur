@@ -20,6 +20,7 @@ export async function GET(request: NextRequest) {
         es.error_message,
         es.cycle_deadline_at,
         es.is_manual,
+        es.previous_status,
         es.created_at,
         es.updated_at,
         pd.nama_dokumen,
@@ -49,6 +50,7 @@ export async function GET(request: NextRequest) {
       errorMessage: row.error_message,
       cycleDeadlineAt: row.cycle_deadline_at,
       isManual: row.is_manual,
+      previousStatus: row.previous_status,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       namaDokumen: row.nama_dokumen,
@@ -77,6 +79,9 @@ export async function GET(request: NextRequest) {
 //                                  — dibaca oleh app/api/reviews/route.ts
 //                                  untuk tahu kapan tanggal_selesai_approval
 //                                  perlu di-reset ke tanggal review.
+//   - previous_status            = menyimpan status dokumen sebelum dijadwalkan
+//                                  (Relevan / Revisi) agar bisa dikembalikan
+//                                  jika jadwal dibatalkan (cancel).
 export async function PUT(request: NextRequest) {
   const client = await pool.connect();
   try {
@@ -107,10 +112,7 @@ export async function PUT(request: NextRequest) {
 
     // Saat admin bikin/reset jadwal MANUAL (emailStatus 'pending'), hitung
     // cycle_deadline_at (T-0, 2 bulan dari tanggal ini) dan
-    // manager_email_scheduled_at (T+1 bulan) — supaya jadwal manual punya
-    // siklus lengkap yang SAMA seperti reminder otomatis (email PIC ->
-    // eskalasi manager kalau 1 bulan belum direview -> auto Relevan kalau
-    // 2 bulan total belum direview).
+    // manager_email_scheduled_at (T+1 bulan).
     let cycleDeadlineAt: Date | null = null;
     let managerScheduledAt: Date | null = null;
     if (currentScheduleStatus === 'pending') {
@@ -121,9 +123,22 @@ export async function PUT(request: NextRequest) {
 
     await client.query('BEGIN');
 
+    // Cek status saat ini dari procedure_documents sebelum diubah ke 'Belum dikirim'
+    const docCheck = await client.query(
+      `SELECT status FROM procedure_documents WHERE nomor_dokumen = $1`,
+      [nomorDokumen]
+    );
+    const existingDocStatus = docCheck.rows[0]?.status;
+
+    // Simpan status sebelumnya jika valid (misal: Relevan, Revisi, Obsolete)
+    let prevStatusToSave: string | null = null;
+    if (existingDocStatus && !['Belum dikirim', 'Telah terkirim', 'Telah dibaca'].includes(existingDocStatus)) {
+      prevStatusToSave = existingDocStatus;
+    }
+
     // Upsert email schedule
     const checkResult = await client.query(
-      'SELECT id FROM email_schedules WHERE nomor_dokumen = $1',
+      'SELECT id, previous_status FROM email_schedules WHERE nomor_dokumen = $1',
       [nomorDokumen]
     );
     let result;
@@ -140,26 +155,25 @@ export async function PUT(request: NextRequest) {
            manager_email_scheduled_at  = COALESCE($4, manager_email_scheduled_at),
            manager_email_status        = CASE WHEN $2::varchar = 'pending' THEN 'not_applicable' ELSE manager_email_status END,
            is_manual                   = CASE WHEN $2::varchar = 'pending' THEN TRUE ELSE is_manual END,
+           previous_status             = COALESCE($5, previous_status),
            updated_at                  = CURRENT_TIMESTAMP
-         WHERE nomor_dokumen = $5
+         WHERE nomor_dokumen = $6
          RETURNING *`,
-        [scheduledEmailAt, currentScheduleStatus, cycleDeadlineAt, managerScheduledAt, nomorDokumen]
+        [scheduledEmailAt, currentScheduleStatus, cycleDeadlineAt, managerScheduledAt, prevStatusToSave, nomorDokumen]
       );
     } else {
       result = await client.query(
         `INSERT INTO email_schedules
-           (nomor_dokumen, scheduled_email_at, email_status, cycle_deadline_at, manager_email_scheduled_at, manager_email_status, is_manual)
-         VALUES ($1, $2, $3, $4, $5, 'not_applicable', TRUE)
+           (nomor_dokumen, scheduled_email_at, email_status, cycle_deadline_at, manager_email_scheduled_at, manager_email_status, is_manual, previous_status)
+         VALUES ($1, $2, $3, $4, $5, 'not_applicable', TRUE, $6)
          RETURNING *`,
-        [nomorDokumen, scheduledEmailAt, currentScheduleStatus, cycleDeadlineAt, managerScheduledAt]
+        [nomorDokumen, scheduledEmailAt, currentScheduleStatus, cycleDeadlineAt, managerScheduledAt, prevStatusToSave]
       );
     }
 
     if (currentScheduleStatus === 'pending') {
       // Admin secara eksplisit membuat/mengupdate jadwal baru →
       // reset status dokumen ke "Belum dikirim" tanpa pengecualian apapun.
-      // Ini berlaku meski status sebelumnya Revisi, Obsolete, atau Relevan
-      // karena admin memulai siklus review baru.
       await client.query(
         `UPDATE procedure_documents
          SET status = 'Belum dikirim', updated_at = CURRENT_TIMESTAMP
@@ -167,9 +181,7 @@ export async function PUT(request: NextRequest) {
         [nomorDokumen]
       );
     } else if (currentScheduleStatus === 'sent') {
-      // Dipanggil sistem pengirim email (bukan admin) saat email berhasil terkirim →
-      // ubah ke "Telah terkirim" HANYA jika PIC belum lebih maju
-      // (belum membaca atau belum submit hasil review)
+      // Dipanggil sistem pengirim email saat email berhasil terkirim
       await client.query(
         `UPDATE procedure_documents
          SET status = 'Telah terkirim', updated_at = CURRENT_TIMESTAMP
@@ -191,38 +203,104 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-// DELETE - Cancel jadwal email (set status = 'cancelled')
-// Dipanggil saat status dokumen berubah dari "Telah terkirim" ke status lain
+// DELETE - Cancel jadwal email dan kembalikan status dokumen ke status terakhir (Relevan/Revisi)
 export async function DELETE(request: NextRequest) {
   const client = await pool.connect();
   try {
     const { searchParams } = new URL(request.url);
-    const nomorDokumen = searchParams.get('nomorDokumen');
+    const nomorDokumenParam = searchParams.get('nomorDokumen');
 
-    if (!nomorDokumen) {
+    let bodyData: any = {};
+    try {
+      bodyData = await request.json();
+    } catch {}
+
+    const docsToCancel: string[] = Array.isArray(bodyData.nomorDokumenList)
+      ? bodyData.nomorDokumenList
+      : bodyData.nomorDokumen
+      ? [bodyData.nomorDokumen]
+      : nomorDokumenParam
+      ? [nomorDokumenParam]
+      : [];
+
+    if (docsToCancel.length === 0) {
       return NextResponse.json(
-        { error: 'nomorDokumen harus diisi' },
+        { error: 'nomorDokumen atau nomorDokumenList harus diisi' },
         { status: 400 }
       );
     }
 
-    const result = await client.query(
-      `UPDATE email_schedules
-       SET email_status = 'cancelled', updated_at = CURRENT_TIMESTAMP
-       WHERE nomor_dokumen = $1
-         AND email_status = 'sent'
-       RETURNING nomor_dokumen, email_status`,
-      [nomorDokumen]
-    );
+    await client.query('BEGIN');
+
+    const results: Array<{ nomorDokumen: string; restoredStatus: string }> = [];
+
+    for (const docNo of docsToCancel) {
+      // 1. Ambil previous_status dan email_status saat ini
+      const schedCheck = await client.query(
+        `SELECT es.previous_status, es.email_status, pd.status AS current_doc_status
+         FROM email_schedules es
+         LEFT JOIN procedure_documents pd ON pd.nomor_dokumen = es.nomor_dokumen
+         WHERE es.nomor_dokumen = $1`,
+        [docNo]
+      );
+
+      const row = schedCheck.rows[0];
+      let targetStatus = row?.previous_status;
+
+      // Jika previous_status kosong atau tidak valid, cari status dari riwayat review terakhir
+      if (!targetStatus || ['Belum dikirim', 'Telah terkirim', 'Telah dibaca'].includes(targetStatus)) {
+        const revCheck = await client.query(
+          `SELECT status FROM document_reviews
+           WHERE nomor_dokumen = $1
+           ORDER BY updated_at DESC, id DESC
+           LIMIT 1`,
+          [docNo]
+        );
+        targetStatus = revCheck.rows[0]?.status;
+      }
+
+      // Default jika belum ada riwayat adalah 'Relevan'
+      if (!targetStatus || ['Belum dikirim', 'Telah terkirim', 'Telah dibaca'].includes(targetStatus)) {
+        targetStatus = 'Relevan';
+      }
+
+      // 2. Batalkan jadwal email
+      await client.query(
+        `UPDATE email_schedules
+         SET email_status = 'cancelled', is_manual = FALSE, updated_at = CURRENT_TIMESTAMP
+         WHERE nomor_dokumen = $1`,
+        [docNo]
+      );
+
+      // 3. Kembalikan status dokumen ke status terakhir HANYA jika saat ini dokumen dalam mode jadwal ('Belum dikirim')
+      // Jika dokumen sudah direview (misal Relevan/Revisi/Obsolete oleh PIC), status tersebut tidak di-overwrite.
+      if (!row || row.current_doc_status === 'Belum dikirim' || row.current_doc_status === 'Telah terkirim') {
+        await client.query(
+          `UPDATE procedure_documents
+           SET status = $1, updated_at = CURRENT_TIMESTAMP
+           WHERE nomor_dokumen = $2`,
+          [targetStatus, docNo]
+        );
+      } else {
+        targetStatus = row.current_doc_status;
+      }
+
+      results.push({ nomorDokumen: docNo, restoredStatus: targetStatus });
+    }
+
+    await client.query('COMMIT');
 
     return NextResponse.json({
       success: true,
-      cancelled: result.rowCount ?? 0,
+      cancelled: results.length,
+      restoredStatus: results[0]?.restoredStatus,
+      results,
     });
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Error cancelling email schedule:', error);
     return NextResponse.json(
-      { error: 'Failed to cancel email schedule' },
+      { error: 'Gagal membatalkan jadwal email' },
       { status: 500 }
     );
   } finally {

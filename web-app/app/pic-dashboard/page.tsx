@@ -10,6 +10,7 @@ import PICDocumentsList from '@/components/pic/PICDocumentsList';
 import PICActivityLog from '@/components/pic/PICActivityLog';
 import RequestReviewModal from '@/components/pic/RequestReviewModal';
 import RequestNewDocumentModal from '@/components/pic/RequestNewDocumentModal';
+import PICRequestsModal from '@/components/pic/PICRequestsModal';
 import SectionReviewChart from '@/components/dashboard/SectionReviewChart';
 import Link from 'next/link';
 
@@ -63,6 +64,7 @@ export default function PICDashboardPage() {
 
   const [showRequestReviewModal,  setShowRequestReviewModal]  = useState(false);
   const [showNewDocumentModal,    setShowNewDocumentModal]    = useState(false);
+  const [showRequestsModal,       setShowRequestsModal]       = useState(false);
 
   // Helper: buat header auth untuk semua API call PIC
   const picHeaders = useCallback(() => ({
@@ -190,7 +192,12 @@ export default function PICDashboardPage() {
       <main className="max-w-screen-xl mx-auto px-4 py-5 sm:px-6 lg:px-8">
 
         {/* Stats */}
-        {dashboardData && <PICStatsCards stats={dashboardData.stats} />}
+        {dashboardData && (
+          <PICStatsCards
+            stats={dashboardData.stats}
+            onRequestClick={() => setShowRequestsModal(true)}
+          />
+        )}
 
         {/* 🆕 Grafik Total vs Sudah Direview per Section — GLOBAL, sama untuk
             semua PIC & admin. Diletakkan paling atas, tepat di bawah stat
@@ -218,9 +225,9 @@ export default function PICDashboardPage() {
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
             </svg>
-            Minta Review Dokumen
+            Minta Revisi Dokumen
           </button>
 
           <button
@@ -262,6 +269,10 @@ export default function PICDashboardPage() {
         isOpen={showNewDocumentModal}
         onClose={() => setShowNewDocumentModal(false)}
         onSubmit={async () => { await fetchDashboard(); }}
+      />
+      <PICRequestsModal
+        isOpen={showRequestsModal}
+        onClose={() => setShowRequestsModal(false)}
       />
     </div>
   );

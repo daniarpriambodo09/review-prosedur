@@ -58,6 +58,14 @@ async function syncRelevanStatus(
      DO UPDATE SET status = 'Relevan', revisi = $2, updated_at = CURRENT_TIMESTAMP`,
     [nomorDokumen, revisiValue, approvalMonth]
   );
+
+  // 🆕 Selesaikan permintaan revisi aktif untuk dokumen ini
+  await client.query(
+    `UPDATE pic_review_requests
+     SET status = 'completed', updated_at = CURRENT_TIMESTAMP
+     WHERE nomor_dokumen = $1 AND status = 'pending'`,
+    [nomorDokumen]
+  );
 }
 
 /** 🆕 Ambil semua entri Catatan Perubahan milik dokumen, urut kronologis menaik. */

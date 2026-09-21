@@ -41,10 +41,24 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const rawMonth = searchParams.get('month');
+    const rawYear = searchParams.get('year');
     const parsedMonth = rawMonth !== null ? parseInt(rawMonth, 10) : NaN;
     const month = Number.isInteger(parsedMonth) && parsedMonth >= 0 && parsedMonth <= 11
       ? parsedMonth
       : new Date().getMonth();
+
+    const currentYear = Math.max(2026, new Date().getFullYear());
+    const availableYears: number[] = [];
+    for (let y = currentYear; y >= 2026; y--) {
+      availableYears.push(y);
+    }
+
+    let filterYear = currentYear;
+    if (rawYear !== null && rawYear !== '') {
+      const parsedY = parseInt(rawYear, 10);
+      if (!isNaN(parsedY)) filterYear = parsedY;
+    }
+    const isPastYear = filterYear < currentYear;
 
     // ── 1. Peta kode staff -> label unit (departemen ATAU section) ──────────
     const staffResult = await client.query(`
@@ -83,7 +97,7 @@ export async function GET(request: NextRequest) {
 
     // ── 2. Semua dokumen (tanpa filter status, kita filter bulan di JS) ──────
     const docsResult = await client.query(`
-      SELECT pic, status, tanggal_selesai_approval
+      SELECT pic, status, tanggal_selesai_approval, last_reviewed_at
       FROM procedure_documents
     `);
 
@@ -99,7 +113,8 @@ export async function GET(request: NextRequest) {
 
       const entry = counts.get(label) ?? { total: 0, reviewed: 0 };
       entry.total += 1;
-      if (REVIEWED_STATUSES.includes(row.status)) entry.reviewed += 1;
+      const isReviewed = isPastYear || (REVIEWED_STATUSES.includes(row.status) && Boolean(row.last_reviewed_at));
+      if (isReviewed) entry.reviewed += 1;
       counts.set(label, entry);
     }
 
@@ -107,7 +122,12 @@ export async function GET(request: NextRequest) {
       .map(([label, v]) => ({ label, total: v.total, reviewed: v.reviewed }))
       .sort((a, b) => b.total - a.total);
 
-    return NextResponse.json({ month, data });
+    return NextResponse.json({
+      month,
+      year: filterYear,
+      availableYears,
+      data,
+    });
   } catch (error) {
     console.error('Error fetching section stats:', error);
     return NextResponse.json({ error: 'Gagal mengambil data statistik section' }, { status: 500 });

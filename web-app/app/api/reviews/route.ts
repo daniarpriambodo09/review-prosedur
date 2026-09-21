@@ -146,6 +146,16 @@ export async function POST(request: NextRequest) {
     // jadwal manual (Atur Jadwal).
     await maybeResetApprovalDateForManualSchedule(client, nomorDokumen);
 
+    // 🆕 Jika status menjadi 'Relevan', selesaikan request revisi aktif milik dokumen ini
+    if (status === 'Relevan') {
+      await client.query(
+        `UPDATE pic_review_requests
+         SET status = 'completed', updated_at = CURRENT_TIMESTAMP
+         WHERE nomor_dokumen = $1 AND status = 'pending'`,
+        [nomorDokumen]
+      );
+    }
+
     await client.query('COMMIT');
 
     await logActivity({
@@ -219,6 +229,16 @@ export async function PATCH(request: NextRequest) {
       // 🆕 Sama seperti di POST — reset tanggal_selesai_approval kalau
       // dokumen ini direview di bawah jadwal manual (Atur Jadwal).
       await maybeResetApprovalDateForManualSchedule(client, review.nomorDokumen);
+
+      // 🆕 Jika status menjadi 'Relevan', selesaikan request revisi aktif milik dokumen ini
+      if (review.status === 'Relevan') {
+        await client.query(
+          `UPDATE pic_review_requests
+           SET status = 'completed', updated_at = CURRENT_TIMESTAMP
+           WHERE nomor_dokumen = $1 AND status = 'pending'`,
+          [review.nomorDokumen]
+        );
+      }
 
       await logActivity({
         username:            username || 'user',

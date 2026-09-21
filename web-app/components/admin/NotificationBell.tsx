@@ -3,11 +3,12 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Bell } from 'lucide-react';
+import Link from 'next/link';
+import { Bell, MessageSquare } from 'lucide-react';
 
 interface Notification {
   id:           number;
-  type:         'new_document' | 'review_request' | 'approval_rejected' | 'document_annotated';
+  type:         'new_document' | 'review_request' | 'approval_rejected' | 'document_annotated' | 'chat_message';
   picId:        number;
   picFullName:  string;
   picEmail:     string;
@@ -43,6 +44,13 @@ function formatDatetime(iso: string): string {
 }
 
 const TYPE_CONFIG = {
+  chat_message: {
+    label:    'Pesan Chat',
+    icon:     '💬',
+    badgeCls: 'bg-teal-100 text-teal-800 border-teal-200',
+    dotCls:   'bg-teal-500',
+    headerBg: 'bg-teal-600',
+  },
   new_document: {
     label:    'Dokumen Baru',
     icon:     '📄',
@@ -79,7 +87,7 @@ const STATUS_CONFIG: Record<string, string> = {
   pending:  'bg-amber-50 text-amber-700 border-amber-200',
   approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   rejected: 'bg-red-50 text-red-700 border-red-200',
-  info:     'bg-indigo-50 text-indigo-700 border-indigo-200',
+  info:     'bg-teal-50 text-teal-700 border-teal-200',
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -90,17 +98,6 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 // ── Detail Modal via React Portal ─────────────────────────────────────────────
-// ROOT CAUSE BUG 1:
-// DetailModal sebelumnya di-render di dalam <div ref={dropdownRef}> yang merupakan
-// ancestor dengan `position: relative`. Lebih parah lagi, AdminLayout menggunakan
-// `transition-all` pada content wrapper — CSS `transform` / `transition` pada
-// ancestor MEMATIKAN `position: fixed` sehingga modal tidak lagi relatif terhadap
-// viewport, melainkan terhadap elemen ancestor tersebut. Hasilnya modal terpotong
-// dan tidak center.
-//
-// FIX: Gunakan ReactDOM.createPortal untuk merender overlay langsung ke
-// document.body, sepenuhnya keluar dari semua stacking context, transform,
-// overflow, dan transition yang ada di layout.
 function DetailModal({
   notif,
   onClose,
@@ -115,12 +112,14 @@ function DetailModal({
   // 🆕 Label yang beda per tipe notifikasi
   const isRejection  = notif.type === 'approval_rejected';
   const isAnnotation = notif.type === 'document_annotated';
+  const isChat       = notif.type === 'chat_message';
   const modalTitle =
-    notif.type === 'new_document'      ? 'Request Dokumen Baru' :
-    notif.type === 'review_request'    ? 'Request Review Dokumen' :
+    notif.type === 'new_document'       ? 'Request Dokumen Baru' :
+    notif.type === 'review_request'     ? 'Request Review Dokumen' :
     notif.type === 'document_annotated' ? 'Ada Coretan / Komentar Baru' :
+    notif.type === 'chat_message'       ? 'Pesan Chat Approval' :
     'Dokumen Ditolak';
-  const fromLabel   = isRejection ? 'Ditolak Oleh' : isAnnotation ? 'Dicoret Oleh' : 'Dari PIC';
+  const fromLabel   = isRejection ? 'Ditolak Oleh' : isAnnotation ? 'Dicoret Oleh' : isChat ? 'Pengirim Chat' : 'Dari PIC';
   const reasonLabel = isRejection ? 'Alasan Penolakan' : 'Alasan Permintaan';
 
   // Lock body scroll saat modal terbuka
@@ -226,7 +225,21 @@ function DetailModal({
             <p className="text-sm text-slate-600">{formatDatetime(notif.createdAt)}</p>
           </div>
 
-          {notif.description && (
+          {isChat && notif.description && (
+            <div>
+              <p className="text-[10px] font-bold text-teal-700 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                <MessageSquare size={13} />
+                Isi Pesan Chat
+              </p>
+              <div className="bg-teal-50/70 border border-teal-200 rounded-xl p-3.5 shadow-sm">
+                <p className="text-sm text-slate-800 font-medium whitespace-pre-wrap leading-relaxed">
+                  {notif.description}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {!isChat && notif.description && (
             <div>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Deskripsi</p>
               <p className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 leading-relaxed">
@@ -249,9 +262,11 @@ function DetailModal({
           {notif.notes && (
             <div>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                {isRejection ? 'Tahap' : 'Catatan dari PIC'}
+                {isRejection ? 'Tahap' : isChat ? 'Peran Pengirim' : 'Catatan dari PIC'}
               </p>
-              <p className="text-sm text-slate-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 leading-relaxed italic">
+              <p className={`text-sm rounded-lg px-3 py-2 leading-relaxed italic border ${
+                isChat ? 'text-teal-900 bg-teal-50 border-teal-200 font-medium' : 'text-slate-700 bg-blue-50 border-blue-200'
+              }`}>
                 &ldquo;{notif.notes}&rdquo;
               </p>
             </div>
@@ -268,7 +283,19 @@ function DetailModal({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex justify-end">
+        <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between gap-3">
+          {isChat ? (
+            <Link
+              href={`/status-review/${encodeURIComponent(notif.nomorDokumen)}`}
+              onClick={onClose}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-semibold transition-all shadow-sm active:scale-95"
+            >
+              <MessageSquare size={16} />
+              Buka Dokumen &amp; Balas Chat
+            </Link>
+          ) : (
+            <div />
+          )}
           <button
             onClick={onClose}
             className="px-5 py-2 border border-slate-200 hover:bg-slate-100 text-slate-700 rounded-lg text-sm font-semibold transition-all active:scale-95"
@@ -290,7 +317,7 @@ export default function NotificationBell() {
   const [unreadCount,      setUnreadCount]      = useState(0);
   const [isOpen,           setIsOpen]           = useState(false);
   const [isMarking,        setIsMarking]        = useState(false);
-  const [activeTab,        setActiveTab]        = useState<'all' | 'new_document' | 'review_request' | 'approval_rejected' | 'document_annotated'>('all');
+  const [activeTab,        setActiveTab]        = useState<'all' | 'chat_message' | 'new_document' | 'review_request' | 'approval_rejected' | 'document_annotated'>('all');
   const [selectedNotif,    setSelectedNotif]    = useState<Notification | null>(null);
   const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<string>>(new Set());
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -407,6 +434,7 @@ export default function NotificationBell() {
   };
 
   const displayed       = activeTab === 'all' ? notifications : notifications.filter(n => n.type === activeTab);
+  const unreadChat       = notifications.filter(n => !n.isRead && n.type === 'chat_message').length;
   const unreadNew        = notifications.filter(n => !n.isRead && n.type === 'new_document').length;
   const unreadReview     = notifications.filter(n => !n.isRead && n.type === 'review_request').length;
   const unreadRejected   = notifications.filter(n => !n.isRead && n.type === 'approval_rejected').length;
@@ -430,7 +458,7 @@ export default function NotificationBell() {
 
       {/* ── Dropdown ── */}
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-[420px] bg-white rounded-xl shadow-2xl border border-slate-200 z-50 overflow-hidden">
+        <div className="absolute right-0 top-full mt-2 w-[440px] bg-white rounded-xl shadow-2xl border border-slate-200 z-50 overflow-hidden">
 
           {/* Dropdown Header */}
           <div className="px-4 py-3 bg-gradient-to-r from-blue-50 to-slate-50 border-b border-slate-200">
@@ -456,6 +484,7 @@ export default function NotificationBell() {
             <div className="flex gap-1 mt-3 flex-wrap">
               {([
                 { key: 'all',                label: 'Semua',        count: notifications.filter(n => !n.isRead).length },
+                { key: 'chat_message',       label: '💬 Chat',      count: unreadChat     },
                 { key: 'new_document',       label: '📄 Dok. Baru', count: unreadNew      },
                 { key: 'review_request',     label: '🔍 Review',    count: unreadReview   },
                 { key: 'approval_rejected',  label: '✗ Ditolak',    count: unreadRejected },
@@ -464,15 +493,15 @@ export default function NotificationBell() {
                 <button
                   key={tab.key}
                   onClick={() => setActiveTab(tab.key)}
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
                     activeTab === tab.key
-                      ? 'bg-blue-600 text-white'
+                      ? 'bg-blue-600 text-white shadow-sm'
                       : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
                   }`}
                 >
                   {tab.label}
                   {tab.count > 0 && (
-                    <span className={`min-w-[16px] h-4 rounded-full text-[10px] flex items-center justify-center px-1 ${
+                    <span className={`min-w-[16px] h-4 rounded-full text-[10px] flex items-center justify-center px-1 font-bold ${
                       activeTab === tab.key ? 'bg-white/30 text-white' : 'bg-red-500 text-white'
                     }`}>
                       {tab.count}
@@ -545,10 +574,19 @@ export default function NotificationBell() {
                         </span>
                         <p className="text-sm text-slate-800 font-medium truncate">{notif.nomorDokumen}</p>
                         <p className="text-xs text-slate-500 truncate">{notif.title}</p>
-                        {(notif.notes || notif.reason) && (
-                          <p className="text-xs text-slate-400 mt-1 line-clamp-2 italic">
-                            &ldquo;{notif.notes || notif.reason}&rdquo;
-                          </p>
+                        {notif.type === 'chat_message' ? (
+                          <div className="mt-1.5">
+                            <p className="text-[11px] font-semibold text-teal-700 mb-0.5">{notif.notes}</p>
+                            <p className="text-xs text-slate-700 line-clamp-2 italic bg-teal-50/60 border border-teal-200/80 rounded px-2.5 py-1">
+                              &ldquo;{notif.description}&rdquo;
+                            </p>
+                          </div>
+                        ) : (
+                          (notif.notes || notif.reason) && (
+                            <p className="text-xs text-slate-400 mt-1 line-clamp-2 italic">
+                              &ldquo;{notif.notes || notif.reason}&rdquo;
+                            </p>
+                          )
                         )}
                         <div className="flex items-center gap-2 mt-1.5">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border ${STATUS_CONFIG[notif.status] ?? STATUS_CONFIG['pending']}`}>
@@ -568,6 +606,8 @@ export default function NotificationBell() {
           {notifications.length > 0 && (
             <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-200">
               <p className="text-xs text-slate-500 text-center">
+                {notifications.filter(n => n.type === 'chat_message').length} chat
+                &nbsp;·&nbsp;
                 {notifications.filter(n => n.type === 'new_document').length} dok. baru
                 &nbsp;·&nbsp;
                 {notifications.filter(n => n.type === 'review_request').length} req. review

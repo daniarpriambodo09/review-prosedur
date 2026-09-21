@@ -17,6 +17,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import PDFViewer from './PDFViewer';
 
 export type AnnotatorRole = 'pic' | 'prepared' | 'checked' | 'approved';
 
@@ -83,9 +84,10 @@ export default function AnnotatablePDFViewer({
   const [drafts,      setDrafts]      = useState<DraftAnnotation[]>([]);
   const [tool,        setTool]        = useState<'none' | 'pen' | 'text'>('none');
   const [showOverlay, setShowOverlay] = useState(true);
-  const [saving,      setSaving]      = useState(false);
-  const [saveMsg,     setSaveMsg]     = useState('');
-  const [textDraft,   setTextDraft]   = useState<{ page: number; x: number; y: number; value: string } | null>(null);
+  const [saving,          setSaving]          = useState(false);
+  const [saveMsg,         setSaveMsg]         = useState('');
+  const [textDraft,       setTextDraft]       = useState<{ page: number; x: number; y: number; value: string } | null>(null);
+  const [useNativeViewer, setUseNativeViewer] = useState(false);
 
   const pdfDocRef        = useRef<any>(null);
   const canvasRefs       = useRef<Record<number, HTMLCanvasElement | null>>({});
@@ -129,7 +131,17 @@ export default function AnnotatablePDFViewer({
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const buf = await res.arrayBuffer();
 
-        const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+        // 🔧 FIX: Konfigurasi wasmUrl, cMapUrl, dan standardFontDataUrl
+        // pdfjs-dist v6 memerlukan jbig2.wasm untuk mendekode gambar kompresi CCITTFax
+        // (yang dipakai oleh flowchart/bagan alir pada prosedur). Tanpa ini,
+        // decoder CCITT/JBIG2 gagal inisialisasi dan flowchart hilang.
+        const pdf = await pdfjsLib.getDocument({
+          data: buf,
+          wasmUrl: '/review-prosedur/wasm/',
+          cMapUrl: '/review-prosedur/cmaps/',
+          cMapPacked: true,
+          standardFontDataUrl: '/review-prosedur/standard_fonts/',
+        }).promise;
         if (cancelled) return;
 
         pdfDocRef.current = pdf;
@@ -173,7 +185,11 @@ export default function AnnotatablePDFViewer({
 
         const ctx = canvas.getContext('2d');
         if (!ctx) continue;
-        await page.render({ canvasContext: ctx, viewport }).promise;
+        await page.render({
+          canvasContext: ctx,
+          viewport,
+          annotationMode: 1, // AnnotationMode.ENABLE: pastikan anotasi/vector shapes dalam PDF ikut ter-render
+        }).promise;
       }
       if (!cancelled) redrawAllOverlays();
     }
@@ -435,18 +451,18 @@ export default function AnnotatablePDFViewer({
             <div className="inline-flex bg-slate-100 rounded-lg p-1 gap-1">
               <button
                 type="button"
-                onClick={() => setShowOverlay(false)}
+                onClick={() => { setShowOverlay(false); setUseNativeViewer(false); }}
                 className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${
-                  !showOverlay ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
+                  !showOverlay && !useNativeViewer ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
                 }`}
               >
                 Dokumen Bersih
               </button>
               <button
                 type="button"
-                onClick={() => setShowOverlay(true)}
+                onClick={() => { setShowOverlay(true); setUseNativeViewer(false); }}
                 className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${
-                  showOverlay ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
+                  showOverlay && !useNativeViewer ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
                 }`}
               >
                 Dengan Coretan{existing.length > 0 ? ` (${existing.length})` : ''}
@@ -455,6 +471,19 @@ export default function AnnotatablePDFViewer({
             <div className="flex-1" />
           </>
         )}
+
+        <button
+          type="button"
+          onClick={() => setUseNativeViewer(prev => !prev)}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            useNativeViewer
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+          }`}
+          title={useNativeViewer ? 'Beralih ke mode canvas interaktif' : 'Beralih ke viewer PDF asli bawaan browser'}
+        >
+          {useNativeViewer ? '✏️ Mode Anotasi' : '📄 Mode PDF Asli'}
+        </button>
         {saveMsg && <span className="text-xs text-emerald-600 font-medium">{saveMsg}</span>}
       </div>
 
@@ -469,9 +498,14 @@ export default function AnnotatablePDFViewer({
         </div>
       )}
 
-      {/* ── Halaman-halaman PDF ── */}
-      <div className="flex-1 overflow-auto bg-slate-200 py-4 flex flex-col items-center gap-4">
-        {Array.from({ length: numPages }, (_, idx) => idx + 1).map(page => (
+      {/* ── Konten Dokumen PDF ── */}
+      {useNativeViewer ? (
+        <div className="flex-1 w-full h-full min-h-0 relative bg-slate-100">
+          <PDFViewer filePath={filePath} fileName={`${nomorDokumen}.pdf`} />
+        </div>
+      ) : (
+        <div className="flex-1 overflow-auto bg-slate-200 py-4 flex flex-col items-center gap-4">
+          {Array.from({ length: numPages }, (_, idx) => idx + 1).map(page => (
           <div
             key={page}
             className="relative inline-block shadow-md bg-white align-top"
@@ -551,6 +585,7 @@ export default function AnnotatablePDFViewer({
           </div>
         ))}
       </div>
+      )}
     </div>
   );
 }

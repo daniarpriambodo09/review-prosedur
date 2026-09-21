@@ -567,6 +567,22 @@ export async function POST(request: NextRequest) {
       ]
     );
 
+    // 🆕 Selesaikan permintaan dokumen baru dari PIC (jika ada requestId atau judul cocok)
+    if (body.requestId) {
+      await client.query(
+        `UPDATE pic_document_requests
+         SET status = 'completed', document_number = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2 AND status = 'pending'`,
+        [body.nomorDokumen, body.requestId]
+      );
+    }
+    await client.query(
+      `UPDATE pic_document_requests
+       SET status = 'completed', document_number = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE status = 'pending' AND LOWER(TRIM(title)) = LOWER(TRIM($2))`,
+      [body.nomorDokumen, body.namaDokumen]
+    );
+
     await client.query('COMMIT');
 
     const row = result.rows[0];

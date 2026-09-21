@@ -38,7 +38,7 @@ import EditProcedureModal from '@/components/status-review/EditProcedureModal';
 import DocumentChat from '@/components/chat/DocumentChat';
 import {
   ArrowLeft, Hash, FileText, Calendar, RefreshCw, Building2, User, Mail,
-  Eye, Users, FileClock, Pencil, Trash2, Send,
+  Eye, Users, FileClock, Pencil, Trash2, Send, XCircle,
 } from 'lucide-react';
 
 // =============================================================================
@@ -242,6 +242,33 @@ export default function DocumentDetailPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  const [isCancellingSchedule, setIsCancellingSchedule] = useState(false);
+
+  const handleCancelSchedule = async () => {
+    if (!doc) return;
+    const confirmed = window.confirm(
+      `Apakah Anda yakin ingin membatalkan jadwal pengiriman email untuk dokumen ini?\n\nStatus dokumen akan dikembalikan ke status sebelumnya (Relevan/Revisi).`
+    );
+    if (!confirmed) return;
+
+    try {
+      setIsCancellingSchedule(true);
+      const res = await fetch(`/review-prosedur/api/email-schedules?nomorDokumen=${encodeURIComponent(doc.nomorDokumen)}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Gagal membatalkan jadwal');
+
+      alert(`Jadwal email berhasil dibatalkan.\nStatus dokumen dikembalikan ke: ${data.restoredStatus || 'Relevan'}`);
+      await loadData();
+    } catch (err: any) {
+      console.error('Error cancelling schedule:', err);
+      alert('Gagal membatalkan jadwal: ' + (err.message || 'Unknown error'));
+    } finally {
+      setIsCancellingSchedule(false);
+    }
+  };
+
   const handleArchive = async () => {
     if (!doc) return;
     const confirmed = window.confirm(
@@ -332,7 +359,20 @@ export default function DocumentDetailPage() {
           {/* Jadwal Email — hanya tampil kalau ada jadwal aktif */}
           {showScheduleCard && schedule && (
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-              <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-4">Jadwal Email</h2>
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wide">Jadwal Email</h2>
+                {schedule.emailStatus === 'pending' && (
+                  <button
+                    type="button"
+                    onClick={handleCancelSchedule}
+                    disabled={isCancellingSchedule}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg border border-rose-200 transition-colors disabled:opacity-50"
+                  >
+                    <XCircle size={14} className={isCancellingSchedule ? 'animate-spin' : ''} />
+                    {isCancellingSchedule ? 'Membatalkan...' : 'Batalkan Jadwal'}
+                  </button>
+                )}
+              </div>
               <div className="flex items-center gap-3 flex-wrap">
                 <div className="flex items-center gap-2 text-sm text-slate-700">
                   <Send size={14} className="text-slate-400" />

@@ -8,11 +8,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import DocumentModal from '@/components/documents/DocumentModal';
 import EmailScheduleModal from '@/components/status-review/EmailScheduleModal';
 import SectionReviewChart from '@/components/dashboard/SectionReviewChart';
+import OverallReviewCharts from '@/components/dashboard/OverallReviewCharts';
 import {
   FileText, CheckCircle2, RefreshCw, Clock, TrendingUp,
   Plus, CalendarClock, Archive, Users, Settings, Activity,
-  ChevronRight, Calendar,
+  ChevronRight, Calendar, Inbox,
 } from 'lucide-react';
+import AdminRequestsModal, { type AdminPICRequest } from '@/components/admin/AdminRequestsModal';
 
 const MONTH_NAMES_ID = [
   'Januari','Februari','Maret','April','Mei','Juni',
@@ -63,10 +65,22 @@ interface KpiCardProps {
   icon: React.ReactNode;
   iconBg: string;
   iconColor: string;
+  onClick?: () => void;
+  clickable?: boolean;
 }
-function KpiCard({ title, value, subtitle, icon, iconBg, iconColor }: KpiCardProps) {
+function KpiCard({ title, value, subtitle, icon, iconBg, iconColor, onClick, clickable }: KpiCardProps) {
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
+    <div
+      onClick={onClick}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.(); } } : undefined}
+      className={`bg-white rounded-2xl border border-slate-200 shadow-sm p-5 transition-all duration-200 ${
+        clickable
+          ? 'cursor-pointer hover:shadow-md hover:-translate-y-0.5 hover:border-violet-300 hover:ring-2 hover:ring-violet-100 select-none'
+          : 'hover:shadow-md hover:-translate-y-0.5'
+      }`}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <p className="text-xs font-medium text-slate-500 mb-1">{title}</p>
@@ -189,7 +203,9 @@ export default function HomePage() {
   const [procedures,         setProcedures]         = useState<ProcedureDocument[]>([]);
   const [recentActivities,   setRecentActivities]   = useState<ActivityLog[]>([]);
   const [loading,            setLoading]            = useState(true);
+  const currentYear = Math.max(2026, new Date().getFullYear());
   const [selectedMonth,      setSelectedMonth]      = useState<number>(new Date().getMonth());
+  const [selectedYear,       setSelectedYear]       = useState<number>(currentYear);
   const [activityPage,       setActivityPage]       = useState(1);
   const [activityUserFilter, setActivityUserFilter] = useState('');
   const [activityTypeFilter, setActivityTypeFilter] = useState('');
@@ -206,6 +222,13 @@ export default function HomePage() {
   const [needsReview, setNeedsReview] = useState<boolean | null>(null);
   const [isSaving,    setIsSaving]    = useState(false);
 
+  // ── State untuk Permintaan dari PIC ───────────────────────────────────────
+  const [isRequestsModalOpen, setIsRequestsModalOpen] = useState(false);
+  const [picRequests,        setPicRequests]        = useState<AdminPICRequest[]>([]);
+  const [picRequestsSummary, setPicRequestsSummary] = useState({ total: 0, revisionCount: 0, newDocCount: 0 });
+  const [loadingRequests,    setLoadingRequests]    = useState(false);
+  const [selectedDocModal,   setSelectedDocModal]   = useState<{ nomorDokumen: string; namaDokumen: string } | null>(null);
+
   const ACTIVITIES_PER_PAGE = 8;
   const today = new Date();
 
@@ -221,6 +244,22 @@ export default function HomePage() {
     } catch {}
   }, []);
 
+  const loadPicRequests = useCallback(async () => {
+    try {
+      setLoadingRequests(true);
+      const res = await fetch('/review-prosedur/api/admin/pic-requests');
+      if (res.ok) {
+        const data = await res.json();
+        setPicRequests(data.requests || []);
+        setPicRequestsSummary(data.summary || { total: 0, revisionCount: 0, newDocCount: 0 });
+      }
+    } catch (err) {
+      console.error('Error loading PIC requests:', err);
+    } finally {
+      setLoadingRequests(false);
+    }
+  }, []);
+
   useEffect(() => {
     const load = async () => {
       try {
@@ -229,6 +268,7 @@ export default function HomePage() {
         const actRes = await fetch('/review-prosedur/api/activities?limit=200');
         if (actRes.ok) setRecentActivities(await actRes.json());
         await loadEmailSchedules();
+        await loadPicRequests();
       } catch (err) {
         console.error('Error loading dashboard:', err);
       } finally {
@@ -236,7 +276,7 @@ export default function HomePage() {
       }
     };
     load();
-  }, [loadEmailSchedules]);
+  }, [loadEmailSchedules, loadPicRequests]);
 
   const availableMonths = useMemo(() => {
     const months = new Set<number>();
@@ -247,12 +287,31 @@ export default function HomePage() {
     return Array.from(months).sort((a, b) => a - b);
   }, [procedures]);
 
+  const availableYears = useMemo(() => {
+    const list: number[] = [];
+    for (let y = currentYear; y >= 2026; y--) {
+      list.push(y);
+    }
+    return list;
+  }, [currentYear]);
+
+  const isPastYear = selectedYear < currentYear;
   const filteredDocs = useMemo(() =>
-    procedures.filter(p => {
-      const d = new Date(p.tanggalSelesaiApproval);
-      return !isNaN(d.getTime()) && d.getMonth() === selectedMonth;
-    }),
-  [procedures, selectedMonth]);
+    procedures
+      .filter(p => {
+        const d = new Date(p.tanggalSelesaiApproval);
+        return !isNaN(d.getTime()) && d.getMonth() === selectedMonth;
+      })
+      .map(p => {
+        if (isPastYear) {
+          return {
+            ...p,
+            status: 'Relevan' as StatusType,
+          };
+        }
+        return p;
+      }),
+  [procedures, selectedMonth, isPastYear]);
 
   const stats = useMemo(() => ({
     total:    filteredDocs.length,
@@ -391,22 +450,28 @@ export default function HomePage() {
   return (
     <ProtectedRoute>
       <AdminLayout>
-        <div className="max-w-7xl mx-auto space-y-8">
+        <div className="space-y-6">
 
-          {/* ── Hero Card — BUG FIX #1: Hapus KPI dari hero, hanya sapaan ── */}
-          <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-6 md:p-8 text-white shadow-md">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          {/* ── Welcome Banner ────────────────────────────────────────────── */}
+          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-700 p-6 md:p-8 text-white shadow-lg">
+            <div className="absolute top-0 right-0 -mt-8 -mr-8 w-64 h-64 rounded-full bg-white/5 pointer-events-none" />
+            <div className="absolute bottom-0 right-1/4 -mb-10 w-48 h-48 rounded-full bg-white/5 pointer-events-none" />
+            <div className="relative z-10 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
               <div>
-                <p className="text-blue-200 text-sm font-medium mb-1">Selamat datang kembali 👋</p>
-                <h1 className="text-2xl md:text-3xl font-bold mb-1">
-                  {user?.fullName || user?.username || 'Administrator'}
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-white/15 text-blue-100 backdrop-blur-xs mb-3">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  Sistem Manajemen Prosedur
+                </span>
+                <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
+                  Selamat Datang, {user?.fullName || user?.username || 'Administrator'}
                 </h1>
-                <p className="text-blue-200 text-sm">Review Prosedur · Quality Management System</p>
+                <p className="mt-1 text-blue-100 text-sm max-w-xl">
+                  Pantau kepatuhan review prosedur, jadwal pengiriman email, dan aktivitas pengguna secara real-time.
+                </p>
               </div>
-              <div className="flex items-center gap-3 bg-white/15 backdrop-blur-sm rounded-xl px-4 py-3 self-start md:self-auto">
-                <Calendar size={18} className="text-blue-200 flex-shrink-0" />
-                <div>
-                  <p className="text-blue-200 text-[10px] font-medium uppercase tracking-wider">Hari ini</p>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <div className="flex items-center gap-2 bg-white/10 backdrop-blur-xs px-4 py-2.5 rounded-xl border border-white/15">
+                  <Calendar size={16} className="text-blue-200" />
                   <p className="text-white text-sm font-semibold">
                     {today.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
                   </p>
@@ -415,32 +480,60 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* ── Filter bulan ──────────────────────────────────────────────── */}
-          <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-sm font-semibold text-slate-700">Filter bulan:</span>
-            <select
-              value={selectedMonth}
-              onChange={e => { setSelectedMonth(Number(e.target.value)); setActivityPage(1); }}
-              className={selectCls}
-              style={dropdownStyle}
-            >
-              {MONTH_NAMES_ID.map((name, i) => (
-                <option key={i} value={i} disabled={!availableMonths.includes(i)}>
-                  {name}{!availableMonths.includes(i) ? ' (kosong)' : ''}
-                </option>
-              ))}
-            </select>
-            {isCurrentMonth && (
-              <span className="text-xs bg-blue-600 text-white px-2.5 py-1 rounded-full font-semibold">
-                Bulan ini
+          {/* ── Filter Tahun & Bulan ──────────────────────────────────────── */}
+          <div className="flex items-center gap-4 flex-wrap bg-white px-4 py-3 rounded-2xl border border-slate-200 shadow-xs">
+            {/* Filter Tahun */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-slate-700">Filter tahun:</span>
+              <select
+                value={selectedYear}
+                onChange={e => { setSelectedYear(Number(e.target.value)); setActivityPage(1); }}
+                className={selectCls}
+                style={dropdownStyle}
+              >
+                {availableYears.map(y => (
+                  <option key={y} value={y}>
+                    {y === currentYear ? `${y} (Tahun Sekarang)` : `${y} (Riwayat)`}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="h-4 w-px bg-slate-200 hidden sm:block" />
+
+            {/* Filter Bulan */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-slate-700">Filter bulan:</span>
+              <select
+                value={selectedMonth}
+                onChange={e => { setSelectedMonth(Number(e.target.value)); setActivityPage(1); }}
+                className={selectCls}
+                style={dropdownStyle}
+              >
+                {MONTH_NAMES_ID.map((name, i) => (
+                  <option key={i} value={i} disabled={!availableMonths.includes(i)}>
+                    {name}{!availableMonths.includes(i) ? ' (kosong)' : ''}
+                  </option>
+                ))}
+              </select>
+              {isCurrentMonth && (
+                <span className="text-xs bg-blue-600 text-white px-2.5 py-1 rounded-full font-semibold">
+                  Bulan ini
+                </span>
+              )}
+            </div>
+
+            {isPastYear && (
+              <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-3 py-1 rounded-full font-medium flex items-center gap-1.5 sm:ml-auto">
+                <Clock size={12} /> Menampilkan arsip riwayat tahun {selectedYear} (semua dokumen selesai direview)
               </span>
             )}
           </div>
 
           {/* ── KPI Cards — satu-satunya tempat KPI tampil ────────────────── */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
             <KpiCard
-              title={`Total Dokumen · ${MONTH_NAMES_SHORT[selectedMonth]}`}
+              title={`Total Dokumen · ${MONTH_NAMES_SHORT[selectedMonth]} ${selectedYear}`}
               value={stats.total}
               icon={<FileText size={20} />}
               iconBg="bg-blue-50"
@@ -471,17 +564,30 @@ export default function HomePage() {
               iconColor="text-slate-500"
               subtitle={`${stats.menunggu} menunggu · ${stats.terkirim} terkirim · ${stats.terbaca} terbaca`}
             />
+            <KpiCard
+              title="Total Request PIC"
+              value={picRequestsSummary.total}
+              icon={<Inbox size={20} />}
+              iconBg="bg-violet-50"
+              iconColor="text-violet-600"
+              clickable={true}
+              onClick={() => setIsRequestsModalOpen(true)}
+              subtitle={`${picRequestsSummary.revisionCount} revisi · ${picRequestsSummary.newDocCount} baru · Klik detail`}
+            />
           </div>
 
           {/* ── Grafik Total vs Sudah Direview per Section — GLOBAL, semua PIC ── */}
           <SectionReviewChart />
+
+          {/* ── 2 Grafik Batang: Total vs Sudah Direview (Agregat Global) & Summary Status Review ── */}
+          <OverallReviewCharts />
 
           {/* ── Review Progress + Dokumen ──────────────────────────────────── */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <TrendingUp size={16} className="text-blue-600" />
-                <h2 className="font-bold text-slate-900">Review Progress · {selectedMonthName}</h2>
+                <h2 className="font-bold text-slate-900">Review Progress · {selectedMonthName} {selectedYear}</h2>
                 <span className="text-xs text-slate-400">({filteredDocs.length} dokumen)</span>
               </div>
               <span className={`text-sm font-bold ${reviewProgress === 100 ? 'text-emerald-600' : 'text-blue-600'}`}>
@@ -758,11 +864,44 @@ export default function HomePage() {
           isOpen={isEmailScheduleModalOpen}
           onClose={async () => {
             setIsEmailScheduleModalOpen(false);
-            await loadEmailSchedules();
+            const [procs] = await Promise.all([getAllProcedures(), loadEmailSchedules()]);
+            setProcedures(procs);
           }}
           procedures={procedures}
           emailSchedules={emailSchedules}
+          onScheduleChange={async () => {
+            const [procs] = await Promise.all([getAllProcedures(), loadEmailSchedules()]);
+            setProcedures(procs);
+          }}
         />
+
+        {/* ── AdminRequestsModal (Modal Detail Request PIC) ────────────────── */}
+        <AdminRequestsModal
+          isOpen={isRequestsModalOpen}
+          onClose={() => setIsRequestsModalOpen(false)}
+          requests={picRequests}
+          isLoading={loadingRequests}
+          onRefresh={loadPicRequests}
+          onOpenDocument={(nomorDokumen, namaDokumen) => {
+            setSelectedDocModal({ nomorDokumen, namaDokumen });
+          }}
+        />
+
+        {/* ── DocumentModal (dibuka saat klik Buka Dokumen dari modal request) ── */}
+        {selectedDocModal && (
+          <DocumentModal
+            isOpen={Boolean(selectedDocModal)}
+            onClose={async () => {
+              setSelectedDocModal(null);
+              await loadPicRequests();
+              const procs = await getAllProcedures();
+              setProcedures(procs);
+            }}
+            nomorDokumen={selectedDocModal.nomorDokumen}
+            namaDokumen={selectedDocModal.namaDokumen}
+            markSeenOnOpen={true}
+          />
+        )}
 
       </AdminLayout>
     </ProtectedRoute>

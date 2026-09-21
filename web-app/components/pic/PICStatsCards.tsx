@@ -9,6 +9,7 @@ interface Stats {
 
 interface PICStatsCardsProps {
   stats: Stats;
+  onRequestClick?: () => void;
 }
 
 // ─── Keyframe injection (satu kali, tidak bergantung komponen lain) ──────────
@@ -81,6 +82,9 @@ function StatCard({
   color,
   variant = 'default',
   urgencyLabel,
+  onClick,
+  clickable = false,
+  subtitle,
 }: {
   title: string;
   value: number;
@@ -88,15 +92,26 @@ function StatCard({
   color: 'emerald' | 'blue' | 'amber' | 'slate';
   variant?: CardVariant;
   urgencyLabel?: string;
+  onClick?: () => void;
+  clickable?: boolean;
+  subtitle?: string;
 }) {
   const isUrgent = variant === 'urgent';
   const { card, valueText } = VARIANT_CONFIG[variant];
   const iconClass = COLOR_ICON_CLASSES[color];
 
   return (
-    // CHANGED: rounded-xl→rounded-xl, p-6→p-4
-    <div className={`relative rounded-xl p-4 transition-all duration-200 ${card}`}>
-
+    <div
+      onClick={onClick}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.(); } } : undefined}
+      className={`relative rounded-xl p-4 transition-all duration-200 ${card} ${
+        clickable
+          ? 'cursor-pointer hover:-translate-y-0.5 hover:border-blue-400 hover:ring-2 hover:ring-blue-100 select-none'
+          : ''
+      }`}
+    >
       {/* Badge urgency */}
       {isUrgent && urgencyLabel && (
         <span
@@ -118,16 +133,22 @@ function StatCard({
       <div className="flex items-center justify-between">
         {/* Nilai & label */}
         <div>
-          {/* CHANGED: text-sm→text-xs, mb-1→mb-0.5 */}
           <p className="text-xs text-slate-500 mb-0.5 font-medium">{title}</p>
-          {/* CHANGED: text-3xl→text-2xl */}
           <p className={`text-2xl font-bold pic-stat-value ${valueText}`}>
             {value}
           </p>
 
+          {subtitle && (
+            <p className="text-[11px] text-blue-600 font-semibold mt-1 flex items-center gap-1">
+              <span>{subtitle}</span>
+              <svg className="w-3 h-3 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </p>
+          )}
+
           {/* Progress bar — hanya untuk pending */}
           {isUrgent && value > 0 && (
-            // CHANGED: mt-3→mt-2, w-28→w-24, h-1.5→h-1
             <div className="mt-2 w-24 h-1 bg-amber-100 rounded-full overflow-hidden">
               <div
                 className="h-full bg-amber-400 rounded-full transition-all duration-700"
@@ -137,7 +158,7 @@ function StatCard({
           )}
         </div>
 
-        {/* Icon — CHANGED: p-3→p-2.5, rounded-xl→rounded-lg */}
+        {/* Icon */}
         <div
           className={`
             p-2.5 rounded-lg flex-shrink-0
@@ -153,11 +174,10 @@ function StatCard({
 }
 
 // ─── PICStatsCards (export utama) ─────────────────────────────────────────────
-export default function PICStatsCards({ stats }: PICStatsCardsProps) {
+export default function PICStatsCards({ stats, onRequestClick }: PICStatsCardsProps) {
   const hasPending = stats.pendingReview > 0;
 
   return (
-    // CHANGED: gap-6→gap-4, mb-8→mb-5
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
 
       {/* Total Dokumen */}
@@ -166,7 +186,6 @@ export default function PICStatsCards({ stats }: PICStatsCardsProps) {
         value={stats.totalDocuments}
         color="emerald"
         icon={
-          // CHANGED: w-6 h-6→w-5 h-5
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
               d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -202,11 +221,14 @@ export default function PICStatsCards({ stats }: PICStatsCardsProps) {
         }
       />
 
-      {/* Total Requests */}
+      {/* Total Requests — Klik untuk buka modal daftar request aktif */}
       <StatCard
         title="Total Requests"
         value={stats.totalRequests}
         color="blue"
+        clickable={Boolean(onRequestClick)}
+        onClick={onRequestClick}
+        subtitle={onRequestClick ? 'Klik untuk lihat detail' : undefined}
         icon={
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -217,4 +239,5 @@ export default function PICStatsCards({ stats }: PICStatsCardsProps) {
 
     </div>
   );
-} 
+}
+ 

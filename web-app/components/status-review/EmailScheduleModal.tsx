@@ -1,7 +1,8 @@
 // components/status-review/EmailScheduleModal.tsx
 'use client';
 import { useState, useEffect, useMemo } from 'react';
-import { ProcedureDocument } from '@/data/procedures/all-procedures';
+import { ProcedureDocument, StatusType } from '@/data/procedures/all-procedures';
+import { XCircle } from 'lucide-react';
 
 interface EmailSchedule {
   id: number;
@@ -14,6 +15,7 @@ interface EmailSchedule {
   namaDokumen?: string;
   pic?: string;
   email?: string;
+  previousStatus?: string;
 }
 
 interface EmailScheduleModalProps {
@@ -21,6 +23,7 @@ interface EmailScheduleModalProps {
   onClose: () => void;
   procedures: ProcedureDocument[];
   emailSchedules: Record<string, EmailSchedule>;
+  onScheduleChange?: () => void;
 }
 
 export default function EmailScheduleModal({
@@ -28,12 +31,28 @@ export default function EmailScheduleModal({
   onClose,
   procedures,
   emailSchedules,
+  onScheduleChange,
 }: EmailScheduleModalProps) {
   const [selectedMonth, setSelectedMonth] = useState('');
   const [selectedDocs,  setSelectedDocs]  = useState<Set<string>>(new Set());
+  const [searchQuery,   setSearchQuery]   = useState('');
   const [sendDate,      setSendDate]      = useState('');
   const [sendTime,      setSendTime]      = useState('');
   const [isSaving,      setIsSaving]      = useState(false);
+
+  // State lokal agar UI langsung update saat jadwal dibatalkan
+  const [localProcedures, setLocalProcedures] = useState<ProcedureDocument[]>(procedures);
+  const [localSchedules,  setLocalSchedules]  = useState<Record<string, EmailSchedule>>(emailSchedules);
+  const [cancellingDoc,   setCancellingDoc]   = useState<string | null>(null);
+  const [isCancellingBatch, setIsCancellingBatch] = useState(false);
+
+  useEffect(() => {
+    setLocalProcedures(procedures);
+  }, [procedures]);
+
+  useEffect(() => {
+    setLocalSchedules(emailSchedules);
+  }, [emailSchedules]);
 
   useEffect(() => {
     if (isOpen) {
@@ -41,20 +60,33 @@ export default function EmailScheduleModal({
       defaultDate.setDate(defaultDate.getDate() + 7);
       setSendDate(defaultDate.toISOString().split('T')[0]);
       setSendTime('08:00');
+      setSearchQuery('');
     }
   }, [isOpen]);
 
   // Filter dokumen berdasarkan bulan yang dipilih.
-  // Mencakup SEMUA bulan (termasuk bulan lama) sehingga admin bisa
-  // mengirim ulang dokumen dari bulan manapun tanpa fitur tambahan.
-  const filteredDocs = useMemo(() => {
+  const monthDocs = useMemo(() => {
     if (selectedMonth === '') return [];
     const selectedMonthIndex = parseInt(selectedMonth);
-    return procedures.filter(doc => {
+    return localProcedures.filter(doc => {
       const docDate = new Date(doc.tanggalSelesaiApproval);
       return !isNaN(docDate.getTime()) && docDate.getMonth() === selectedMonthIndex;
     });
-  }, [selectedMonth, procedures]);
+  }, [selectedMonth, localProcedures]);
+
+  // Dokumen setelah filter pencarian
+  const filteredDocs = useMemo(() => {
+    if (!searchQuery.trim()) return monthDocs;
+    const q = searchQuery.toLowerCase().trim();
+    return monthDocs.filter(doc =>
+      (doc.namaDokumen && doc.namaDokumen.toLowerCase().includes(q)) ||
+      (doc.nomorDokumen && doc.nomorDokumen.toLowerCase().includes(q)) ||
+      (doc.pic && doc.pic.toLowerCase().includes(q)) ||
+      (doc.email && doc.email.toLowerCase().includes(q)) ||
+      (doc.owner && doc.owner.toLowerCase().includes(q)) ||
+      (doc.status && doc.status.toLowerCase().includes(q))
+    );
+  }, [monthDocs, searchQuery]);
 
   const toggleDocSelection = (nomorDokumen: string) => {
     const newSelected = new Set(selectedDocs);
@@ -66,11 +98,116 @@ export default function EmailScheduleModal({
     setSelectedDocs(newSelected);
   };
 
+  const isAllFilteredSelected = filteredDocs.length > 0 && filteredDocs.every(d => selectedDocs.has(d.nomorDokumen));
+
   const handleSelectAll = () => {
-    if (selectedDocs.size === filteredDocs.length) {
-      setSelectedDocs(new Set());
+    const newSelected = new Set(selectedDocs);
+    if (isAllFilteredSelected) {
+      filteredDocs.forEach(d => newSelected.delete(d.nomorDokumen));
     } else {
-      setSelectedDocs(new Set(filteredDocs.map(d => d.nomorDokumen)));
+      filteredDocs.forEach(d => newSelected.add(d.nomorDokumen));
+    }
+    setSelectedDocs(newSelected);
+  };
+
+  // Dokumen terpilih yang sedang dalam status pending schedule
+  const selectedPendingDocs = useMemo(() => {
+    return Array.from(selectedDocs).filter(no => {
+      const s = localSchedules[no];
+      return s && s.emailStatus === 'pending';
+    });
+  }, [selectedDocs, localSchedules]);
+
+  // Handler batalkan jadwal satu dokumen
+  const handleCancelSingle = async (doc: ProcedureDocument, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const confirmed = window.confirm(
+      `Apakah Anda yakin ingin membatalkan jadwal email untuk dokumen:\n"${doc.namaDokumen}" (${doc.nomorDokumen})?\n\nStatus dokumen akan dikembalikan ke status sebelumnya (Relevan/Revisi).`
+    );
+    if (!confirmed) return;
+
+    try {
+      setCancellingDoc(doc.nomorDokumen);
+      const res = await fetch(`/review-prosedur/api/email-schedules?nomorDokumen=${encodeURIComponent(doc.nomorDokumen)}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Gagal membatalkan jadwal');
+
+      const restored = data.restoredStatus || 'Relevan';
+
+      setLocalSchedules(prev => ({
+        ...prev,
+        [doc.nomorDokumen]: {
+          ...prev[doc.nomorDokumen],
+          emailStatus: 'cancelled',
+        },
+      }));
+
+      setLocalProcedures(prev => prev.map(d => d.nomorDokumen === doc.nomorDokumen ? { ...d, status: restored as StatusType } : d));
+
+      setSelectedDocs(prev => {
+        const next = new Set(prev);
+        next.delete(doc.nomorDokumen);
+        return next;
+      });
+
+      alert(`Jadwal pengiriman email untuk "${doc.namaDokumen}" berhasil dibatalkan.\nStatus dokumen dikembalikan ke: ${restored}`);
+      onScheduleChange?.();
+    } catch (err: any) {
+      console.error('Error cancelling schedule:', err);
+      alert('Gagal membatalkan jadwal: ' + (err.message || 'Unknown error'));
+    } finally {
+      setCancellingDoc(null);
+    }
+  };
+
+  // Handler batalkan jadwal batch (dokumen terpilih)
+  const handleCancelBatch = async () => {
+    if (selectedPendingDocs.length === 0) return;
+    const confirmed = window.confirm(
+      `Apakah Anda yakin ingin membatalkan jadwal email untuk ${selectedPendingDocs.length} dokumen terpilih?\n\nStatus dokumen akan dikembalikan ke status sebelumnya (Relevan/Revisi).`
+    );
+    if (!confirmed) return;
+
+    try {
+      setIsCancellingBatch(true);
+      const res = await fetch('/review-prosedur/api/email-schedules', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nomorDokumenList: selectedPendingDocs }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Gagal membatalkan jadwal');
+
+      const resultsMap = new Map<string, string>();
+      if (Array.isArray(data.results)) {
+        data.results.forEach((r: any) => resultsMap.set(r.nomorDokumen, r.restoredStatus));
+      }
+
+      setLocalSchedules(prev => {
+        const next = { ...prev };
+        selectedPendingDocs.forEach(no => {
+          if (next[no]) next[no] = { ...next[no], emailStatus: 'cancelled' };
+        });
+        return next;
+      });
+
+      setLocalProcedures(prev => prev.map(d => {
+        if (resultsMap.has(d.nomorDokumen)) {
+          return { ...d, status: resultsMap.get(d.nomorDokumen)! as StatusType };
+        }
+        return d;
+      }));
+
+      setSelectedDocs(new Set());
+      alert(`Jadwal email berhasil dibatalkan untuk ${selectedPendingDocs.length} dokumen.`);
+      onScheduleChange?.();
+    } catch (err: any) {
+      console.error('Error cancelling batch schedules:', err);
+      alert('Gagal membatalkan jadwal: ' + (err.message || 'Unknown error'));
+    } finally {
+      setIsCancellingBatch(false);
     }
   };
 
@@ -105,6 +242,7 @@ export default function EmailScheduleModal({
       alert(`Jadwal email berhasil disimpan untuk ${selectedDocs.size} dokumen`);
       setSelectedDocs(new Set());
       setSelectedMonth('');
+      onScheduleChange?.();
       onClose();
     } catch (error) {
       console.error('Error saving schedules:', error);
@@ -154,7 +292,11 @@ export default function EmailScheduleModal({
             </label>
             <select
               value={selectedMonth}
-              onChange={(e) => { setSelectedMonth(e.target.value); setSelectedDocs(new Set()); }}
+              onChange={(e) => {
+                setSelectedMonth(e.target.value);
+                setSelectedDocs(new Set());
+                setSearchQuery('');
+              }}
               className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
             >
               <option value="">-- Pilih Bulan --</option>
@@ -171,31 +313,70 @@ export default function EmailScheduleModal({
           {/* Daftar Dokumen */}
           {selectedMonth !== '' && (
             <div>
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center justify-between mb-2">
                 <label className="block text-sm font-semibold text-slate-700">
                   Pilih Dokumen
-                  {filteredDocs.length > 0 && (
+                  {monthDocs.length > 0 && (
                     <span className="ml-2 text-xs font-normal text-slate-500">
-                      ({filteredDocs.length} dokumen)
+                      ({searchQuery ? `${filteredDocs.length} dari ${monthDocs.length}` : `${monthDocs.length}`} dokumen)
                     </span>
                   )}
                 </label>
                 {filteredDocs.length > 0 && (
                   <button onClick={handleSelectAll}
-                    className="text-xs text-blue-600 hover:text-blue-700 font-medium">
-                    {selectedDocs.size === filteredDocs.length ? 'Batal Pilih Semua' : 'Pilih Semua'}
+                    className="text-xs text-blue-600 hover:text-blue-700 font-semibold">
+                    {isAllFilteredSelected ? 'Batal Pilih Semua' : (searchQuery ? `Pilih Semua (${filteredDocs.length})` : 'Pilih Semua')}
                   </button>
                 )}
               </div>
 
-              {filteredDocs.length === 0 ? (
+              {/* 🔍 Input Pencarian Dokumen */}
+              {monthDocs.length > 0 && (
+                <div className="relative mb-3">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                  </div>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Cari nomor dokumen, nama, PIC, status, owner..."
+                    className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {monthDocs.length === 0 ? (
                 <div className="text-center py-8 text-slate-500 text-sm bg-slate-50 rounded-lg">
                   Tidak ada dokumen untuk bulan yang dipilih
+                </div>
+              ) : filteredDocs.length === 0 ? (
+                <div className="text-center py-8 text-slate-500 text-sm bg-slate-50 rounded-lg border border-dashed border-slate-200">
+                  <p className="font-medium text-slate-600">Tidak ada dokumen yang cocok dengan pencarian &quot;{searchQuery}&quot;</p>
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="mt-2 text-xs text-blue-600 hover:text-blue-700 font-semibold underline"
+                  >
+                    Reset pencarian
+                  </button>
                 </div>
               ) : (
                 <div className="space-y-2 max-h-64 overflow-auto">
                   {filteredDocs.map((doc) => {
-                    const schedule  = emailSchedules[doc.nomorDokumen];
+                    const schedule  = localSchedules[doc.nomorDokumen];
                     const isSelected = selectedDocs.has(doc.nomorDokumen);
 
                     // Badge jadwal email
@@ -238,34 +419,50 @@ export default function EmailScheduleModal({
                             : 'border-slate-200 hover:border-blue-300 hover:bg-slate-50'
                         }`}
                       >
-                        <div className="flex items-start gap-3">
-                          <input type="checkbox" checked={isSelected}
-                            onChange={() => toggleDocSelection(doc.nomorDokumen)}
-                            onClick={(e) => e.stopPropagation()}
-                            className="mt-1 w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
-                          />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1 flex-wrap">
-                              <p className="font-semibold text-slate-900 truncate">{doc.namaDokumen}</p>
-                              {statusBadge}
-                              {scheduleBadge}
-                            </div>
-                            <div className="flex items-center gap-4 text-xs text-slate-600">
-                              <span className="font-mono">{doc.nomorDokumen}</span>
-                              <span>PIC: {doc.pic}</span>
-                              {doc.email && <span>{doc.email}</span>}
-                            </div>
-                            {schedule?.scheduledEmailAt && (
-                              <div className="mt-1.5 text-xs text-slate-500">
-                                Terjadwal: {new Date(schedule.scheduledEmailAt).toLocaleString('id-ID')}
-                                {schedule.lastSentAt && (
-                                  <span className="ml-2 text-emerald-600">
-                                    · Terkirim: {new Date(schedule.lastSentAt).toLocaleString('id-ID')}
-                                  </span>
-                                )}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-3 flex-1 min-w-0">
+                            <input type="checkbox" checked={isSelected}
+                              onChange={() => toggleDocSelection(doc.nomorDokumen)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="mt-1 w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                <p className="font-semibold text-slate-900 truncate">{doc.namaDokumen}</p>
+                                {statusBadge}
+                                {scheduleBadge}
                               </div>
-                            )}
+                              <div className="flex items-center gap-4 text-xs text-slate-600">
+                                <span className="font-mono">{doc.nomorDokumen}</span>
+                                <span>PIC: {doc.pic}</span>
+                                {doc.email && <span>{doc.email}</span>}
+                              </div>
+                              {schedule?.scheduledEmailAt && (
+                                <div className="mt-1.5 text-xs text-slate-500">
+                                  Terjadwal: {new Date(schedule.scheduledEmailAt).toLocaleString('id-ID')}
+                                  {schedule.lastSentAt && (
+                                    <span className="ml-2 text-emerald-600">
+                                      · Terkirim: {new Date(schedule.lastSentAt).toLocaleString('id-ID')}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                           </div>
+
+                          {/* Tombol Cancel Jadwal jika status pending */}
+                          {schedule && schedule.emailStatus === 'pending' && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleCancelSingle(doc, e)}
+                              disabled={cancellingDoc === doc.nomorDokumen}
+                              className="px-2.5 py-1.5 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-all active:scale-95 flex items-center gap-1.5 shrink-0 self-center disabled:opacity-50"
+                              title="Batalkan jadwal pengiriman email dan kembalikan status dokumen"
+                            >
+                              <XCircle size={14} />
+                              {cancellingDoc === doc.nomorDokumen ? 'Membatalkan...' : 'Batalkan Jadwal'}
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
@@ -305,21 +502,39 @@ export default function EmailScheduleModal({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
-          <button onClick={onClose} disabled={isSaving}
-            className="px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-200 rounded-lg transition-all active:scale-95 disabled:opacity-50">
-            Batal
-          </button>
-          <button onClick={handleSave} disabled={!isValid() || isSaving}
-            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-all hover:shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
-            {isSaving && (
-              <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
+        <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            {selectedPendingDocs.length > 0 && (
+              <button
+                type="button"
+                onClick={handleCancelBatch}
+                disabled={isCancellingBatch || isSaving}
+                className="px-3.5 py-2 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1.5"
+                title="Batalkan jadwal pengiriman untuk semua dokumen terpilih"
+              >
+                <XCircle size={14} />
+                {isCancellingBatch
+                  ? 'Membatalkan...'
+                  : `Batalkan Jadwal Terpilih (${selectedPendingDocs.length})`}
+              </button>
             )}
-            {isSaving ? 'Menyimpan...' : 'Simpan Jadwal'}
-          </button>
+          </div>
+          <div className="flex items-center gap-3">
+            <button onClick={onClose} disabled={isSaving || isCancellingBatch}
+              className="px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-200 rounded-lg transition-all active:scale-95 disabled:opacity-50">
+              Tutup
+            </button>
+            <button onClick={handleSave} disabled={!isValid() || isSaving || isCancellingBatch}
+              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-all hover:shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+              {isSaving && (
+                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              )}
+              {isSaving ? 'Menyimpan...' : 'Simpan Jadwal'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

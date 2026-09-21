@@ -201,6 +201,14 @@ export async function POST(request: NextRequest) {
            updated_at  = CURRENT_TIMESTAMP`,
         [nomorDokumen, revisiValue, approvalMonth]
       );
+
+      // 🆕 Update request revisi aktif menjadi completed
+      await client.query(
+        `UPDATE pic_review_requests
+         SET status = 'completed', updated_at = CURRENT_TIMESTAMP
+         WHERE nomor_dokumen = $1 AND status = 'pending'`,
+        [nomorDokumen]
+      );
     }
     // Catatan: saat approvalCycleStarted === true, status dokumen SUDAH
     // di-set ke 'Menunggu ACC Prepared' di dalam startApprovalCycle().

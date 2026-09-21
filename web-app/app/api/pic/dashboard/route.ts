@@ -146,17 +146,25 @@ export async function GET(request: NextRequest) {
       ['Relevan', 'Revisi', 'Obsolete'].includes(d.status)
     ).length;
 
+    // 🆕 Total Request: hanya hitung permintaan aktif
+    // - Revisi: pending AND dokumen saat ini belum 'Relevan'
+    // - Dokumen Baru: pending
     const reviewReqResult = await client.query(
-      `SELECT COUNT(*) as count FROM pic_review_requests WHERE pic_id = $1`,
+      `SELECT COUNT(*) as count 
+       FROM pic_review_requests r
+       JOIN procedure_documents pd ON pd.nomor_dokumen = r.nomor_dokumen
+       WHERE r.pic_id = $1 
+         AND r.status = 'pending' 
+         AND pd.status != 'Relevan'`,
       [picId]
     );
     const docReqResult = await client.query(
-      `SELECT COUNT(*) as count FROM pic_document_requests WHERE pic_id = $1`,
+      `SELECT COUNT(*) as count FROM pic_document_requests WHERE pic_id = $1 AND status = 'pending'`,
       [picId]
     );
     const totalRequests =
-      parseInt(reviewReqResult.rows[0].count) +
-      parseInt(docReqResult.rows[0].count);
+      parseInt(reviewReqResult.rows[0]?.count || '0') +
+      parseInt(docReqResult.rows[0]?.count || '0');
 
     // Aktivitas terbaru
     const activitiesQuery = `
