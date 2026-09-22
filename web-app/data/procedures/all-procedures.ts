@@ -45,6 +45,13 @@ export interface ProcedureDocument {
    * Logic badge: lastReviewedAt !== null && reviewSeenAt === null
    */
   reviewSeenAt?: string | null;
+
+  /**
+   * Timestamp tanggal permintaan revisi dibuat oleh PIC (dari pic_review_requests).
+   * Dipakai untuk memastikan dokumen berstatus Revisi tetap muncul di halaman
+   * review PIC selama 2 bulan ke depan sejak tanggal request dibuat.
+   */
+  revisionRequestedAt?: string | null;
 }
 
 // ─── Helper: cek apakah badge "Baru Direview" harus tampil ───────────────────

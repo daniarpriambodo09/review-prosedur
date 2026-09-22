@@ -1,8 +1,9 @@
 // components/pic/RequestReviewModal.tsx
 
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { Search, X } from 'lucide-react';
 
 interface Document {
   id:             number;
@@ -40,6 +41,7 @@ export default function RequestReviewModal({
   const { user } = useAuth();
   const [documents,    setDocuments]    = useState<Document[]>([]);
   const [selectedIds,  setSelectedIds]  = useState<number[]>([]);
+  const [searchQuery,  setSearchQuery]  = useState('');
   const [notes,        setNotes]        = useState('');
   const [isFetching,   setIsFetching]   = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -58,10 +60,20 @@ export default function RequestReviewModal({
       setNotes('');
       setError('');
       setSuccess(false);
+      setSearchQuery('');
       fetchDocuments();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
+
+  const filteredDocuments = useMemo(() => {
+    if (!searchQuery.trim()) return documents;
+    const q = searchQuery.toLowerCase().trim();
+    return documents.filter(doc =>
+      doc.documentNumber.toLowerCase().includes(q) ||
+      doc.title.toLowerCase().includes(q)
+    );
+  }, [documents, searchQuery]);
 
   const fetchDocuments = async () => {
     setIsFetching(true);
@@ -170,6 +182,27 @@ export default function RequestReviewModal({
               )}
             </div>
 
+            {/* Search Bar */}
+            <div className="relative mb-2.5">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Cari nomor dokumen atau nama dokumen..."
+                className="w-full pl-8.5 pr-8 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-200 transition-colors"
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+
             <div className="border border-slate-200 rounded-lg overflow-hidden">
               {isFetching ? (
                 <div className="px-4 py-8 text-center text-sm text-slate-500">
@@ -180,9 +213,16 @@ export default function RequestReviewModal({
                 <div className="px-4 py-8 text-center text-sm text-slate-500">
                   Tidak ada dokumen yang ditemukan
                 </div>
+              ) : filteredDocuments.length === 0 ? (
+                <div className="px-4 py-8 text-center text-sm text-slate-500">
+                  <p className="font-semibold text-slate-700">Tidak ada dokumen yang sesuai</p>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Tidak ditemukan dokumen dengan kata kunci &quot;{searchQuery}&quot;
+                  </p>
+                </div>
               ) : (
                 <div className="max-h-52 overflow-y-auto divide-y divide-slate-100">
-                  {documents.map(doc => {
+                  {filteredDocuments.map(doc => {
                     const isSelected = selectedIds.includes(doc.id);
                     return (
                       <label

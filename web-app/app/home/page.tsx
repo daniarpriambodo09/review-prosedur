@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
-import { getAllProcedures, ProcedureDocument, StatusType } from '@/data/procedures/all-procedures';
+import { getAllProcedures, ProcedureDocument, StatusType, saveDocumentReview } from '@/data/procedures/all-procedures';
 import { useAuth } from '@/contexts/AuthContext';
 import DocumentModal from '@/components/documents/DocumentModal';
 import EmailScheduleModal from '@/components/status-review/EmailScheduleModal';
@@ -15,6 +15,7 @@ import {
   ChevronRight, Calendar, Inbox,
 } from 'lucide-react';
 import AdminRequestsModal, { type AdminPICRequest } from '@/components/admin/AdminRequestsModal';
+import AdminRevisiModal from '@/components/admin/AdminRevisiModal';
 
 const MONTH_NAMES_ID = [
   'Januari','Februari','Maret','April','Mei','Juni',
@@ -229,6 +230,9 @@ export default function HomePage() {
   const [loadingRequests,    setLoadingRequests]    = useState(false);
   const [selectedDocModal,   setSelectedDocModal]   = useState<{ nomorDokumen: string; namaDokumen: string } | null>(null);
 
+  // ── State untuk Modal Detail Dokumen Perlu Revisi ──────────────────────────
+  const [isRevisiModalOpen,  setIsRevisiModalOpen]  = useState(false);
+
   const ACTIVITIES_PER_PAGE = 8;
   const today = new Date();
 
@@ -322,6 +326,20 @@ export default function HomePage() {
     terkirim: filteredDocs.filter(p => p.status === 'Telah terkirim').length,
     terbaca:  filteredDocs.filter(p => p.status === 'Telah dibaca').length,
   }), [filteredDocs]);
+
+  // Daftar dokumen yang membutuhkan revisi (periode aktif & seluruh periode)
+  const revisiDocs = useMemo(() => filteredDocs.filter(p => p.status === 'Revisi'), [filteredDocs]);
+  const allRevisiDocs = useMemo(() => procedures.filter(p => p.status === 'Revisi'), [procedures]);
+
+  // Handler untuk menandai dokumen revisi menjadi Relevan langsung dari modal detail
+  const handleMarkAsRelevan = useCallback(async (nomorDokumen: string, revisi: string) => {
+    const proc = procedures.find(p => p.nomorDokumen === nomorDokumen);
+    const d = proc ? new Date(proc.tanggalSelesaiApproval) : new Date();
+    const month = !isNaN(d.getTime()) ? d.getMonth() : selectedMonth;
+    await saveDocumentReview(nomorDokumen, 'Relevan', revisi || '0', month);
+    const updatedProcs = await getAllProcedures();
+    setProcedures(updatedProcs);
+  }, [procedures, selectedMonth]);
 
   const reviewProgress = useMemo(() => {
     if (filteredDocs.length === 0) return 0;
@@ -554,7 +572,9 @@ export default function HomePage() {
               icon={<RefreshCw size={20} />}
               iconBg="bg-amber-50"
               iconColor="text-amber-600"
-              subtitle="Membutuhkan perubahan"
+              clickable={true}
+              onClick={() => setIsRevisiModalOpen(true)}
+              subtitle={`${stats.revisi} dokumen · Klik detail`}
             />
             <KpiCard
               title="Belum Direview"
@@ -885,6 +905,25 @@ export default function HomePage() {
           onOpenDocument={(nomorDokumen, namaDokumen) => {
             setSelectedDocModal({ nomorDokumen, namaDokumen });
           }}
+        />
+
+        {/* ── AdminRevisiModal (Modal Detail Dokumen Perlu Revisi) ────────────── */}
+        <AdminRevisiModal
+          isOpen={isRevisiModalOpen}
+          onClose={() => setIsRevisiModalOpen(false)}
+          documents={revisiDocs}
+          allDocuments={allRevisiDocs}
+          isLoading={loading}
+          onRefresh={async () => {
+            const procs = await getAllProcedures();
+            setProcedures(procs);
+          }}
+          onOpenDocument={(nomorDokumen, namaDokumen) => {
+            setSelectedDocModal({ nomorDokumen, namaDokumen });
+          }}
+          onMarkAsRelevan={handleMarkAsRelevan}
+          selectedMonthName={MONTH_NAMES_SHORT[selectedMonth]}
+          selectedYear={selectedYear}
         />
 
         {/* ── DocumentModal (dibuka saat klik Buka Dokumen dari modal request) ── */}

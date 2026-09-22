@@ -113,7 +113,12 @@ export async function GET(request: NextRequest) {
 
       const entry = counts.get(label) ?? { total: 0, reviewed: 0 };
       entry.total += 1;
-      const isReviewed = isPastYear || (REVIEWED_STATUSES.includes(row.status) && Boolean(row.last_reviewed_at));
+
+      const CUTOFF_DATE = new Date('2026-09-21T00:00:00');
+      const isBeforeCutoff = d < CUTOFF_DATE;
+      const isValidStatus = REVIEWED_STATUSES.includes(row.status);
+      const isReviewed = isPastYear || (isValidStatus && (isBeforeCutoff || Boolean(row.last_reviewed_at)));
+
       if (isReviewed) entry.reviewed += 1;
       counts.set(label, entry);
     }

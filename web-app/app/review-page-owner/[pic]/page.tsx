@@ -29,8 +29,9 @@ const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct'
 type ReviewStatus = 'Relevan' | 'Revisi' | 'Obsolete' | '-';
 
 type DocWithSchedule = ProcedureDocument & {
-  lastSentAt?:       string | null;
-  scheduledEmailAt?: string | null;
+  lastSentAt?:          string | null;
+  scheduledEmailAt?:    string | null;
+  revisionRequestedAt?: string | null;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50,7 +51,7 @@ function extractPicCode(emailOrCode: string): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Visibility Logic (tidak berubah dari versi asli)
+// Visibility Logic
 // ─────────────────────────────────────────────────────────────────────────────
 function isWithinNormalWindow(tanggalApproval: string): boolean {
   const approval = new Date(tanggalApproval);
@@ -72,9 +73,30 @@ function isWithinScheduledWindow(scheduledEmailAt: string | null | undefined): b
   return today <= expiry;
 }
 
+/**
+ * 🆕 Kondisi Permintaan Revisi dari PIC:
+ * Ketika ada dokumen yang diminta revisi oleh PIC (status 'Revisi' atau tercatat di pic_review_requests),
+ * dokumen tersebut HARUS muncul di halaman review PIC dan tetap muncul selama 2 bulan ke depan
+ * dihitung mulai dari tanggal minta request revisi dari PIC.
+ */
+function isWithinRevisionWindow(doc: DocWithSchedule): boolean {
+  const dateStr = doc.revisionRequestedAt || (doc.status === 'Revisi' ? doc.lastReviewedAt : null);
+  if (!dateStr) return false;
+  const reqDate = new Date(dateStr);
+  if (isNaN(reqDate.getTime())) return false;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const expiry = new Date(reqDate.getFullYear(), reqDate.getMonth() + 2, reqDate.getDate());
+  return today <= expiry;
+}
+
 function shouldShowDocument(doc: DocWithSchedule, reviewedThisSession: Set<string>): boolean {
   if (reviewedThisSession.has(doc.nomorDokumen)) return true;
+  // 1. Dokumen yang diminta revisi oleh PIC (tetap tampil selama 2 bulan dari tanggal request)
+  if (isWithinRevisionWindow(doc)) return true;
+  // 2. Dokumen dengan jadwal khusus admin
   if (isWithinScheduledWindow(doc.scheduledEmailAt)) return true;
+  // 3. Dokumen dalam rentang siklus tahunan normal (2 bulan sebelum tanggal approval)
   if (isWithinNormalWindow(doc.tanggalSelesaiApproval)) return true;
   return false;
 }
@@ -153,6 +175,18 @@ function StatusDisplayBadge({ status }: { status: StatusType }) {
 }
 
 function VisibilityReason({ doc }: { doc: DocWithSchedule }) {
+  if (isWithinRevisionWindow(doc)) {
+    const dateStr = doc.revisionRequestedAt || (doc.status === 'Revisi' ? doc.lastReviewedAt : null);
+    if (dateStr) {
+      const d = new Date(dateStr);
+      const expiry = new Date(d.getFullYear(), d.getMonth() + 2, d.getDate());
+      return (
+        <span className="block text-[10px] text-amber-600 font-medium mt-0.5">
+          ⟳ Permintaan Revisi s/d {formatDate(expiry.toISOString())}
+        </span>
+      );
+    }
+  }
   if (isWithinScheduledWindow(doc.scheduledEmailAt) && !isWithinNormalWindow(doc.tanggalSelesaiApproval)) {
     const expiry = new Date(doc.scheduledEmailAt!);
     expiry.setMonth(expiry.getMonth() + 2);
@@ -342,6 +376,11 @@ export default function PicReviewPage() {
               }
               return doc;
             }
+            return doc;
+          }
+
+          // Jika dokumen berstatus Revisi atau dalam window revisi, pertahankan status Revisi dokumen
+          if (doc.status === 'Revisi' || isWithinRevisionWindow(doc)) {
             return doc;
           }
 

@@ -451,9 +451,15 @@ export async function GET(request: NextRequest) {
                  es.last_sent_at,
                  es.scheduled_email_at,
                  es.manager_email_scheduled_at,
-                 es.manager_email_status
+                 es.manager_email_status,
+                 prr.latest_revision_requested_at
           FROM procedure_documents pd
           LEFT JOIN email_schedules es ON pd.nomor_dokumen = es.nomor_dokumen
+          LEFT JOIN (
+            SELECT nomor_dokumen, MAX(created_at) AS latest_revision_requested_at
+            FROM pic_review_requests
+            GROUP BY nomor_dokumen
+          ) prr ON pd.nomor_dokumen = prr.nomor_dokumen
           WHERE ${conditions.join(' OR ')}
           ORDER BY pd.created_at DESC
         `;
@@ -463,9 +469,15 @@ export async function GET(request: NextRequest) {
                  es.last_sent_at,
                  es.scheduled_email_at,
                  es.manager_email_scheduled_at,
-                 es.manager_email_status
+                 es.manager_email_status,
+                 prr.latest_revision_requested_at
           FROM procedure_documents pd
           LEFT JOIN email_schedules es ON pd.nomor_dokumen = es.nomor_dokumen
+          LEFT JOIN (
+            SELECT nomor_dokumen, MAX(created_at) AS latest_revision_requested_at
+            FROM pic_review_requests
+            GROUP BY nomor_dokumen
+          ) prr ON pd.nomor_dokumen = prr.nomor_dokumen
           WHERE $1 = ANY(string_to_array(REPLACE(pd.pic, ' ', ''), ','))
           ORDER BY pd.created_at DESC
         `;
@@ -477,9 +489,15 @@ export async function GET(request: NextRequest) {
                es.last_sent_at,
                es.scheduled_email_at,
                es.manager_email_scheduled_at,
-               es.manager_email_status
+               es.manager_email_status,
+               prr.latest_revision_requested_at
         FROM procedure_documents pd
         LEFT JOIN email_schedules es ON pd.nomor_dokumen = es.nomor_dokumen
+        LEFT JOIN (
+          SELECT nomor_dokumen, MAX(created_at) AS latest_revision_requested_at
+          FROM pic_review_requests
+          GROUP BY nomor_dokumen
+        ) prr ON pd.nomor_dokumen = prr.nomor_dokumen
         ORDER BY pd.created_at DESC
       `;
       values = [];
@@ -517,6 +535,7 @@ export async function GET(request: NextRequest) {
           managerEmailStatus:     row.manager_email_status      ?? 'not_applicable',
           lastReviewedAt:         row.last_reviewed_at          ?? null,
           reviewSeenAt:           row.review_seen_at            ?? null,
+          revisionRequestedAt:    row.latest_revision_requested_at ?? (row.status === 'Revisi' ? row.last_reviewed_at : null),
         };
       })
     );

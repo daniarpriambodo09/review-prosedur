@@ -100,10 +100,14 @@ export async function GET(request: NextRequest) {
         relevanCount += 1;
       } else {
         // Tahun Berjalan (2026 dst) / 'all':
-        // Dokumen dihitung "Sudah Direview" jika memiliki last_reviewed_at aktual
-        // dan berstatus Relevan, Revisi, atau Obsolete.
+        // Dokumen sebelum 21 September 2026 (atau sebelum periode baru 1 Oktober 2026) dengan status valid
+        // otomatis dianggap sudah direview karena aplikasi baru berjalan dan periode lampau sudah diselesaikan.
+        // Dokumen pada periode baru (mulai Oktober 2026) wajib memiliki last_reviewed_at dari PIC.
         const effectiveStatus = (row.status || '').trim();
-        const hasPicReview = Boolean(row.last_reviewed_at) && VALID_REVIEW_STATUSES.includes(effectiveStatus);
+        const isValidStatus = VALID_REVIEW_STATUSES.includes(effectiveStatus);
+        const CUTOFF_DATE = new Date('2026-09-21T00:00:00');
+        const isBeforeCutoff = isDateValid && d < CUTOFF_DATE;
+        const hasPicReview = isValidStatus && (isBeforeCutoff || Boolean(row.last_reviewed_at));
 
         if (hasPicReview) {
           reviewedDocuments += 1;
