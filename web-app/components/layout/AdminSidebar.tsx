@@ -8,6 +8,7 @@ import { useSidebar } from './AdminLayout';
 import {
   LayoutDashboard,
   FileCheck,
+  ClipboardCheck,
   Archive,
   Users,
   Settings,
@@ -21,6 +22,7 @@ import {
 const NAV_ITEMS = [
   { label: 'Dashboard',        path: '/home',              icon: LayoutDashboard },
   { label: 'Status Prosedur',  path: '/status-review',     icon: FileCheck       },
+  { label: 'Approval Dokumen', path: '/approval-dokumen',  icon: ClipboardCheck  },
   { label: 'Arsip Prosedur',   path: '/arsip-prosedur',    icon: Archive         },
   { label: 'Kelola Departemen',path: '/kelola-departemen', icon: Building2       },
   { label: 'Kelola User',      path: '/user-management',   icon: Users           },

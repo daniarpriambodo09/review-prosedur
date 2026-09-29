@@ -17,49 +17,15 @@ export function Header() {
   };
 
   const getNavigationMenu = () => {
-    if (pathname === '/home') {
-      return [
-        { label: 'Status Prosedur', path: '/status-review' },
-        { label: 'Arsip Prosedur', path: '/arsip-prosedur' },
-        { label: 'Pengaturan SMTP', path: '/smtp-settings' },
-        { label: 'Kelola User', path: '/user-management' },
-      ];
-    } else if (pathname === '/status-review') {
-      return [
-        { label: 'Home', path: '/home' },
-        { label: 'Arsip Prosedur', path: '/arsip-prosedur' },
-        { label: 'Pengaturan SMTP', path: '/smtp-settings' },
-        { label: 'Kelola User', path: '/user-management' },
-      ];
-    } else if (pathname === '/arsip-prosedur') {
-      return [
-        { label: 'Home', path: '/home' },
-        { label: 'Status Prosedur', path: '/status-review' },
-        { label: 'Pengaturan SMTP', path: '/smtp-settings' },
-        { label: 'Kelola User', path: '/user-management' },
-      ];
-    } else if (pathname === '/smtp-settings') {
-      return [
-        { label: 'Home', path: '/home' },
-        { label: 'Status Prosedur', path: '/status-review' },
-        { label: 'Arsip Prosedur', path: '/arsip-prosedur' },
-        { label: 'Kelola User', path: '/user-management' },
-      ];
-    } else if (pathname === '/user-management') {
-      return [
-        { label: 'Home', path: '/home' },
-        { label: 'Status Prosedur', path: '/status-review' },
-        { label: 'Arsip Prosedur', path: '/arsip-prosedur' },
-        { label: 'Pengaturan SMTP', path: '/smtp-settings' },
-      ];
-    }
-    return [
+    const all = [
       { label: 'Home', path: '/home' },
       { label: 'Status Prosedur', path: '/status-review' },
+      { label: 'Approval Dokumen', path: '/approval-dokumen' },
       { label: 'Arsip Prosedur', path: '/arsip-prosedur' },
       { label: 'Pengaturan SMTP', path: '/smtp-settings' },
       { label: 'Kelola User', path: '/user-management' },
     ];
+    return all.filter(item => item.path !== pathname);
   };
 
   const menuItems = getNavigationMenu();

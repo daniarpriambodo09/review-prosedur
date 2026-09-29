@@ -105,12 +105,47 @@ export async function finalizeApprovalCycle(
   const blockActivity           = docResult.rows[0].block_activity;
   const hadLastPageTemplate     = docResult.rows[0].uses_last_page_template === true;
 
-  // Ambil semua approver yang sudah ACC di cycle ini, per role
+  // Ambil semua approver yang sudah ACC di cycle ini, per role, beserta jabatan & unit (section/department)
+  // Aturan unit: jika ada section & department, ambil section saja. Jika hanya salah satu, ambil yang ada.
   const actionsResult = await client.query(
-    `SELECT role, nama, email, verification_code
-     FROM procedure_approval_actions
-     WHERE cycle_id = $1 AND acc_status = 'acc'
-     ORDER BY role, id`,
+    `SELECT
+       a.role,
+       COALESCE(NULLIF(TRIM(a.nama), ''), NULLIF(TRIM(st.nama), ''), a.email) AS nama,
+       a.email,
+       a.verification_code,
+       st.jabatan,
+       st.unit
+     FROM procedure_approval_actions a
+     LEFT JOIN LATERAL (
+       SELECT
+         s.nama,
+         COALESCE(NULLIF(TRIM(s.jabatan), ''), NULLIF(TRIM(s.jabatan_raw), '')) AS jabatan,
+         COALESCE(
+           (
+             SELECT sc.nama
+             FROM staff_sections ss
+             JOIN sections sc ON sc.id = ss.section_id
+             WHERE ss.staff_kode = s.kode
+             ORDER BY sc.nama
+             LIMIT 1
+           ),
+           sec.nama,
+           d1.nama,
+           d2.nama
+         ) AS unit
+       FROM staff_directory s
+       LEFT JOIN sections sec ON s.unit_type = 'section' AND s.unit_id = sec.id
+       LEFT JOIN departments d1 ON s.unit_type = 'department' AND d1.id = s.unit_id
+       LEFT JOIN departments d2 ON sec.department_id = d2.id
+       WHERE (s.email IS NOT NULL AND a.email IS NOT NULL AND LOWER(TRIM(s.email)) = LOWER(TRIM(a.email)))
+          OR (s.nama IS NOT NULL AND a.nama IS NOT NULL AND LOWER(TRIM(s.nama)) = LOWER(TRIM(a.nama)))
+       ORDER BY
+         CASE WHEN LOWER(TRIM(s.email)) = LOWER(TRIM(a.email)) THEN 0 ELSE 1 END,
+         s.updated_at DESC
+       LIMIT 1
+     ) st ON true
+     WHERE a.cycle_id = $1 AND a.acc_status = 'acc'
+     ORDER BY a.role, a.id`,
     [cycleId]
   );
 
@@ -122,6 +157,8 @@ export async function finalizeApprovalCycle(
       nama: row.nama,
       email: row.email,
       verificationCode: row.verification_code,
+      jabatan: row.jabatan || null,
+      unit: row.unit || null,
     });
   }
 

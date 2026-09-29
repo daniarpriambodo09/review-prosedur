@@ -15,7 +15,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import {
-  Building2, Layers, Users, Plus, X, Pencil, Trash2,
+  Building2, Layers, Users, Plus, X, Pencil, Trash2, Search,
   UserCog, ShieldCheck, ShieldOff, AlertTriangle, ArrowUpCircle,
   FileText, Upload, Link2, Unlink,
 } from 'lucide-react';
@@ -833,7 +833,9 @@ function ImportExcelButton({ onImported }: { onImported: (result: any) => void }
 function StaffTab({
   staff, sections, departments, onRefresh,
 }: { staff: Staff[]; sections: SectionItem[]; departments: DepartmentItem[]; onRefresh: () => void }) {
+  const [searchQuery, setSearchQuery] = useState('');
   const [editingKode, setEditingKode] = useState<string | null>(null);
+  const [deletingKode, setDeletingKode] = useState<string | null>(null);
   const [editEmail, setEditEmail] = useState('');
   const [editJabatan, setEditJabatan] = useState('');
   const [editSectionIds, setEditSectionIds] = useState<number[]>([]);
@@ -874,9 +876,46 @@ function StaffTab({
     onRefresh();
   };
 
-  const displayedStaff = filterUnassigned
-    ? staff.filter(s => (s.sections ?? []).length === 0 && !s.departmentId)
-    : staff;
+  const handleDelete = async (s: Staff) => {
+    const confirmMsg = `Hapus staff "${s.nama}" (${s.kode})?\n\nStaff ini akan dihapus dari daftar staff directory dan penugasan section/departemen.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setDeletingKode(s.kode);
+    try {
+      const res = await fetch(`/review-prosedur/api/staff?kode=${encodeURIComponent(s.kode)}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Gagal menghapus staff');
+        return;
+      }
+      onRefresh();
+    } catch (err) {
+      console.error('Error deleting staff:', err);
+      alert('Terjadi kesalahan saat menghapus staff');
+    } finally {
+      setDeletingKode(null);
+    }
+  };
+
+  const q = searchQuery.trim().toLowerCase();
+  const displayedStaff = staff.filter(s => {
+    if (filterUnassigned) {
+      const isUnassigned = (s.sections ?? []).length === 0 && !s.departmentId;
+      if (!isUnassigned) return false;
+    }
+    if (!q) return true;
+
+    const matchNama = (s.nama || '').toLowerCase().includes(q);
+    const matchKode = (s.kode || '').toLowerCase().includes(q);
+    const matchEmail = (s.email || '').toLowerCase().includes(q);
+    const matchJabatan = (s.jabatan || '').toLowerCase().includes(q) || (s.jabatanRaw || '').toLowerCase().includes(q);
+    const matchSection = (s.sections ?? []).some(sec => (sec.nama || '').toLowerCase().includes(q));
+    const matchDept = (s.departmentNama || '').toLowerCase().includes(q);
+
+    return matchNama || matchKode || matchEmail || matchJabatan || matchSection || matchDept;
+  });
 
   return (
     <div className="space-y-4">
@@ -907,14 +946,53 @@ function StaffTab({
         </div>
       )}
 
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex items-center justify-between">
-        <p className="text-xs text-slate-500">
-          {staff.length} staff total. Klik <Pencil size={11} className="inline" /> untuk perbaiki data.
-        </p>
-        <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer">
-          <input type="checkbox" checked={filterUnassigned} onChange={e => setFilterUnassigned(e.target.checked)} />
-          Tampilkan yang belum punya section/departemen saja
-        </label>
+      {/* Control Bar: Search & Filter */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[240px] max-w-md">
+            <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Cari nama, kode, email, jabatan, section, departemen..."
+              className="w-full pl-9 pr-8 py-2 bg-slate-50 hover:bg-slate-100/80 focus:bg-white border border-slate-200 focus:border-blue-500 rounded-xl text-xs text-slate-800 placeholder-slate-400 transition-all outline-none"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-md cursor-pointer"
+                title="Hapus pencarian"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+
+          <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer select-none">
+            <input type="checkbox" checked={filterUnassigned} onChange={e => setFilterUnassigned(e.target.checked)} />
+            Tampilkan yang belum punya section/departemen saja
+          </label>
+        </div>
+
+        <div className="flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-100">
+          <p>
+            {searchQuery.trim() || filterUnassigned
+              ? `Menampilkan ${displayedStaff.length} dari ${staff.length} staff.`
+              : `${staff.length} staff total.`}{' '}
+            Klik <Pencil size={11} className="inline text-slate-500" /> untuk edit data atau <Trash2 size={11} className="inline text-red-500" /> untuk menghapus.
+          </p>
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="text-xs text-blue-600 hover:underline cursor-pointer"
+            >
+              Reset pencarian
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-x-auto">
@@ -1024,21 +1102,40 @@ function StaffTab({
                         </button>
                       </div>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => startEdit(s)}
-                        className="w-7 h-7 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-all cursor-pointer"
-                        title="Edit staff"
-                      >
-                        <Pencil size={13} />
-                      </button>
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => startEdit(s)}
+                          className="w-7 h-7 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-all cursor-pointer"
+                          title="Edit staff"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(s)}
+                          disabled={deletingKode === s.kode}
+                          className="w-7 h-7 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all cursor-pointer disabled:opacity-50"
+                          title="Hapus staff"
+                        >
+                          {deletingKode === s.kode ? (
+                            <span className="animate-spin w-3 h-3 border-2 border-red-400/40 border-t-red-600 rounded-full" />
+                          ) : (
+                            <Trash2 size={13} />
+                          )}
+                        </button>
+                      </div>
                     )}
                   </td>
                 </tr>
               );
             })}
             {displayedStaff.length === 0 && (
-              <tr><td colSpan={8} className="px-4 py-8 text-center text-xs text-slate-400">Tidak ada data</td></tr>
+              <tr>
+                <td colSpan={8} className="px-4 py-8 text-center text-xs text-slate-400">
+                  {searchQuery ? `Tidak ada staff yang cocok dengan pencarian "${searchQuery}"` : 'Tidak ada data'}
+                </td>
+              </tr>
             )}
           </tbody>
         </table>

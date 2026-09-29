@@ -10,6 +10,7 @@ import { MobileSidebarDrawer } from './AdminSidebar';
 const BREADCRUMB_MAP: Record<string, { label: string; parent?: { label: string; path: string } }> = {
   '/home':              { label: 'Dashboard' },
   '/status-review':     { label: 'Status Prosedur',   parent: { label: 'Dashboard', path: '/home' } },
+  '/approval-dokumen':  { label: 'Approval Dokumen',  parent: { label: 'Dashboard', path: '/home' } },
   '/arsip-prosedur':    { label: 'Arsip Prosedur',    parent: { label: 'Dashboard', path: '/home' } },
   '/kelola-departemen': { label: 'Kelola Departemen', parent: { label: 'Dashboard', path: '/home' } },
   '/user-management':   { label: 'Kelola User',       parent: { label: 'Dashboard', path: '/home' } },

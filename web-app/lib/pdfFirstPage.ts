@@ -22,6 +22,8 @@ export interface ApprovalPerson {
   nama: string | null;
   email: string;
   verificationCode: string;
+  jabatan?: string | null;
+  unit?: string | null;
 }
 
 export interface GenerateFirstPageParams {
@@ -82,23 +84,35 @@ function drawCentered(
   size: number,
   font: PDFFont,
   color: RGB,
-  maxWidth?: number
+  maxWidth?: number,
+  minSize?: number
 ) {
   let displayText = text || '-';
-  let textWidth = font.widthOfTextAtSize(displayText, size);
+  let currentSize = size;
+  const minimumSize = minSize ?? size;
+  let textWidth = font.widthOfTextAtSize(displayText, currentSize);
 
+  // Auto-scale font down to minimumSize if maxWidth is exceeded
+  if (maxWidth && textWidth > maxWidth && currentSize > minimumSize) {
+    while (currentSize > minimumSize && textWidth > maxWidth) {
+      currentSize = Math.max(minimumSize, currentSize - 0.5);
+      textWidth = font.widthOfTextAtSize(displayText, currentSize);
+    }
+  }
+
+  // If still exceeds maxWidth at minimumSize, truncate with ellipsis
   if (maxWidth && textWidth > maxWidth) {
-    while (displayText.length > 1 && font.widthOfTextAtSize(displayText + '…', size) > maxWidth) {
+    while (displayText.length > 1 && font.widthOfTextAtSize(displayText + '…', currentSize) > maxWidth) {
       displayText = displayText.slice(0, -1);
     }
     displayText = displayText + '…';
-    textWidth = font.widthOfTextAtSize(displayText, size);
+    textWidth = font.widthOfTextAtSize(displayText, currentSize);
   }
 
   page.drawText(displayText, {
     x: centerX - textWidth / 2,
     y: fromTop(baselineTop),
-    size,
+    size: currentSize,
     font,
     color,
   });
@@ -278,8 +292,10 @@ export async function generateFirstPage(params: GenerateFirstPageParams): Promis
       });
 
       const nameBaselineTop = qrTopEdge + qrSize + 12;
-      const displayName = person.nama?.trim() || person.email;
-      drawCentered(page, displayName, colCenterX, nameBaselineTop, 9.5, centuryGothicBold, BLACK, colWidth - 8);
+      const rawName = person.nama?.trim() || person.email;
+      const jabatanUnit = [person.jabatan?.trim(), person.unit?.trim()].filter(Boolean).join(' ');
+      const displayName = jabatanUnit ? `${rawName} / ${jabatanUnit}` : rawName;
+      drawCentered(page, displayName, colCenterX, nameBaselineTop, 9.5, centuryGothicBold, BLACK, colWidth - 8, 7);
     }
   }
 
