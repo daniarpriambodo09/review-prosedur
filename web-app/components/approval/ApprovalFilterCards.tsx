@@ -113,15 +113,11 @@ export default function ApprovalFilterCards({
                     {card.step}
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-400 mt-0.5 font-medium">
-                  {isActive ? (
-                    <span className="text-blue-600 font-semibold flex items-center gap-0.5">
-                      <Check size={11} strokeWidth={3} /> Filter aktif
-                    </span>
-                  ) : (
-                    'Klik untuk filter'
-                  )}
-                </p>
+                {isActive && (
+                  <p className="text-[11px] text-blue-600 font-semibold flex items-center gap-0.5 mt-0.5">
+                    <Check size={11} strokeWidth={3} /> Filter aktif
+                  </p>
+                )}
               </div>
             </div>
 
