@@ -39,24 +39,23 @@ export async function GET(request: NextRequest) {
     const search = (searchParams.get('search') || '').trim().toLowerCase();
 
     // 1. Ambil statistik nominal dokumen di tahap-tahap approval yang sedang berjalan
-    //    Hitung berdasarkan siklus TERBARU per nomor_dokumen yang statusnya 'in_progress'
+    //    Hitung berdasarkan siklus TERBARU per nomor_dokumen
     const statsQuery = await client.query(`
-      WITH LatestActiveCycles AS (
+      WITH LatestCycles AS (
         SELECT DISTINCT ON (c.nomor_dokumen)
           c.id,
           c.nomor_dokumen,
           c.current_stage,
           c.status
         FROM procedure_approval_cycles c
-        WHERE c.status = 'in_progress'
         ORDER BY c.nomor_dokumen, c.id DESC
       )
       SELECT
-        COUNT(*) FILTER (WHERE current_stage = 'prepared')::int AS prepared_count,
-        COUNT(*) FILTER (WHERE current_stage = 'checked')::int  AS checked_count,
-        COUNT(*) FILTER (WHERE current_stage = 'approved')::int AS approved_count,
-        COUNT(*)::int AS in_progress_total
-      FROM LatestActiveCycles
+        COUNT(*) FILTER (WHERE status = 'in_progress' AND current_stage = 'prepared')::int AS prepared_count,
+        COUNT(*) FILTER (WHERE status = 'in_progress' AND current_stage = 'checked')::int  AS checked_count,
+        COUNT(*) FILTER (WHERE status = 'in_progress' AND current_stage = 'approved')::int AS approved_count,
+        COUNT(*) FILTER (WHERE status = 'in_progress')::int AS in_progress_total
+      FROM LatestCycles
     `);
 
     const statsRow = statsQuery.rows[0] || {
@@ -76,7 +75,6 @@ export async function GET(request: NextRequest) {
     const totalsRow = totalsQuery.rows[0] || { completed_total: 0, all_total: 0 };
 
     // 2. Ambil dokumen dengan siklus approval (siklus terbaru per dokumen)
-    //    Dahulukan siklus yang statusnya 'in_progress'
     const cyclesQuery = await client.query(`
       WITH RankedCycles AS (
         SELECT
@@ -97,9 +95,7 @@ export async function GET(request: NextRequest) {
           af.file_path,
           ROW_NUMBER() OVER (
             PARTITION BY c.nomor_dokumen
-            ORDER BY
-              CASE WHEN c.status = 'in_progress' THEN 0 ELSE 1 END,
-              c.id DESC
+            ORDER BY c.id DESC
           ) AS rn
         FROM procedure_approval_cycles c
         JOIN procedure_documents pd ON pd.nomor_dokumen = c.nomor_dokumen

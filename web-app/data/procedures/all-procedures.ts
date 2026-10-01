@@ -29,6 +29,7 @@ export interface ProcedureDocument {
   status: StatusType;
   isCustom?: boolean;
   deletedAt?: string;
+  lastSentAt?: string | null;
 
   /**
    * Timestamp terakhir kali PIC submit review (status apapun: Relevan, Revisi, Obsolete).

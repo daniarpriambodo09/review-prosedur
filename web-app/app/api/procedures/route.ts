@@ -452,7 +452,9 @@ export async function GET(request: NextRequest) {
                  es.scheduled_email_at,
                  es.manager_email_scheduled_at,
                  es.manager_email_status,
-                 prr.latest_revision_requested_at
+                 prr.latest_revision_requested_at,
+                 pac.current_stage AS active_approval_stage,
+                 pac.status AS active_approval_status
           FROM procedure_documents pd
           LEFT JOIN email_schedules es ON pd.nomor_dokumen = es.nomor_dokumen
           LEFT JOIN (
@@ -460,6 +462,12 @@ export async function GET(request: NextRequest) {
             FROM pic_review_requests
             GROUP BY nomor_dokumen
           ) prr ON pd.nomor_dokumen = prr.nomor_dokumen
+          LEFT JOIN (
+            SELECT DISTINCT ON (nomor_dokumen)
+              nomor_dokumen, current_stage, status
+            FROM procedure_approval_cycles
+            ORDER BY nomor_dokumen, id DESC
+          ) pac ON pd.nomor_dokumen = pac.nomor_dokumen
           WHERE ${conditions.join(' OR ')}
           ORDER BY pd.created_at DESC
         `;
@@ -470,7 +478,9 @@ export async function GET(request: NextRequest) {
                  es.scheduled_email_at,
                  es.manager_email_scheduled_at,
                  es.manager_email_status,
-                 prr.latest_revision_requested_at
+                 prr.latest_revision_requested_at,
+                 pac.current_stage AS active_approval_stage,
+                 pac.status AS active_approval_status
           FROM procedure_documents pd
           LEFT JOIN email_schedules es ON pd.nomor_dokumen = es.nomor_dokumen
           LEFT JOIN (
@@ -478,6 +488,12 @@ export async function GET(request: NextRequest) {
             FROM pic_review_requests
             GROUP BY nomor_dokumen
           ) prr ON pd.nomor_dokumen = prr.nomor_dokumen
+          LEFT JOIN (
+            SELECT DISTINCT ON (nomor_dokumen)
+              nomor_dokumen, current_stage, status
+            FROM procedure_approval_cycles
+            ORDER BY nomor_dokumen, id DESC
+          ) pac ON pd.nomor_dokumen = pac.nomor_dokumen
           WHERE $1 = ANY(string_to_array(REPLACE(pd.pic, ' ', ''), ','))
           ORDER BY pd.created_at DESC
         `;
@@ -490,7 +506,9 @@ export async function GET(request: NextRequest) {
                es.scheduled_email_at,
                es.manager_email_scheduled_at,
                es.manager_email_status,
-               prr.latest_revision_requested_at
+               prr.latest_revision_requested_at,
+               pac.current_stage AS active_approval_stage,
+               pac.status AS active_approval_status
         FROM procedure_documents pd
         LEFT JOIN email_schedules es ON pd.nomor_dokumen = es.nomor_dokumen
         LEFT JOIN (
@@ -498,6 +516,12 @@ export async function GET(request: NextRequest) {
           FROM pic_review_requests
           GROUP BY nomor_dokumen
         ) prr ON pd.nomor_dokumen = prr.nomor_dokumen
+        LEFT JOIN (
+          SELECT DISTINCT ON (nomor_dokumen)
+            nomor_dokumen, current_stage, status
+          FROM procedure_approval_cycles
+          ORDER BY nomor_dokumen, id DESC
+        ) pac ON pd.nomor_dokumen = pac.nomor_dokumen
         ORDER BY pd.created_at DESC
       `;
       values = [];
@@ -507,11 +531,23 @@ export async function GET(request: NextRequest) {
 
     const procedures = await Promise.all(
       result.rows.map(async (row: any) => {
+        let effectiveStatus = row.status;
+        if (row.active_approval_status === 'in_progress' && row.active_approval_stage) {
+          const stageMap: Record<string, string> = {
+            prepared: 'Menunggu ACC Prepared',
+            checked:  'Menunggu ACC Checked',
+            approved: 'Menunggu ACC Approved',
+          };
+          if (stageMap[row.active_approval_stage]) {
+            effectiveStatus = stageMap[row.active_approval_stage];
+          }
+        }
+
         const resolvedStatus = await runAutoStatusChain(
           client,
           row.nomor_dokumen,
           row.tanggal_selesai_approval,
-          row.status
+          effectiveStatus
         );
 
         return {

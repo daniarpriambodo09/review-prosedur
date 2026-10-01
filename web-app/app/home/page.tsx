@@ -35,7 +35,31 @@ interface ActivityLog {
 }
 
 // ─── Status Badge ─────────────────────────────────────────────────────────────
-function StatusBadge({ status }: { status: StatusType }) {
+function formatSentDateTime(dateStr?: string | null): string | null {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return null;
+
+  const dateFormatted = d.toLocaleDateString('id-ID', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+  const timeFormatted = d.toLocaleTimeString('id-ID', {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).replace('.', ':');
+
+  return `${dateFormatted}, ${timeFormatted} WIB`;
+}
+
+function StatusBadge({
+  status,
+  lastSentAt,
+}: {
+  status: StatusType;
+  lastSentAt?: string | null;
+}) {
   const styles: Partial<Record<StatusType, { bg: string; text: string; dot: string }>> = {
     Relevan:          { bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-500' },
     Revisi:           { bg: 'bg-amber-50',   text: 'text-amber-700',   dot: 'bg-amber-500'   },
@@ -50,11 +74,24 @@ function StatusBadge({ status }: { status: StatusType }) {
     '-':              { bg: 'bg-slate-50',   text: 'text-slate-500',   dot: 'bg-slate-400'   },
   };
   const s = styles[status] ?? styles['-']!;
+  const sentFormatted = status === 'Telah terkirim' ? formatSentDateTime(lastSentAt) : null;
+
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${s.bg} ${s.text}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
-      {status}
-    </span>
+    <div className="inline-flex flex-col items-start gap-1">
+      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${s.bg} ${s.text}`}>
+        <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
+        {status}
+      </span>
+      {sentFormatted && (
+        <span
+          className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 whitespace-nowrap pl-0.5"
+          title={`Email terkirim pada ${sentFormatted}`}
+        >
+          <Clock size={11} className="text-cyan-600 flex-shrink-0" />
+          <span>{sentFormatted}</span>
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -648,7 +685,7 @@ export default function HomePage() {
                         <p className="text-sm font-medium text-slate-800 truncate">{doc.namaDokumen}</p>
                         <p className="text-xs text-slate-400 mt-0.5">{doc.nomorDokumen} · {doc.pic}</p>
                       </div>
-                      <StatusBadge status={doc.status} />
+                      <StatusBadge status={doc.status} lastSentAt={emailSchedules[doc.nomorDokumen]?.lastSentAt || doc.lastSentAt} />
                     </div>
                   ))}
                 </div>

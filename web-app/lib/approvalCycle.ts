@@ -125,6 +125,14 @@ export async function startApprovalCycle(
     return { started: false, reason: 'no_prepared_approvers' };
   }
 
+  // Batalkan siklus aktif sebelumnya jika ada, agar tidak ada siklus tumpang-tindih/orphan
+  await client.query(
+    `UPDATE procedure_approval_cycles
+     SET status = 'cancelled'
+     WHERE nomor_dokumen = $1 AND status = 'in_progress'`,
+    [nomorDokumen]
+  );
+
   const cycleResult = await client.query(
     `INSERT INTO procedure_approval_cycles
        (nomor_dokumen, triggered_by_file_id, current_stage, status)

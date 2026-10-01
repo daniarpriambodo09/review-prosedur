@@ -236,7 +236,7 @@ export default function LoginPage() {
           {/* Right Section: Pure Visual Image (Col 5) */}
           <div className="relative w-full min-h-[300px] sm:min-h-[360px] lg:min-h-full lg:col-span-5 order-1 lg:order-2 overflow-hidden bg-slate-100 border-b lg:border-b-0 lg:border-l border-slate-200/80">
             <Image
-              src="/review-prosedur/images/sop-review-meeting.jpg"
+              src="/review-prosedur/images/sop-procedure-review.jpg"
               alt="SOP Procedure Review Session Meeting"
               fill
               className="object-cover object-center transition-transform duration-700 hover:scale-105"

@@ -38,7 +38,7 @@ import EditProcedureModal from '@/components/status-review/EditProcedureModal';
 import DocumentChat from '@/components/chat/DocumentChat';
 import {
   ArrowLeft, Hash, FileText, Calendar, RefreshCw, Building2, User, Mail,
-  Eye, Users, FileClock, Pencil, Trash2, Send, XCircle,
+  Eye, Users, FileClock, Pencil, Trash2, Send, XCircle, Clock,
 } from 'lucide-react';
 
 // =============================================================================
@@ -83,7 +83,31 @@ function resolveDisplayStatus(doc: ProcedureDocument, schedule: EmailSchedule | 
 // =============================================================================
 // Status Badge — gaya sama dengan tabel /status-review
 // =============================================================================
-function StatusBadge({ status }: { status: StatusType }) {
+function formatSentDateTime(dateStr?: string | null): string | null {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return null;
+
+  const dateFormatted = d.toLocaleDateString('id-ID', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+  const timeFormatted = d.toLocaleTimeString('id-ID', {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).replace('.', ':');
+
+  return `${dateFormatted}, ${timeFormatted} WIB`;
+}
+
+function StatusBadge({
+  status,
+  lastSentAt,
+}: {
+  status: StatusType;
+  lastSentAt?: string | null;
+}) {
   const styles: Record<string, { bg: string; text: string; dot: string }> = {
     Revisi:           { bg: 'bg-amber-50',   text: 'text-amber-700',   dot: 'bg-amber-500'   },
     Relevan:          { bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-500' },
@@ -99,11 +123,24 @@ function StatusBadge({ status }: { status: StatusType }) {
     '-':              { bg: 'bg-slate-50',   text: 'text-slate-500',   dot: 'bg-slate-400'   },
   };
   const s = styles[status] ?? styles['-'];
+  const sentFormatted = status === 'Telah terkirim' ? formatSentDateTime(lastSentAt) : null;
+
   return (
-    <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap ${s.bg} ${s.text}`}>
-      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${s.dot}`} />
-      {status}
-    </span>
+    <div className="inline-flex flex-col items-start gap-1">
+      <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap ${s.bg} ${s.text}`}>
+        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${s.dot}`} />
+        {status}
+      </span>
+      {sentFormatted && (
+        <span
+          className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 whitespace-nowrap pl-0.5"
+          title={`Email terkirim pada ${sentFormatted}`}
+        >
+          <Clock size={11} className="text-cyan-600 flex-shrink-0" />
+          <span>{sentFormatted}</span>
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -338,7 +375,7 @@ export default function DocumentDetailPage() {
                 <h1 className="text-xl font-bold text-slate-900">{doc.namaDokumen}</h1>
                 <p className="text-xs text-slate-400 font-mono mt-1">{doc.nomorDokumen}</p>
               </div>
-              <StatusBadge status={doc.status} />
+              <StatusBadge status={doc.status} lastSentAt={schedule?.lastSentAt || doc.lastSentAt} />
             </div>
           </div>
 
@@ -385,10 +422,9 @@ export default function DocumentDetailPage() {
                 </div>
                 <EmailStatusBadge status={schedule.emailStatus} />
                 {schedule.lastSentAt && (
-                  <span className="text-xs text-slate-400">
-                    Terkirim {new Date(schedule.lastSentAt).toLocaleDateString('id-ID', {
-                      day: '2-digit', month: 'short', year: 'numeric',
-                    })}
+                  <span className="text-xs text-slate-400 flex items-center gap-1">
+                    <Clock size={12} className="text-slate-400" />
+                    Terkirim {formatSentDateTime(schedule.lastSentAt)}
                   </span>
                 )}
               </div>

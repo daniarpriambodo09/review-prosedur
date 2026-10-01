@@ -264,6 +264,14 @@ export async function finalizeApprovalCycle(
       [newFileId, cycleId]
     );
 
+    // Pastikan tidak ada siklus in_progress lain yang tertinggal untuk dokumen ini
+    await client.query(
+      `UPDATE procedure_approval_cycles
+       SET status = 'cancelled'
+       WHERE nomor_dokumen = $1 AND status = 'in_progress' AND id != $2`,
+      [nomorDokumen, cycleId]
+    );
+
     // 🆕 Tandai dokumen ini sudah memakai template halaman terakhir, supaya
     // proses berikutnya (revisi selanjutnya) MENGGANTI halaman terakhir,
     // bukan menambah halaman baru lagi.

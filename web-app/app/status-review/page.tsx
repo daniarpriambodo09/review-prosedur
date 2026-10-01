@@ -95,9 +95,33 @@ function resolveDisplayStatus(
 }
 
 // =============================================================================
-// Status Badge — modern pill
+// Status Badge — modern pill dengan keterangan tanggal/jam terkirim
 // =============================================================================
-function StatusBadge({ status }: { status: StatusType }) {
+function formatSentDateTime(dateStr?: string | null): string | null {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return null;
+
+  const dateFormatted = d.toLocaleDateString('id-ID', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+  const timeFormatted = d.toLocaleTimeString('id-ID', {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).replace('.', ':');
+
+  return `${dateFormatted}, ${timeFormatted} WIB`;
+}
+
+function StatusBadge({
+  status,
+  lastSentAt,
+}: {
+  status: StatusType;
+  lastSentAt?: string | null;
+}) {
   const styles: Record<string, { bg: string; text: string; dot: string }> = {
     Revisi:           { bg: 'bg-amber-50',   text: 'text-amber-700',   dot: 'bg-amber-500'   },
     Relevan:          { bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-500' },
@@ -113,11 +137,24 @@ function StatusBadge({ status }: { status: StatusType }) {
     '-':              { bg: 'bg-slate-50',   text: 'text-slate-500',   dot: 'bg-slate-400'   },
   };
   const s = styles[status] ?? styles['-'];
+  const sentFormatted = status === 'Telah terkirim' ? formatSentDateTime(lastSentAt) : null;
+
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${s.bg} ${s.text}`}>
-      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${s.dot}`} />
-      {status}
-    </span>
+    <div className="inline-flex flex-col items-start gap-1">
+      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${s.bg} ${s.text}`}>
+        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${s.dot}`} />
+        {status}
+      </span>
+      {sentFormatted && (
+        <span
+          className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 whitespace-nowrap pl-0.5"
+          title={`Email terkirim pada ${sentFormatted}`}
+        >
+          <Clock size={11} className="text-cyan-600 flex-shrink-0" />
+          <span>{sentFormatted}</span>
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -1087,13 +1124,16 @@ export default function StatusReviewPage() {
                           {/* Status + indikator jadwal email aktif + badge "Baru Direview" */}
                           <td className="px-4 py-2">
                             <div className="flex flex-col gap-1.5 items-start">
-                              <div className="flex items-center gap-1.5">
-                                <StatusBadge status={row.status} />
+                              <div className="flex items-start gap-1.5">
+                                <StatusBadge
+                                  status={row.status}
+                                  lastSentAt={schedule?.lastSentAt || row.lastSentAt}
+                                />
                                 {schedule && schedule.emailStatus !== 'cancelled' && !isScheduleExpired(schedule) && (
                                   <Link
                                     href={`/status-review/${encodeURIComponent(row.nomorDokumen)}`}
                                     title={`Ada jadwal email aktif (${schedule.emailStatus === 'sent' ? 'sudah terkirim' : 'menunggu dikirim'}) — klik untuk detail`}
-                                    className="inline-flex hover:scale-125 transition-transform"
+                                    className="inline-flex hover:scale-125 transition-transform mt-1"
                                   >
                                     <span
                                       className={`w-2 h-2 rounded-full flex-shrink-0 ${
