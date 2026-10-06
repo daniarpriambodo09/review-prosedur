@@ -1,6 +1,8 @@
 // app/smtp-settings/page.tsx
 'use client';
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
+import { CalendarClock } from 'lucide-react';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 
@@ -238,11 +240,19 @@ function SmtpSettingsContent() {
             Kelola konfigurasi server email untuk pengiriman notifikasi review prosedur.
           </p>
         </div>
-        {savedAt && (
-          <span className="text-[11px] text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full shrink-0 mt-1">
-            Tersimpan: {savedAt}
-          </span>
-        )}
+        <div className="flex items-center gap-2 flex-wrap">
+          <Link
+            href="/email-schedules-settings"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 transition-all shadow-xs"
+          >
+            <CalendarClock size={14} /> Atur Jadwal & Jam Email
+          </Link>
+          {savedAt && (
+            <span className="text-[11px] text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full shrink-0">
+              Tersimpan: {savedAt}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Warning: belum ada konfigurasi */}

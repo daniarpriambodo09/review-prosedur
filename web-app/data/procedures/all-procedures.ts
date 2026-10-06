@@ -8,6 +8,8 @@ export type StatusType =
   | 'Belum dikirim'
   | 'Telah terkirim'
   | 'Telah dibaca'
+  | 'Menunggu Setting Approver'
+  | 'Menunggu Approval'
   | 'Menunggu ACC Prepared'
   | 'Menunggu ACC Checked'
   | 'Menunggu ACC Approved'

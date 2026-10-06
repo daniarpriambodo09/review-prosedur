@@ -158,48 +158,7 @@ export default function AnnotatablePDFViewer({
     return () => { cancelled = true; };
   }, [filePath]);
 
-  // ── 2. Render tiap halaman ke canvas begitu numPages diketahui ─────────────
-  // Dependensi cuma [numPages, filePath] (bukan pdfDocRef, karena itu ref) —
-  // filePath ditambahkan supaya efek ini SELALU jalan ulang tiap ganti file,
-  // walau numPages-nya kebetulan sama dengan file sebelumnya.
-  useEffect(() => {
-    if (!numPages || !pdfDocRef.current) return;
-    let cancelled = false;
-
-    async function renderAll() {
-      for (let i = 1; i <= numPages; i++) {
-        if (cancelled) return;
-        const page = await pdfDocRef.current.getPage(i);
-        const viewport = page.getViewport({ scale: RENDER_SCALE });
-        const canvas = canvasRefs.current[i];
-        const overlay = overlayRefs.current[i];
-        if (!canvas) continue;
-
-        canvas.width  = viewport.width;
-        canvas.height = viewport.height;
-        if (overlay) {
-          overlay.width  = viewport.width;
-          overlay.height = viewport.height;
-        }
-        pageSizeRef.current[i] = { width: viewport.width, height: viewport.height };
-
-        const ctx = canvas.getContext('2d');
-        if (!ctx) continue;
-        await page.render({
-          canvasContext: ctx,
-          viewport,
-          annotationMode: 1, // AnnotationMode.ENABLE: pastikan anotasi/vector shapes dalam PDF ikut ter-render
-        }).promise;
-      }
-      if (!cancelled) redrawAllOverlays();
-    }
-
-    renderAll();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [numPages, filePath]);
-
-  // ── 3. Fetch anotasi yang sudah tersimpan ───────────────────────────────────
+  // ── 2. Fetch anotasi yang sudah tersimpan ───────────────────────────────────
   const fetchExisting = useCallback(async () => {
     try {
       const res = await fetch(`/review-prosedur/api/annotations?nomorDokumen=${encodeURIComponent(nomorDokumen)}&fileId=${fileId}`);
@@ -213,7 +172,7 @@ export default function AnnotatablePDFViewer({
 
   useEffect(() => { if (fileId) fetchExisting(); }, [fetchExisting, fileId]);
 
-  // ── 4. Gambar ulang overlay (existing + draft strokes) ─────────────────────
+  // ── 3. Gambar ulang overlay (existing + draft strokes) ─────────────────────
   function drawStroke(
     ctx: CanvasRenderingContext2D,
     points: { x: number; y: number }[],
@@ -258,6 +217,53 @@ export default function AnnotatablePDFViewer({
   }, [numPages, existing, drafts, showOverlay]);
 
   useEffect(() => { redrawAllOverlays(); }, [redrawAllOverlays]);
+
+  // ── 4. Render tiap halaman ke canvas begitu numPages diketahui ─────────────
+  const renderAll = useCallback(async () => {
+    if (!numPages || !pdfDocRef.current) return;
+
+    for (let i = 1; i <= numPages; i++) {
+      const page = await pdfDocRef.current.getPage(i);
+      const viewport = page.getViewport({ scale: RENDER_SCALE });
+      const canvas = canvasRefs.current[i];
+      const overlay = overlayRefs.current[i];
+      if (!canvas) continue;
+
+      canvas.width  = viewport.width;
+      canvas.height = viewport.height;
+      if (overlay) {
+        overlay.width  = viewport.width;
+        overlay.height = viewport.height;
+      }
+      pageSizeRef.current[i] = { width: viewport.width, height: viewport.height };
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) continue;
+      await page.render({
+        canvasContext: ctx,
+        viewport,
+        annotationMode: 1, // AnnotationMode.ENABLE: pastikan anotasi/vector shapes dalam PDF ikut ter-render
+      }).promise;
+    }
+    redrawAllOverlays();
+  }, [numPages, redrawAllOverlays]);
+
+  useEffect(() => {
+    renderAll();
+  }, [renderAll, filePath]);
+
+  // Saat beralih kembali dari mode native ke mode anotasi, pastikan canvas & overlay ter-render
+  useEffect(() => {
+    if (!useNativeViewer && numPages > 0) {
+      // Periksa apakah canvas sudah ter-render; jika kosong (misal width=0), panggil renderAll
+      const firstCanvas = canvasRefs.current[1];
+      if (!firstCanvas || firstCanvas.width === 0) {
+        renderAll();
+      } else {
+        redrawAllOverlays();
+      }
+    }
+  }, [useNativeViewer, numPages, renderAll, redrawAllOverlays]);
 
   // ── 5. Gambar coret (pen tool) ───────────────────────────────────────────────
   function getRelativePos(e: React.PointerEvent<HTMLCanvasElement>, page: number) {
@@ -498,14 +504,22 @@ export default function AnnotatablePDFViewer({
         </div>
       )}
 
-      {/* ── Konten Dokumen PDF ── */}
-      {useNativeViewer ? (
-        <div className="flex-1 w-full h-full min-h-0 relative bg-slate-100">
+      {/* ── Konten Dokumen PDF: Mode PDF Asli (Native Browser Viewer) ── */}
+      <div
+        className="flex-1 w-full h-full min-h-0 relative bg-slate-100"
+        style={{ display: useNativeViewer ? 'block' : 'none' }}
+      >
+        {useNativeViewer && (
           <PDFViewer filePath={filePath} fileName={`${nomorDokumen}.pdf`} />
-        </div>
-      ) : (
-        <div className="flex-1 overflow-auto bg-slate-200 py-4 flex flex-col items-center gap-4">
-          {Array.from({ length: numPages }, (_, idx) => idx + 1).map(page => (
+        )}
+      </div>
+
+      {/* ── Konten Dokumen PDF: Mode Anotasi (Canvas + Overlay Interaktif) ── */}
+      <div
+        className="flex-1 overflow-auto bg-slate-200 py-4 flex flex-col items-center gap-4"
+        style={{ display: useNativeViewer ? 'none' : 'flex' }}
+      >
+        {Array.from({ length: numPages }, (_, idx) => idx + 1).map(page => (
           <div
             key={page}
             className="relative inline-block shadow-md bg-white align-top"
@@ -585,7 +599,6 @@ export default function AnnotatablePDFViewer({
           </div>
         ))}
       </div>
-      )}
     </div>
   );
 }

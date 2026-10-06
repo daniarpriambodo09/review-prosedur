@@ -154,6 +154,28 @@ function isPastDeadline(tanggalApproval: string, reference: Date = new Date()): 
 // bukan di sini — Node cuma menyimpan manager_email_scheduled_at, Python
 // yang benar-benar mengeksekusi pengiriman & lookup manager-nya.
 
+async function getEmailScheduleConfig(client: any) {
+  try {
+    const res = await client.query(`
+      SELECT pic_reminder_months_before, pic_send_day_of_month, pic_send_hour, pic_send_minute,
+             manager_reminder_months_before, manager_send_day_of_month, manager_send_hour, manager_send_minute
+      FROM email_schedule_settings
+      ORDER BY id ASC LIMIT 1;
+    `);
+    if (res.rows.length > 0) return res.rows[0];
+  } catch {}
+  return {
+    pic_reminder_months_before: 2,
+    pic_send_day_of_month: 1,
+    pic_send_hour: 8,
+    pic_send_minute: 0,
+    manager_reminder_months_before: 1,
+    manager_send_day_of_month: 1,
+    manager_send_hour: 8,
+    manager_send_minute: 0,
+  };
+}
+
 // ── Buat/reset jadwal email 2-tahap untuk sebuah dokumen ────────────────────
 // Dipanggil saat dokumen masuk 'Menunggu' (baru dibuat / reaktivasi tahunan).
 // is_manual SELALU FALSE di sini — jalur ini khusus SIKLUS OTOMATIS TAHUNAN.
@@ -168,16 +190,30 @@ async function createOrResetSchedule(
   const now      = new Date();
   const deadline = currentCycleDeadline(tanggalApproval, now) as Date; // sudah divalidasi non-null sebelum dipanggil
 
-  // Kalau admin secara eksplisit menandai "Perlu Direview" saat create,
-  // kirim email PIC SEKARANG (itu memang perintah eksplisit admin, bukan
-  // auto-schedule). Selain itu, reminder SELALU jatuh di TANGGAL 1 pada
-  // bulan (deadline - 2) — bukan tanggal persis (deadline - 2 bulan).
-  // Contoh: deadline 3 Desember -> PIC direminder 1 Oktober, bukan 3 Oktober.
+  // Baca konfigurasi tanggal dan jam default yang diatur admin di menu Pengaturan Jadwal
+  const cfg = await getEmailScheduleConfig(client);
+  const picMonths = cfg.pic_reminder_months_before ?? 2;
+  const picDay    = Math.max(1, Math.min(28, cfg.pic_send_day_of_month ?? 1));
+  const picHour   = cfg.pic_send_hour ?? 8;
+  const picMin    = cfg.pic_send_minute ?? 0;
+
+  const mgrMonths = cfg.manager_reminder_months_before ?? 1;
+  const mgrDay    = Math.max(1, Math.min(28, cfg.manager_send_day_of_month ?? 1));
+  const mgrHour   = cfg.manager_send_hour ?? 8;
+  const mgrMin    = cfg.manager_send_minute ?? 0;
+
   const picScheduledAt = needsReview === true
     ? now
-    : addMonthsFirstDay(deadline, -2);
+    : new Date(deadline.getFullYear(), deadline.getMonth() - picMonths, picDay, picHour, picMin, 0);
 
-  const managerScheduledAt = addMonthsFirstDay(deadline, -1);
+  const managerScheduledAt = new Date(
+    deadline.getFullYear(),
+    deadline.getMonth() - mgrMonths,
+    mgrDay,
+    mgrHour,
+    mgrMin,
+    0
+  );
 
   // 🆕 cycleDeadline disimpan EKSPLISIT — inilah yang dipakai
   // autoExpireAtDeadline() untuk menentukan T-0, BUKAN dihitung ulang dari
@@ -594,12 +630,17 @@ export async function POST(request: NextRequest) {
 
     await client.query('BEGIN');
 
-    const status = await resolveInitialStatus(
+    let status = await resolveInitialStatus(
       client,
       body.nomorDokumen,
       body.tanggalSelesaiApproval,
       needsReview
     );
+
+    // Dokumen baru yang dibuat masuk ke tahap approval terlebih dahulu agar dicek & disetujui:
+    if (body.requestId || body.needsApproval !== false) {
+      status = 'Menunggu Setting Approver';
+    }
 
     const result = await client.query(
       `INSERT INTO procedure_documents

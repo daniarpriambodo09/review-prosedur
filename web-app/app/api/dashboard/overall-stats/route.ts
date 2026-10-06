@@ -55,18 +55,29 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Ambil seluruh dokumen dengan info tanggal dan last_reviewed_at
+    // Ambil seluruh dokumen dengan info tanggal, status, revisi, dan riwayat
     const docsResult = await client.query(`
       SELECT
         pd.nomor_dokumen,
         pd.nama_dokumen,
         pd.status,
+        pd.revisi,
         pd.tanggal_selesai_approval,
         pd.last_reviewed_at,
-        dr.status AS dr_status
+        (
+          pd.status = 'Obsolete'
+          OR EXISTS (SELECT 1 FROM document_reviews dr WHERE dr.nomor_dokumen = pd.nomor_dokumen AND dr.status = 'Obsolete')
+          OR EXISTS (SELECT 1 FROM arsip_prosedur ap WHERE ap.nomor_dokumen = pd.nomor_dokumen AND ap.status = 'Obsolete')
+        ) AS pernah_obsolete,
+        (
+          pd.status = 'Revisi'
+          OR pd.status LIKE 'Menunggu ACC%'
+          OR pd.status = 'Ditolak'
+          OR EXISTS (SELECT 1 FROM document_reviews dr WHERE dr.nomor_dokumen = pd.nomor_dokumen AND dr.status = 'Revisi')
+          OR EXISTS (SELECT 1 FROM procedure_approval_cycles pac WHERE pac.nomor_dokumen = pd.nomor_dokumen)
+          OR EXISTS (SELECT 1 FROM procedure_revision_notes prn WHERE prn.nomor_dokumen = pd.nomor_dokumen)
+        ) AS pernah_revisi
       FROM procedure_documents pd
-      LEFT JOIN document_reviews dr
-        ON dr.nomor_dokumen = pd.nomor_dokumen
     `);
 
     let totalDocuments = 0;
@@ -94,10 +105,11 @@ export async function GET(request: NextRequest) {
 
       totalDocuments += 1;
 
+      // Cek apakah dokumen dianggap sudah direview pada periode ini
+      let isReviewed = false;
       if (isPastYear) {
         // Riwayat tahun sebelumnya: seluruh dokumen siklus tersebut sudah selesai direview
-        reviewedDocuments += 1;
-        relevanCount += 1;
+        isReviewed = true;
       } else {
         // Tahun Berjalan (2026 dst) / 'all':
         // Dokumen sebelum 21 September 2026 (atau sebelum periode baru 1 Oktober 2026) dengan status valid
@@ -107,13 +119,21 @@ export async function GET(request: NextRequest) {
         const isValidStatus = VALID_REVIEW_STATUSES.includes(effectiveStatus);
         const CUTOFF_DATE = new Date('2026-09-21T00:00:00');
         const isBeforeCutoff = isDateValid && d < CUTOFF_DATE;
-        const hasPicReview = isValidStatus && (isBeforeCutoff || Boolean(row.last_reviewed_at));
+        isReviewed = isValidStatus && (isBeforeCutoff || Boolean(row.last_reviewed_at));
+      }
 
-        if (hasPicReview) {
-          reviewedDocuments += 1;
-          if (effectiveStatus === 'Relevan') relevanCount += 1;
-          else if (effectiveStatus === 'Revisi') revisiCount += 1;
-          else if (effectiveStatus === 'Obsolete') obsoleteCount += 1;
+      if (isReviewed) {
+        reviewedDocuments += 1;
+        // Klasifikasi sesuai instruksi manajemen:
+        // - Obsolete: Dokumen yang PERNAH memiliki status 'Obsolete'
+        // - Revisi: Dokumen yang PERNAH memiliki status / proses 'Revisi'
+        // - Relevan: Dokumen yang TIDAK PERNAH 'Revisi' atau 'Obsolete' (murni Relevan)
+        if (row.pernah_obsolete) {
+          obsoleteCount += 1;
+        } else if (row.pernah_revisi) {
+          revisiCount += 1;
+        } else {
+          relevanCount += 1;
         }
       }
     }

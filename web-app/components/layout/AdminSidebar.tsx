@@ -17,16 +17,20 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  Database,
+  CalendarClock,
 } from 'lucide-react';
 
 const NAV_ITEMS = [
-  { label: 'Dashboard',        path: '/home',              icon: LayoutDashboard },
-  { label: 'Status Prosedur',  path: '/status-review',     icon: FileCheck       },
-  { label: 'Approval Dokumen', path: '/approval-dokumen',  icon: ClipboardCheck  },
-  { label: 'Arsip Prosedur',   path: '/arsip-prosedur',    icon: Archive         },
-  { label: 'Kelola Departemen',path: '/kelola-departemen', icon: Building2       },
-  { label: 'Kelola User',      path: '/user-management',   icon: Users           },
-  { label: 'Pengaturan SMTP',  path: '/smtp-settings',     icon: Settings        },
+  { label: 'Dashboard',             path: '/home',                     icon: LayoutDashboard },
+  { label: 'Status Prosedur',       path: '/status-review',            icon: FileCheck       },
+  { label: 'Approval Dokumen',      path: '/approval-dokumen',         icon: ClipboardCheck  },
+  { label: 'Arsip Prosedur',        path: '/arsip-prosedur',           icon: Archive         },
+  { label: 'Kelola Departemen',     path: '/kelola-departemen',        icon: Building2       },
+  { label: 'Kelola User',           path: '/user-management',          icon: Users           },
+  { label: 'Pengaturan SMTP',       path: '/smtp-settings',            icon: Settings        },
+  { label: 'Jadwal Otomatis Email', path: '/email-schedules-settings', icon: CalendarClock   },
+  { label: 'Sistem & Backup',       path: '/system-settings',          icon: Database        },
 ];
 
 // ── Desktop sidebar ──────────────────────────────────────────────────────────

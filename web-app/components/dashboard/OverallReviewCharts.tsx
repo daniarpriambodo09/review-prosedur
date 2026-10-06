@@ -41,12 +41,12 @@ const BAR_CHART_HEIGHT = 190; // px
 
 export default function OverallReviewCharts() {
   const currentYear = Math.max(2026, new Date().getFullYear());
-  const [selectedYear,  setSelectedYear]  = useState<string>(String(currentYear));
+  const [selectedYear, setSelectedYear] = useState<string>(String(currentYear));
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
-  const [stats,         setStats]         = useState<OverallStats | null>(null);
-  const [loading,       setLoading]       = useState(true);
-  const [errored,       setErrored]       = useState(false);
-  const [hoveredBar,    setHoveredBar]    = useState<string | null>(null);
+  const [stats, setStats] = useState<OverallStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [errored, setErrored] = useState(false);
+  const [hoveredBar, setHoveredBar] = useState<string | null>(null);
 
   const availableYears = useMemo(() => {
     const list: number[] = [];
@@ -101,7 +101,7 @@ export default function OverallReviewCharts() {
     const total = stats.reviewedDocuments;
     return {
       relevanPct: Math.round((stats.summaryByStatus.relevan / total) * 100),
-      revisiPct:  Math.round((stats.summaryByStatus.revisi / total) * 100),
+      revisiPct: Math.round((stats.summaryByStatus.revisi / total) * 100),
       obsoletePct: Math.round((stats.summaryByStatus.obsolete / total) * 100),
     };
   }, [stats]);
@@ -202,7 +202,6 @@ export default function OverallReviewCharts() {
               </div>
               <div>
                 <h3 className="text-sm font-bold text-slate-900">Total Dokumen vs Sudah Direview</h3>
-                <p className="text-xs text-slate-500">Agregat keseluruhan tanpa per departemen/section</p>
               </div>
             </div>
             {stats && (
@@ -388,7 +387,6 @@ export default function OverallReviewCharts() {
               </div>
               <div>
                 <h3 className="text-sm font-bold text-slate-900">Summary Dokumen Sudah Direview</h3>
-                <p className="text-xs text-slate-500">Distribusi hasil review aktual oleh PIC</p>
               </div>
             </div>
             {stats && (
@@ -401,21 +399,36 @@ export default function OverallReviewCharts() {
           {/* KPI Mini Pills Status */}
           <div className="grid grid-cols-3 divide-x divide-slate-100 border-b border-slate-100 bg-slate-50/50">
             <div className="px-4 py-2.5 text-center bg-emerald-50/30">
-              <p className="text-[10px] uppercase font-bold text-emerald-600">Relevan</p>
+              <p
+                className="text-[10px] uppercase font-bold text-emerald-600"
+                title="Dokumen yang tidak pernah berstatus Revisi atau Obsolete"
+              >
+                Relevan
+              </p>
               <p className="text-sm font-bold text-emerald-700">
                 {loading ? '...' : stats?.summaryByStatus.relevan ?? 0}
                 <span className="text-[10px] font-normal text-emerald-500 ml-1">({reviewBreakdown.relevanPct}%)</span>
               </p>
             </div>
             <div className="px-4 py-2.5 text-center bg-amber-50/30">
-              <p className="text-[10px] uppercase font-bold text-amber-600">Revisi</p>
+              <p
+                className="text-[10px] uppercase font-bold text-amber-600"
+                title="Dokumen yang pernah berstatus atau memiliki riwayat revisi"
+              >
+                Pernah Revisi
+              </p>
               <p className="text-sm font-bold text-amber-700">
                 {loading ? '...' : stats?.summaryByStatus.revisi ?? 0}
                 <span className="text-[10px] font-normal text-amber-500 ml-1">({reviewBreakdown.revisiPct}%)</span>
               </p>
             </div>
             <div className="px-4 py-2.5 text-center bg-rose-50/30">
-              <p className="text-[10px] uppercase font-bold text-rose-600">Obsolete</p>
+              <p
+                className="text-[10px] uppercase font-bold text-rose-600"
+                title="Dokumen yang pernah berstatus Obsolete"
+              >
+                Pernah Obsolete
+              </p>
               <p className="text-sm font-bold text-rose-700">
                 {loading ? '...' : stats?.summaryByStatus.obsolete ?? 0}
                 <span className="text-[10px] font-normal text-rose-500 ml-1">({reviewBreakdown.obsoletePct}%)</span>
@@ -478,7 +491,7 @@ export default function OverallReviewCharts() {
                           <div className="w-full h-1 bg-white/30 rounded-t-xl" />
                           {isHovered && (
                             <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[10px] font-semibold px-2 py-1 rounded shadow-lg whitespace-nowrap z-30 pointer-events-none">
-                              Relevan: {val} Dokumen ({reviewBreakdown.relevanPct}%)
+                              Relevan (Belum Pernah Revisi): {val} Dokumen ({reviewBreakdown.relevanPct}%)
                             </div>
                           )}
                         </div>
@@ -508,7 +521,7 @@ export default function OverallReviewCharts() {
                           <div className="w-full h-1 bg-white/30 rounded-t-xl" />
                           {isHovered && (
                             <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[10px] font-semibold px-2 py-1 rounded shadow-lg whitespace-nowrap z-30 pointer-events-none">
-                              Revisi: {val} Dokumen ({reviewBreakdown.revisiPct}%)
+                              Pernah Revisi: {val} Dokumen ({reviewBreakdown.revisiPct}%)
                             </div>
                           )}
                         </div>
@@ -538,7 +551,7 @@ export default function OverallReviewCharts() {
                           <div className="w-full h-1 bg-white/30 rounded-t-xl" />
                           {isHovered && (
                             <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[10px] font-semibold px-2 py-1 rounded shadow-lg whitespace-nowrap z-30 pointer-events-none">
-                              Obsolete: {val} Dokumen ({reviewBreakdown.obsoletePct}%)
+                              Pernah Obsolete: {val} Dokumen ({reviewBreakdown.obsoletePct}%)
                             </div>
                           )}
                         </div>
@@ -554,19 +567,19 @@ export default function OverallReviewCharts() {
                       <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
                       <p className="text-xs font-semibold text-emerald-700">Relevan</p>
                     </div>
-                    <p className="text-[10px] text-slate-400 mt-0.5">{reviewBreakdown.relevanPct}% dari review</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">Tidak pernah revisi</p>
                   </div>
                   <div className="text-center flex-1">
                     <div className="flex items-center justify-center gap-1.5">
                       <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                      <p className="text-xs font-semibold text-amber-700">Revisi</p>
+                      <p className="text-xs font-semibold text-amber-700">Pernah Revisi</p>
                     </div>
                     <p className="text-[10px] text-slate-400 mt-0.5">{reviewBreakdown.revisiPct}% dari review</p>
                   </div>
                   <div className="text-center flex-1">
                     <div className="flex items-center justify-center gap-1.5">
                       <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
-                      <p className="text-xs font-semibold text-rose-700">Obsolete</p>
+                      <p className="text-xs font-semibold text-rose-700">Pernah Obsolete</p>
                     </div>
                     <p className="text-[10px] text-slate-400 mt-0.5">{reviewBreakdown.obsoletePct}% dari review</p>
                   </div>

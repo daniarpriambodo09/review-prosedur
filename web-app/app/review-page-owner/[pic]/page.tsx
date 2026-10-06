@@ -116,60 +116,64 @@ function toReviewStatus(status: StatusType): ReviewStatus {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sub-components (tidak berubah dari versi asli)
+// Sub-components & Badges
 // ─────────────────────────────────────────────────────────────────────────────
-const STATUS_CLASS: Record<ReviewStatus, string> = {
-  Relevan:  'bg-emerald-50 text-emerald-700 border-emerald-200',
-  Revisi:   'bg-amber-50   text-amber-700   border-amber-200',
-  Obsolete: 'bg-red-50     text-red-700     border-red-200',
-  '-':      'bg-slate-50   text-slate-600   border-slate-200',
+const STATUS_META: Record<ReviewStatus, { label: string; bg: string; text: string; border: string; icon: string }> = {
+  Relevan:  { label: 'Relevan',  bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', icon: '✓' },
+  Revisi:   { label: 'Revisi',   bg: 'bg-amber-50',   text: 'text-amber-700',   border: 'border-amber-200',   icon: '⟳' },
+  Obsolete: { label: 'Obsolete', bg: 'bg-rose-50',    text: 'text-rose-700',    border: 'border-rose-200',    icon: '⊘' },
+  '-':      { label: 'Pilih Keputusan', bg: 'bg-slate-50', text: 'text-slate-500', border: 'border-slate-200', icon: '•' },
 };
 
 function StatusSelect({ value, onChange }: { value: ReviewStatus; onChange: (s: ReviewStatus) => void }) {
+  const meta = STATUS_META[value] || STATUS_META['-'];
   return (
-    <select
-      value={value}
-      onChange={e => onChange(e.target.value as ReviewStatus)}
-      className={`px-3 py-2 border rounded-lg text-sm font-medium focus:outline-none focus:ring-2
-                  focus:ring-blue-500 transition-all cursor-pointer appearance-none pr-8
-                  ${STATUS_CLASS[value]}`}
-      style={{
-        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%231f2937' d='M6 8L2 4h8z'/%3E%3C/svg%3E")`,
-        backgroundRepeat:   'no-repeat',
-        backgroundPosition: 'right 8px center',
-      }}
-    >
-      <option value="-">Belum Dipilih</option>
-      <option value="Relevan">Relevan</option>
-      <option value="Revisi">Revisi</option>
-      <option value="Obsolete">Obsolete</option>
-    </select>
+    <div className="relative inline-block w-full min-w-[150px]">
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value as ReviewStatus)}
+        className={`w-full pl-3 pr-8 py-2 border rounded-xl text-xs font-bold transition-all cursor-pointer appearance-none shadow-2xs focus:outline-none focus:ring-2 focus:ring-blue-500 ${meta.bg} ${meta.text} ${meta.border}`}
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23475569' d='M6 8L2 4h8z'/%3E%3C/svg%3E")`,
+          backgroundRepeat: 'no-repeat',
+          backgroundPosition: 'right 10px center',
+        }}
+      >
+        <option value="-" className="bg-white text-slate-600 font-medium">-- Belum Dipilih --</option>
+        <option value="Relevan" className="bg-white text-emerald-700 font-bold">✓ Relevan (Tetap Berlaku)</option>
+        <option value="Revisi" className="bg-white text-amber-700 font-bold">⟳ Revisi (Perlu Perubahan)</option>
+        <option value="Obsolete" className="bg-white text-rose-700 font-bold">⊘ Obsolete (Tidak Berlaku)</option>
+      </select>
+    </div>
   );
 }
 
 function StatusDisplayBadge({ status }: { status: StatusType }) {
   const isReviewed = ['Relevan', 'Revisi', 'Obsolete'].includes(status);
   const styles: Partial<Record<StatusType, { cls: string; icon: string }>> = {
-    'Belum dikirim':  { cls: 'bg-orange-50  text-orange-700  border-orange-200',  icon: '📋' },
-    'Telah terkirim': { cls: 'bg-cyan-50    text-cyan-700    border-cyan-200',    icon: '📨' },
-    'Telah dibaca':   { cls: 'bg-purple-50  text-purple-700  border-purple-200',  icon: '👁️' },
-    'Relevan':        { cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: '✓' },
-    'Revisi':         { cls: 'bg-amber-50   text-amber-700   border-amber-200',   icon: '⟳' },
-    'Obsolete':       { cls: 'bg-red-50     text-red-700     border-red-200',     icon: '⊘' },
-    'Menunggu':       { cls: 'bg-blue-50    text-blue-700    border-blue-200',    icon: '⏳' },
-    '-':              { cls: 'bg-slate-50   text-slate-600   border-slate-200',   icon: '?' },
+    'Belum dikirim':  { cls: 'bg-orange-50  text-orange-700  border-orange-200/80',  icon: '📋' },
+    'Telah terkirim': { cls: 'bg-cyan-50    text-cyan-700    border-cyan-200/80',    icon: '📨' },
+    'Telah dibaca':   { cls: 'bg-purple-50  text-purple-700  border-purple-200/80',  icon: '👁️' },
+    'Relevan':        { cls: 'bg-emerald-50 text-emerald-700 border-emerald-200/80', icon: '✓' },
+    'Revisi':         { cls: 'bg-amber-50   text-amber-700   border-amber-200/80',   icon: '⟳' },
+    'Obsolete':       { cls: 'bg-rose-50    text-rose-700    border-rose-200/80',    icon: '⊘' },
+    'Menunggu':       { cls: 'bg-blue-50    text-blue-700    border-blue-200/80',    icon: '⏳' },
+    '-':              { cls: 'bg-slate-50   text-slate-600   border-slate-200/80',   icon: '?' },
   };
+
   if (!isReviewed) {
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold border bg-slate-50 text-slate-600 border-slate-200">
-        ❓ Belum Direview
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border bg-slate-50 text-slate-500 border-slate-200">
+        <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+        Belum Direview
       </span>
     );
   }
   const s = styles[status] ?? styles['-']!;
   return (
-    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold border ${s.cls}`}>
-      {s.icon} {status}
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold border shadow-2xs ${s.cls}`}>
+      <span>{s.icon}</span>
+      <span>{status}</span>
     </span>
   );
 }
@@ -181,8 +185,9 @@ function VisibilityReason({ doc }: { doc: DocWithSchedule }) {
       const d = new Date(dateStr);
       const expiry = new Date(d.getFullYear(), d.getMonth() + 2, d.getDate());
       return (
-        <span className="block text-[10px] text-amber-600 font-medium mt-0.5">
-          ⟳ Permintaan Revisi s/d {formatDate(expiry.toISOString())}
+        <span className="inline-flex items-center gap-1 text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/60 font-semibold mt-1">
+          <span>⟳</span>
+          <span>Permintaan Revisi s/d {formatDate(expiry.toISOString())}</span>
         </span>
       );
     }
@@ -191,8 +196,9 @@ function VisibilityReason({ doc }: { doc: DocWithSchedule }) {
     const expiry = new Date(doc.scheduledEmailAt!);
     expiry.setMonth(expiry.getMonth() + 2);
     return (
-      <span className="block text-[10px] text-blue-500 font-medium mt-0.5">
-        📅 Jadwal s/d {formatDate(expiry.toISOString())}
+      <span className="inline-flex items-center gap-1 text-[10px] text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200/60 font-semibold mt-1">
+        <span>📅</span>
+        <span>Jadwal Khusus s/d {formatDate(expiry.toISOString())}</span>
       </span>
     );
   }
@@ -209,15 +215,16 @@ function DocumentTable({
 }) {
   if (data.length === 0) {
     return (
-      <div className="px-5 py-16 text-center">
-        <svg className="w-16 h-16 mx-auto text-slate-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414 a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-        </svg>
-        <p className="text-slate-600 font-semibold">Tidak ada dokumen yang perlu direview</p>
-        <p className="text-slate-400 text-sm mt-1">
-          Dokumen akan muncul saat tanggal approval berada dalam rentang 2 bulan ke depan,
-          atau ketika admin mengatur jadwal review khusus.
+      <div className="py-20 text-center px-4">
+        <div className="w-16 h-16 rounded-3xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto mb-4 border border-blue-100 shadow-sm">
+          <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.7}
+              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414 a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+        </div>
+        <h3 className="text-slate-800 font-bold text-base">Tidak Ada Dokumen yang Perlu Direview</h3>
+        <p className="text-slate-400 text-xs max-w-md mx-auto mt-1.5 leading-relaxed">
+          Semua dokumen Anda sudah selesai direview atau saat ini berada di luar rentang review (2 bulan sebelum jatuh tempo).
         </p>
       </div>
     );
@@ -225,46 +232,110 @@ function DocumentTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full">
-        <thead className="bg-slate-50 border-b border-slate-200">
-          <tr>
-            {['Nama Dokumen','Nomor Dokumen','Level','Tgl Selesai Approval',
-              'Revisi','Owner','PIC','Status','Hasil Review'].map(h => (
-              <th key={h} className="px-5 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">
-                {h}
-              </th>
-            ))}
+      <table className="w-full text-left border-collapse">
+        <thead>
+          <tr className="border-b border-slate-200/90 bg-slate-50/80 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+            <th className="px-5 py-3.5">Dokumen & Prosedur</th>
+            <th className="px-4 py-3.5">Nomor Dokumen</th>
+            <th className="px-3 py-3.5 text-center">Level</th>
+            <th className="px-4 py-3.5">Tgl Approval</th>
+            <th className="px-3 py-3.5 text-center">Rev</th>
+            <th className="px-3 py-3.5">Owner</th>
+            <th className="px-3 py-3.5">PIC</th>
+            <th className="px-4 py-3.5">Status Sistem</th>
+            <th className="px-5 py-3.5 min-w-[180px]">Hasil Review Anda</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-200">
-          {data.map(row => (
-            <tr key={row.nomorDokumen} className="hover:bg-blue-50/40 transition-colors">
-              <td className="px-5 py-4">
-                <button
-                  onClick={() => onDocumentClick(row.nomorDokumen, row.namaDokumen, row.status)}
-                  className="text-left text-blue-600 hover:text-blue-800 transition-colors underline decoration-dotted underline-offset-2 hover:decoration-solid font-medium text-sm"
-                >
-                  {row.namaDokumen}
-                </button>
-                <VisibilityReason doc={row} />
-              </td>
-              <td className="px-5 py-4 text-sm text-slate-700 font-mono">{row.nomorDokumen}</td>
-              <td className="px-5 py-4 text-sm text-slate-700">{row.levelDokumen}</td>
-              <td className="px-5 py-4 text-sm text-slate-700">{formatDate(row.tanggalSelesaiApproval)}</td>
-              <td className="px-5 py-4 text-sm text-slate-700 font-semibold">{row.revisi}</td>
-              <td className="px-5 py-4 text-sm text-slate-700">{row.owner}</td>
-              <td className="px-5 py-4 text-sm text-slate-700">{row.pic}</td>
-              <td className="px-5 py-4">
-                <StatusDisplayBadge status={row.status} />
-              </td>
-              <td className="px-5 py-4">
-                <StatusSelect
-                  value={pendingChanges[row.nomorDokumen] ?? toReviewStatus(row.status)}
-                  onChange={s => onStatusChange(row.nomorDokumen, s)}
-                />
-              </td>
-            </tr>
-          ))}
+        <tbody className="divide-y divide-slate-100 text-xs">
+          {data.map(row => {
+            const currentSelected = pendingChanges[row.nomorDokumen] ?? toReviewStatus(row.status);
+            const isChanged = Boolean(pendingChanges[row.nomorDokumen]);
+
+            return (
+              <tr
+                key={row.nomorDokumen}
+                className={`transition-colors group hover:bg-blue-50/40 ${
+                  isChanged ? 'bg-blue-50/20' : 'bg-white'
+                }`}
+              >
+                {/* Nama Dokumen + Read Trigger */}
+                <td className="px-5 py-4 max-w-sm">
+                  <div className="flex items-start gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-slate-100 group-hover:bg-blue-100 text-slate-500 group-hover:text-blue-700 flex items-center justify-center flex-shrink-0 transition-colors mt-0.5">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414A1 1 0 0119 7.414V19a2 2 0 01-2 2z" />
+                      </svg>
+                    </div>
+                    <div className="min-w-0">
+                      <button
+                        onClick={() => onDocumentClick(row.nomorDokumen, row.namaDokumen, row.status)}
+                        className="text-left font-bold text-slate-800 hover:text-blue-600 transition-colors text-xs leading-snug cursor-pointer group-hover:underline decoration-blue-400 underline-offset-2 block"
+                        title="Klik untuk membuka dan membaca isi dokumen"
+                      >
+                        {row.namaDokumen}
+                      </button>
+                      <VisibilityReason doc={row} />
+                    </div>
+                  </div>
+                </td>
+
+                {/* Nomor Dokumen */}
+                <td className="px-4 py-4 font-mono font-bold text-slate-700 text-xs whitespace-nowrap">
+                  <span className="bg-slate-100 border border-slate-200/80 px-2 py-0.5 rounded-md">
+                    {row.nomorDokumen}
+                  </span>
+                </td>
+
+                {/* Level Dokumen */}
+                <td className="px-3 py-4 text-center">
+                  <span className="font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full text-[11px]">
+                    Lv {row.levelDokumen || '-'}
+                  </span>
+                </td>
+
+                {/* Tgl Selesai Approval */}
+                <td className="px-4 py-4 text-slate-600 whitespace-nowrap">
+                  <span className="flex items-center gap-1.5 text-[11px] font-medium">
+                    <span className="text-slate-400">📅</span>
+                    {formatDate(row.tanggalSelesaiApproval)}
+                  </span>
+                </td>
+
+                {/* Revisi */}
+                <td className="px-3 py-4 text-center font-bold text-slate-800">
+                  {row.revisi || '0'}
+                </td>
+
+                {/* Owner */}
+                <td className="px-3 py-4 font-semibold text-slate-600 text-[11px]">
+                  {row.owner}
+                </td>
+
+                {/* PIC */}
+                <td className="px-3 py-4 text-slate-600 font-mono text-[11px]">
+                  {row.pic}
+                </td>
+
+                {/* Status Sistem */}
+                <td className="px-4 py-4 whitespace-nowrap">
+                  <StatusDisplayBadge status={row.status} />
+                </td>
+
+                {/* Hasil Review Selector */}
+                <td className="px-5 py-4">
+                  <div className="flex items-center gap-2">
+                    <StatusSelect
+                      value={currentSelected}
+                      onChange={s => onStatusChange(row.nomorDokumen, s)}
+                    />
+                    {isChanged && (
+                      <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse flex-shrink-0" title="Perubahan belum disimpan" />
+                    )}
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -325,7 +396,10 @@ export default function PicReviewPage() {
   const [reviewedThisSession, setReviewedThisSession] = useState<Set<string>>(new Set());
   const [selectedDocument,    setSelectedDocument]    = useState<{ nomorDokumen: string; namaDokumen: string; status: string } | null>(null);
   const [loading,             setLoading]             = useState(true);
+  const [saving,              setSaving]              = useState(false);
   const [currentMonthAbbr,    setCurrentMonthAbbr]    = useState('');
+  const [searchQuery,         setSearchQuery]         = useState('');
+  const [activeFilter,        setActiveFilter]        = useState<'all' | 'unreviewed' | 'Relevan' | 'Revisi' | 'Obsolete'>('all');
 
   // Auth guard
   useEffect(() => {
@@ -350,10 +424,6 @@ export default function PicReviewPage() {
       const picIdentifier = user?.email ?? urlPic;
       const loaded = await getProceduresByPic(picIdentifier) as DocWithSchedule[];
 
-      // 🐛 FIX: status alur approval berjenjang (Menunggu ACC Prepared/Checked/
-      // Approved) juga harus dianggap "workflow aktif" — supaya tidak
-      // ke-overlay balik oleh document_reviews bulan ini (record hasil review
-      // PIC sebelumnya). Sama seperti fix di app/status-review/page.tsx.
       const withReviews = await Promise.all(
         loaded.map(async doc => {
           const activeWorkflow: StatusType[] = [
@@ -379,7 +449,6 @@ export default function PicReviewPage() {
             return doc;
           }
 
-          // Jika dokumen berstatus Revisi atau dalam window revisi, pertahankan status Revisi dokumen
           if (doc.status === 'Revisi' || isWithinRevisionWindow(doc)) {
             return doc;
           }
@@ -409,7 +478,7 @@ export default function PicReviewPage() {
     }
   }, [authLoading, isAuthenticated, user, loggedPicCode, urlPic, loadDocuments]);
 
-  // Handlers (tidak berubah)
+  // Handlers
   const handleStatusChange = (nomorDokumen: string, status: ReviewStatus) => {
     if (status === '-') {
       setPendingChanges(prev => { const n = { ...prev }; delete n[nomorDokumen]; return n; });
@@ -446,11 +515,12 @@ export default function PicReviewPage() {
       });
 
     if (reviews.length === 0) {
-      alert('Tidak ada perubahan untuk disimpan.');
+      alert('Tidak ada perubahan review untuk disimpan.');
       return;
     }
 
     try {
+      setSaving(true);
       await batchSaveReviews(reviews, urlPic);
 
       await Promise.all(
@@ -473,20 +543,22 @@ export default function PicReviewPage() {
       }));
 
       setPendingChanges({});
-      alert('✓ Review berhasil disimpan. Terima kasih!');
+      alert('✓ Seluruh review berhasil disimpan ke sistem. Terima kasih atas partisipasi Anda!');
     } catch (err) {
       console.error(err);
       alert('Gagal menyimpan review. Silakan coba lagi.');
+    } finally {
+      setSaving(false);
     }
   };
 
-  // Render states
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4" />
-          <p className="text-slate-600">Memuat sesi...</p>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <div className="text-center p-8 bg-white rounded-3xl border border-slate-200 shadow-xl max-w-sm w-full">
+          <div className="animate-spin rounded-full h-12 w-12 border-3 border-blue-600 border-t-transparent mx-auto mb-4" />
+          <h2 className="text-base font-bold text-slate-800">Memverifikasi Sesi PIC</h2>
+          <p className="text-xs text-slate-400 mt-1">Menyiapkan hak akses review dokumen...</p>
         </div>
       </div>
     );
@@ -498,10 +570,11 @@ export default function PicReviewPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4" />
-          <p className="text-slate-600">Memuat dokumen...</p>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <div className="text-center p-8 bg-white rounded-3xl border border-slate-200 shadow-xl max-w-sm w-full">
+          <div className="animate-spin rounded-full h-12 w-12 border-3 border-blue-600 border-t-transparent mx-auto mb-4" />
+          <h2 className="text-base font-bold text-slate-800">Memuat Dokumen Prosedur</h2>
+          <p className="text-xs text-slate-400 mt-1">Mengambil data prosedur yang ditugaskan kepada PIC {urlPic}...</p>
         </div>
       </div>
     );
@@ -510,72 +583,363 @@ export default function PicReviewPage() {
   const visibleDocuments = documents.filter(doc => shouldShowDocument(doc, reviewedThisSession));
   const pendingCount = Object.values(pendingChanges).filter(s => s !== '-').length;
 
+  // Statistik KPI
+  const totalDocs = visibleDocuments.length;
+  const reviewedCount = visibleDocuments.filter(d => ['Relevan', 'Revisi', 'Obsolete'].includes(d.status)).length;
+  const unreviewedCount = totalDocs - reviewedCount;
+
+  // Filter & Search Logic
+  const filteredDocuments = visibleDocuments.filter(doc => {
+    // 1. Text Search
+    const q = searchQuery.toLowerCase().trim();
+    if (q) {
+      const matchNomor = doc.nomorDokumen.toLowerCase().includes(q);
+      const matchNama  = doc.namaDokumen.toLowerCase().includes(q);
+      const matchOwner = (doc.owner || '').toLowerCase().includes(q);
+      if (!matchNomor && !matchNama && !matchOwner) return false;
+    }
+
+    // 2. Active Tab Filter
+    const currentStatus = pendingChanges[doc.nomorDokumen] ?? toReviewStatus(doc.status);
+    if (activeFilter === 'unreviewed') {
+      return currentStatus === '-';
+    }
+    if (activeFilter === 'Relevan') {
+      return currentStatus === 'Relevan';
+    }
+    if (activeFilter === 'Revisi') {
+      return currentStatus === 'Revisi';
+    }
+    if (activeFilter === 'Obsolete') {
+      return currentStatus === 'Obsolete';
+    }
+
+    return true;
+  });
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50">
-      <header className="bg-gradient-to-r from-blue-700 to-blue-900 text-white shadow-lg">
-        <div className="max-w-7xl mx-auto px-8 py-6">
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <div>
-              <h1 className="text-3xl font-bold">Review Prosedur</h1>
-              <p className="text-blue-100 mt-1 text-sm">Quality Management System</p>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="text-right">
-                <p className="text-sm font-semibold">PIC: {urlPic}</p>
-                <p className="text-xs text-blue-200">Bulan {currentMonthAbbr}</p>
+    <div className="min-h-screen bg-slate-50/70 antialiased text-slate-800 flex flex-col pb-24">
+      {/* ── Top Hero Banner (Executive Dark Style) ── */}
+      <header className="relative bg-gradient-to-r from-slate-900 via-blue-950 to-indigo-950 text-white overflow-hidden shadow-md">
+        {/* Subtle Decorative Elements */}
+        <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
+        <div className="absolute bottom-0 left-1/3 w-80 h-80 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
+          {/* Tombol Navigasi Kembali */}
+          <div className="flex items-center gap-3 mb-4">
+            <button
+              type="button"
+              onClick={() => {
+                if (window.history.length > 1) {
+                  router.back();
+                } else {
+                  router.push(user?.role === 'pic' ? '/pic-dashboard' : '/home');
+                }
+              }}
+              className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold backdrop-blur-md transition-all border border-white/15 active:scale-95 cursor-pointer shadow-2xs"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              <span>Kembali ke Dashboard</span>
+            </button>
+          </div>
+
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <span className="px-3 py-1 rounded-full text-xs font-bold tracking-wide uppercase bg-blue-500/20 text-blue-300 border border-blue-400/30 flex items-center gap-1.5 shadow-2xs">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  Portal PIC Review Prosedur
+                </span>
+                <span className="px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold bg-white/10 text-white border border-white/10">
+                  QMS PT JAI
+                </span>
               </div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
+                Peninjauan Berkala Dokumen Prosedur
+              </h1>
+              <p className="text-slate-300 text-xs sm:text-sm max-w-2xl leading-relaxed">
+                Silakan baca lembar prosedur operasional dan tentukan apakah dokumen masih <strong>Relevan</strong>, memerlukan <strong>Revisi</strong>, atau sudah <strong>Obsolete</strong>.
+              </p>
+            </div>
+
+            {/* Profil PIC & Tombol Selesai Cepat */}
+            <div className="flex items-center gap-3 self-start md:self-auto bg-white/10 backdrop-blur-md p-2.5 rounded-2xl border border-white/15 flex-shrink-0">
+              <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-blue-500 to-indigo-600 text-white flex items-center justify-center font-black text-sm shadow-md flex-shrink-0 overflow-hidden">
+                {(user?.fullName ? user.fullName.slice(0, 2) : urlPic.slice(0, 2)).toUpperCase()}
+              </div>
+              <div className="pr-2 text-left min-w-0 max-w-[180px] sm:max-w-[220px]">
+                <div className="flex items-center gap-1.5">
+                  <p className="text-[10px] font-bold text-blue-200 uppercase tracking-wider truncate">
+                    Penanggung Jawab
+                  </p>
+                  <span className="font-mono text-[9px] font-bold px-1.5 py-0.2 rounded bg-blue-500/30 text-blue-200 border border-blue-400/30 flex-shrink-0">
+                    {urlPic.length > 6 ? urlPic.slice(0, 6) : urlPic}
+                  </span>
+                </div>
+                <p className="text-xs font-bold text-white truncate mt-0.5" title={user?.fullName || `PIC - ${urlPic}`}>
+                  {user?.fullName || `PIC - ${urlPic}`}
+                </p>
+                <p className="text-[10px] text-slate-300 truncate mt-0.5" title={user?.email || `Bulan ${currentMonthAbbr}`}>
+                  {user?.email || `Bulan ${currentMonthAbbr}`}
+                </p>
+              </div>
+
               <button
                 onClick={handleFinish}
-                disabled={pendingCount === 0}
-                className="bg-white text-blue-700 hover:bg-blue-50 disabled:opacity-50
-                           disabled:cursor-not-allowed px-6 py-2.5 rounded-lg text-sm font-bold
-                           transition-all hover:shadow-md active:scale-95"
+                disabled={pendingCount === 0 || saving}
+                className="hidden sm:inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold text-xs rounded-xl shadow-md shadow-emerald-500/25 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >
-                ✓ Selesai{pendingCount > 0 ? ` (${pendingCount})` : ''}
+                {saving ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Menyimpan...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Simpan Review</span>
+                    {pendingCount > 0 && (
+                      <span className="px-1.5 py-0.2 rounded-md bg-white text-emerald-800 text-[10px] font-black">
+                        {pendingCount}
+                      </span>
+                    )}
+                  </>
+                )}
               </button>
             </div>
           </div>
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-8 py-8">
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="px-6 py-5 bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200">
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <div>
-                <h2 className="font-bold text-lg text-slate-900">Dokumen yang Perlu Direview</h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Klik nama dokumen untuk membaca, lalu pilih hasil review di kolom "Hasil Review"
-                </p>
+      {/* ── Main Content Area ── */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-6 z-20 w-full space-y-6">
+        {/* ── KPI Summary Cards ── */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          {/* Card 1: Total Dokumen */}
+          <div className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-2xs hover:shadow-xs transition-all">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">Total Dokumen</span>
+              <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
+                📑
               </div>
-              {visibleDocuments.length > 0 && (
-                <span className="text-xs text-slate-500 font-medium">
-                  {visibleDocuments.length} dokumen
+            </div>
+            <p className="text-2xl font-black text-slate-900 mt-2">{totalDocs}</p>
+            <p className="text-[11px] text-slate-400 mt-0.5 truncate" title={`Ditugaskan ke PIC ${urlPic}`}>Ditugaskan ke PIC {urlPic}</p>
+          </div>
+
+          {/* Card 2: Belum Direview */}
+          <div className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-2xs hover:shadow-xs transition-all">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">Belum Direview</span>
+              <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
+                ⏳
+              </div>
+            </div>
+            <p className="text-2xl font-black text-amber-600 mt-2">{unreviewedCount}</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">Menunggu konfirmasi Anda</p>
+          </div>
+
+          {/* Card 3: Sudah Direview */}
+          <div className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-2xs hover:shadow-xs transition-all">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">Selesai Direview</span>
+              <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                ✓
+              </div>
+            </div>
+            <p className="text-2xl font-black text-emerald-600 mt-2">{reviewedCount}</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">Sudah tervalidasi</p>
+          </div>
+
+          {/* Card 4: Draft Perubahan */}
+          <div className={`rounded-2xl p-4 border transition-all ${
+            pendingCount > 0 ? 'bg-blue-50/70 border-blue-200 shadow-xs' : 'bg-white border-slate-200/90 shadow-2xs'
+          }`}>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">Draft Baru</span>
+              <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
+                ✏️
+              </div>
+            </div>
+            <div className="flex items-baseline gap-2 mt-2">
+              <p className="text-2xl font-black text-blue-700">{pendingCount}</p>
+              {pendingCount > 0 && (
+                <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                  Belum Disimpan
                 </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-400 mt-0.5">Perubahan di sesi ini</p>
+          </div>
+        </div>
+
+        {/* ── Card Panduan Cepat Hasil Review ── */}
+        <div className="bg-gradient-to-r from-blue-50/60 via-slate-50 to-indigo-50/50 border border-blue-100/90 rounded-2xl p-4 shadow-2xs">
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold text-sm flex-shrink-0 shadow-2xs mt-0.5">
+              💡
+            </div>
+            <div className="min-w-0 flex-1 text-xs">
+              <p className="font-bold text-slate-900 mb-1">Panduan Singkat Penentuan Hasil Review:</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-slate-600 mt-2">
+                <div className="p-2 rounded-xl bg-white border border-emerald-100 shadow-2xs">
+                  <span className="font-bold text-emerald-700 block mb-0.5">✓ Relevan</span>
+                  <span>Prosedur operasional saat ini masih akurat & berlaku tanpa perlu perubahan isi.</span>
+                </div>
+                <div className="p-2 rounded-xl bg-white border border-amber-100 shadow-2xs">
+                  <span className="font-bold text-amber-700 block mb-0.5">⟳ Revisi</span>
+                  <span>Terdapat alur atau kebijakan baru di lapangan yang harus diperbarui oleh tim.</span>
+                </div>
+                <div className="p-2 rounded-xl bg-white border border-rose-100 shadow-2xs">
+                  <span className="font-bold text-rose-700 block mb-0.5">⊘ Obsolete</span>
+                  <span>Prosedur sudah tidak dipakai lagi atau digantikan prosedur baru sejenis.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Card Tabel Dokumen & Kontrol Filter ── */}
+        <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs overflow-hidden">
+          {/* Header Kontrol: Filter Tabs & Search Bar */}
+          <div className="p-4 sm:p-5 border-b border-slate-100 bg-slate-50/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            {/* Filter Tabs */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
+              <button
+                onClick={() => setActiveFilter('all')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                  activeFilter === 'all'
+                    ? 'bg-slate-900 text-white shadow-2xs'
+                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                Semua ({totalDocs})
+              </button>
+              <button
+                onClick={() => setActiveFilter('unreviewed')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                  activeFilter === 'unreviewed'
+                    ? 'bg-amber-600 text-white shadow-2xs'
+                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                ⏳ Belum Direview ({unreviewedCount})
+              </button>
+              <button
+                onClick={() => setActiveFilter('Relevan')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                  activeFilter === 'Relevan'
+                    ? 'bg-emerald-600 text-white shadow-2xs'
+                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                ✓ Relevan
+              </button>
+              <button
+                onClick={() => setActiveFilter('Revisi')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                  activeFilter === 'Revisi'
+                    ? 'bg-amber-600 text-white shadow-2xs'
+                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                ⟳ Revisi
+              </button>
+              <button
+                onClick={() => setActiveFilter('Obsolete')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                  activeFilter === 'Obsolete'
+                    ? 'bg-rose-600 text-white shadow-2xs'
+                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                ⊘ Obsolete
+              </button>
+            </div>
+
+            {/* Live Search Bar */}
+            <div className="relative w-full md:w-72">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Cari nomor / nama dokumen..."
+                className="w-full pl-9 pr-8 py-2 rounded-xl border border-slate-200 text-xs text-slate-900 bg-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-2xs"
+              />
+              <span className="absolute left-3 top-2.5 text-slate-400 text-xs">🔍</span>
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 text-xs font-bold px-1"
+                >
+                  ✕
+                </button>
               )}
             </div>
           </div>
 
-          <div className="p-6">
-            <DocumentTable
-              data={visibleDocuments}
-              pendingChanges={pendingChanges}
-              onStatusChange={handleStatusChange}
-              onDocumentClick={handleDocumentClick}
-            />
-          </div>
+          {/* Table Render */}
+          <DocumentTable
+            data={filteredDocuments}
+            pendingChanges={pendingChanges}
+            onStatusChange={handleStatusChange}
+            onDocumentClick={handleDocumentClick}
+          />
 
-          <div className="px-6 py-4 bg-blue-50 border-t border-blue-100">
-            <p className="text-xs text-slate-600 leading-relaxed">
-              <span className="font-semibold text-blue-700">ℹ️ Informasi Visibilitas: </span>
-              Dokumen ditampilkan jika tanggal approval berada dalam{' '}
-              <span className="font-medium">2 bulan ke depan dari hari ini</span>, atau jika admin
-              telah mengatur jadwal review khusus.
-            </p>
+          {/* Bottom Info Visibilitas */}
+          <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 flex-wrap gap-2">
+            <div className="flex items-center gap-1.5">
+              <span className="text-blue-600 font-bold">ℹ️ Informasi Visibilitas:</span>
+              <span>Dokumen otomatis muncul dalam 2 bulan sebelum tanggal jatuh tempo approval atau jadwal khusus admin.</span>
+            </div>
+            <span className="font-semibold text-slate-400">
+              Menampilkan {filteredDocuments.length} dari {totalDocs} dokumen
+            </span>
           </div>
         </div>
-      </div>
+      </main>
 
+      {/* ── Floating Sticky Action Dock (Muncul saat ada perubahan draft) ── */}
+      {pendingCount > 0 && (
+        <div className="fixed bottom-6 inset-x-0 mx-auto max-w-xl px-4 z-40 animate-in slide-in-from-bottom duration-300">
+          <div className="bg-slate-900/95 backdrop-blur-md text-white rounded-3xl p-4 shadow-2xl border border-white/20 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500 text-slate-950 flex items-center justify-center font-black text-sm flex-shrink-0 shadow-sm animate-bounce">
+                {pendingCount}
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-white truncate">
+                  Ada {pendingCount} dokumen siap disimpan
+                </p>
+                <p className="text-[11px] text-slate-300 truncate">
+                  Klik tombol di samping untuk menyimpan hasil review Anda ke sistem.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={handleFinish}
+              disabled={saving}
+              className="inline-flex items-center justify-center gap-2 px-5 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white font-extrabold text-xs rounded-2xl shadow-lg shadow-emerald-500/30 transition-all active:scale-95 disabled:opacity-50 cursor-pointer flex-shrink-0"
+            >
+              {saving ? (
+                <>
+                  <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span>Menyimpan...</span>
+                </>
+              ) : (
+                <>
+                  <span>✓ Simpan Semua Review</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal Pratinjau Dokumen ── */}
       <DocumentModal
         isOpen={selectedDocument !== null}
         onClose={() => setSelectedDocument(null)}

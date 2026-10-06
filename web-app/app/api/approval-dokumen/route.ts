@@ -38,8 +38,7 @@ export async function GET(request: NextRequest) {
     const stageFilter = searchParams.get('stage'); // 'prepared' | 'checked' | 'approved' | null
     const search = (searchParams.get('search') || '').trim().toLowerCase();
 
-    // 1. Ambil statistik nominal dokumen di tahap-tahap approval yang sedang berjalan
-    //    Hitung berdasarkan siklus TERBARU per nomor_dokumen
+    // 1. Ambil statistik nominal dokumen di tahap-tahap approval yang sedang berjalan & revisi
     const statsQuery = await client.query(`
       WITH LatestCycles AS (
         SELECT DISTINCT ON (c.nomor_dokumen)
@@ -65,6 +64,22 @@ export async function GET(request: NextRequest) {
       in_progress_total: 0,
     };
 
+    // Dokumen berstatus Revisi atau Ditolak (perlu upload ulang untuk memulai approval)
+    const revisiCountQuery = await client.query(`
+      SELECT COUNT(*)::int AS revisi_count
+      FROM procedure_documents
+      WHERE status = 'Revisi' OR status = 'Ditolak'
+    `);
+    const revisiCount = revisiCountQuery.rows[0]?.revisi_count || 0;
+
+    // Dokumen baru yang menunggu setting approver
+    const settingApproverQuery = await client.query(`
+      SELECT COUNT(*)::int AS count
+      FROM procedure_documents
+      WHERE status = 'Menunggu Setting Approver' OR status = 'Menunggu Approval'
+    `);
+    const settingApproverCount = settingApproverQuery.rows[0]?.count || 0;
+
     // Total dokumen unik yang memiliki siklus approval
     const totalsQuery = await client.query(`
       SELECT
@@ -74,16 +89,39 @@ export async function GET(request: NextRequest) {
     `);
     const totalsRow = totalsQuery.rows[0] || { completed_total: 0, all_total: 0 };
 
-    // 2. Ambil dokumen dengan siklus approval (siklus terbaru per dokumen)
+    // 2. Ambil dokumen dengan siklus approval ATAU berstatus Revisi/Ditolak/Menunggu ACC/Menunggu Setting Approver
     const cyclesQuery = await client.query(`
-      WITH RankedCycles AS (
-        SELECT
+      WITH LatestCycles AS (
+        SELECT DISTINCT ON (c.nomor_dokumen)
           c.id AS cycle_id,
           c.nomor_dokumen,
           c.current_stage,
           c.status AS cycle_status,
           c.started_at,
-          c.completed_at,
+          c.completed_at
+        FROM procedure_approval_cycles c
+        ORDER BY c.nomor_dokumen, c.id DESC
+      ),
+      CombinedDocs AS (
+        SELECT
+          COALESCE(lc.cycle_id, 0) AS cycle_id,
+          pd.nomor_dokumen,
+          CASE
+            WHEN pd.status = 'Menunggu Setting Approver' OR pd.status = 'Menunggu Approval' THEN 'setting_approver'
+            WHEN pd.status = 'Revisi' THEN 'revisi'
+            WHEN pd.status = 'Ditolak' THEN 'rejected'
+            WHEN lc.current_stage IS NOT NULL THEN lc.current_stage
+            ELSE 'setting_approver'
+          END AS current_stage,
+          CASE
+            WHEN pd.status = 'Menunggu Setting Approver' OR pd.status = 'Menunggu Approval' THEN 'setting_approver'
+            WHEN pd.status = 'Revisi' THEN 'revisi'
+            WHEN pd.status = 'Ditolak' THEN 'rejected'
+            WHEN lc.cycle_status IS NOT NULL THEN lc.cycle_status
+            ELSE 'setting_approver'
+          END AS cycle_status,
+          COALESCE(lc.started_at, pd.updated_at, pd.created_at) AS started_at,
+          lc.completed_at,
           pd.nama_dokumen,
           pd.level_dokumen,
           pd.revisi,
@@ -92,20 +130,28 @@ export async function GET(request: NextRequest) {
           pd.email,
           pd.status AS document_status,
           af.file_name,
-          af.file_path,
-          ROW_NUMBER() OVER (
-            PARTITION BY c.nomor_dokumen
-            ORDER BY c.id DESC
-          ) AS rn
-        FROM procedure_approval_cycles c
-        JOIN procedure_documents pd ON pd.nomor_dokumen = c.nomor_dokumen
-        LEFT JOIN active_procedure_files af ON af.nomor_dokumen = c.nomor_dokumen
+          af.file_path
+        FROM procedure_documents pd
+        LEFT JOIN LatestCycles lc ON lc.nomor_dokumen = pd.nomor_dokumen
+        LEFT JOIN active_procedure_files af ON af.nomor_dokumen = pd.nomor_dokumen
+        WHERE
+          lc.cycle_id IS NOT NULL
+          OR pd.status = 'Revisi'
+          OR pd.status = 'Ditolak'
+          OR pd.status LIKE 'Menunggu ACC%'
+          OR pd.status = 'Menunggu Setting Approver'
+          OR pd.status = 'Menunggu Approval'
       )
       SELECT *
-      FROM RankedCycles
-      WHERE rn = 1
+      FROM CombinedDocs
       ORDER BY
-        CASE WHEN cycle_status = 'in_progress' THEN 0 ELSE 1 END,
+        CASE
+          WHEN document_status = 'Menunggu Setting Approver' OR cycle_status = 'setting_approver' THEN 0
+          WHEN document_status = 'Revisi' OR cycle_status = 'revisi' THEN 1
+          WHEN document_status = 'Ditolak' OR cycle_status = 'rejected' THEN 2
+          WHEN cycle_status = 'in_progress' THEN 3
+          ELSE 4
+        END,
         started_at DESC,
         cycle_id DESC
     `);
@@ -114,37 +160,41 @@ export async function GET(request: NextRequest) {
     if (cycleRows.length === 0) {
       return NextResponse.json({
         stats: {
+          revisi: revisiCount,
+          settingApprover: settingApproverCount,
           prepared: statsRow.prepared_count,
           checked: statsRow.checked_count,
           approved: statsRow.approved_count,
-          inProgressTotal: statsRow.in_progress_total,
+          inProgressTotal: statsRow.in_progress_total + revisiCount + settingApproverCount,
           completedTotal: totalsRow.completed_total,
-          allTotal: totalsRow.all_total,
+          allTotal: totalsRow.all_total + revisiCount + settingApproverCount,
         },
         documents: [],
       });
     }
 
-    const cycleIds = cycleRows.map(r => r.cycle_id);
+    const cycleIds = cycleRows.map(r => r.cycle_id).filter(id => id > 0);
     const nomorDokumens = cycleRows.map(r => r.nomor_dokumen);
 
     // 3. Ambil seluruh action approval untuk siklus-siklus ini
-    const actionsQuery = await client.query(`
-      SELECT
-        id,
-        cycle_id,
-        approver_id,
-        role,
-        nama,
-        email,
-        acc_status,
-        acc_at,
-        email_sent_at,
-        reject_reason
-      FROM procedure_approval_actions
-      WHERE cycle_id = ANY($1)
-      ORDER BY id ASC
-    `, [cycleIds]);
+    const actionsQuery = cycleIds.length > 0
+      ? await client.query(`
+          SELECT
+            id,
+            cycle_id,
+            approver_id,
+            role,
+            nama,
+            email,
+            acc_status,
+            acc_at,
+            email_sent_at,
+            reject_reason
+          FROM procedure_approval_actions
+          WHERE cycle_id = ANY($1)
+          ORDER BY id ASC
+        `, [cycleIds])
+      : { rows: [] };
 
     const actionsByCycleAndRole: Record<string, any[]> = {};
     for (const a of actionsQuery.rows) {
@@ -307,15 +357,43 @@ export async function GET(request: NextRequest) {
 
     // Filter status siklus
     if (filter === 'in_progress') {
-      filteredDocs = filteredDocs.filter(d => d.cycleStatus === 'in_progress');
+      filteredDocs = filteredDocs.filter(
+        d =>
+          d.cycleStatus === 'in_progress' ||
+          d.cycleStatus === 'revisi' ||
+          d.cycleStatus === 'rejected' ||
+          d.documentStatus === 'Revisi' ||
+          d.documentStatus === 'Ditolak'
+      );
+    } else if (filter === 'setting_approver' || filter === 'new_docs') {
+      filteredDocs = filteredDocs.filter(
+        d =>
+          d.cycleStatus === 'setting_approver' ||
+          d.documentStatus === 'Menunggu Setting Approver' ||
+          d.documentStatus === 'Menunggu Approval'
+      );
     } else if (filter === 'completed') {
       filteredDocs = filteredDocs.filter(d => d.cycleStatus === 'completed');
     }
 
-    // Filter klik card stage (Prepared / Checked / Approved)
-    if (stageFilter && ['prepared', 'checked', 'approved'].includes(stageFilter)) {
+    // Filter klik card stage (Setting Approver / Revisi / Prepared / Checked / Approved)
+    if (stageFilter && ['setting_approver', 'prepared', 'checked', 'approved', 'revisi'].includes(stageFilter)) {
       filteredDocs = filteredDocs.filter(d => {
-        // Dokumen yang tahap aktifnya saat ini adalah stageFilter
+        if (stageFilter === 'setting_approver') {
+          return (
+            d.cycleStatus === 'setting_approver' ||
+            d.documentStatus === 'Menunggu Setting Approver' ||
+            d.documentStatus === 'Menunggu Approval'
+          );
+        }
+        if (stageFilter === 'revisi') {
+          return (
+            d.currentStage === 'revisi' ||
+            d.cycleStatus === 'revisi' ||
+            d.documentStatus === 'Revisi' ||
+            d.documentStatus === 'Ditolak'
+          );
+        }
         return d.cycleStatus === 'in_progress' && d.currentStage === stageFilter;
       });
     }
@@ -332,12 +410,14 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       stats: {
+        settingApprover: settingApproverCount,
+        revisi: revisiCount,
         prepared: statsRow.prepared_count,
         checked: statsRow.checked_count,
         approved: statsRow.approved_count,
-        inProgressTotal: statsRow.in_progress_total,
+        inProgressTotal: statsRow.in_progress_total + revisiCount,
         completedTotal: totalsRow.completed_total,
-        allTotal: totalsRow.all_total,
+        allTotal: totalsRow.all_total + revisiCount + settingApproverCount,
       },
       documents: filteredDocs,
     });
@@ -446,19 +526,100 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
+    // 3. Cek apakah dokumen ini berstatus 'Menunggu Setting Approver' atau belum memiliki siklus approval aktif.
+    // Jika semua 3 approver (Prepared, Checked, Approved) sudah diisi, langsung masukkan ke tahap approval (Prepared)!
+    const currentDocStatusRes = await client.query(
+      `SELECT status FROM procedure_documents WHERE nomor_dokumen = $1`,
+      [nomorDokumen]
+    );
+    const curStatus = currentDocStatusRes.rows[0]?.status;
+
+    const activeCycleRes = await client.query(
+      `SELECT id FROM procedure_approval_cycles WHERE nomor_dokumen = $1 AND status = 'in_progress'`,
+      [nomorDokumen]
+    );
+
+    let startedApproval = false;
+    let pendingActions: any[] = [];
+
+    if (
+      (curStatus === 'Menunggu Setting Approver' || curStatus === 'Menunggu Approval' || activeCycleRes.rows.length === 0) &&
+      approvers && typeof approvers === 'object'
+    ) {
+      const hasPrepared = (approvers.prepared || []).some((a: any) => a.email && a.email.trim());
+      const hasChecked = (approvers.checked || []).some((a: any) => a.email && a.email.trim());
+      const hasApproved = (approvers.approved || []).some((a: any) => a.email && a.email.trim());
+
+      if (hasPrepared && hasChecked && hasApproved) {
+        // Ambil info file aktif jika ada
+        const fileRes = await client.query(
+          `SELECT id FROM active_procedure_files WHERE nomor_dokumen = $1 LIMIT 1`,
+          [nomorDokumen]
+        );
+        const fileId = fileRes.rows[0]?.id ?? null;
+
+        const cycleResult = await startApprovalCycle(client, nomorDokumen, fileId);
+        if (cycleResult.started) {
+          startedApproval = true;
+          pendingActions = cycleResult.actions;
+        }
+      }
+    }
+
     await client.query('COMMIT');
 
     await logActivity({
       username: 'admin',
       activityType: 'update',
-      activityDescription: `Memperbarui detail approval untuk dokumen ${nomorDokumen} (${namaDokumen})`,
+      activityDescription: startedApproval
+        ? `Menyimpan approver dan memulai alur approval (Prepared) untuk dokumen ${nomorDokumen} (${namaDokumen})`
+        : `Memperbarui detail approval untuk dokumen ${nomorDokumen} (${namaDokumen})`,
       targetType: 'procedure',
       targetId: nomorDokumen,
     });
 
+    // Kirim email notifikasi ke approver Prepared jika alur approval baru saja dimulai
+    if (startedApproval && pendingActions.length > 0) {
+      try {
+        const smtpSettings = await getActiveSmtpSettings(client);
+        if (smtpSettings) {
+          for (const action of pendingActions) {
+            try {
+              const accLink = `${smtpSettings.appUrl}/review-prosedur/acc/${action.token}`;
+              const emailParams = {
+                nama: action.nama,
+                namaDokumen: namaDokumen || nomorDokumen,
+                nomorDokumen,
+                role: 'prepared' as ApprovalRole,
+                accLink,
+              };
+              await sendMail(
+                smtpSettings,
+                action.email,
+                `[Review Prosedur] Permintaan Approval Dokumen Prosedur (Prepared) - ${nomorDokumen}`,
+                buildAccEmailHtml(emailParams),
+                buildAccEmailText(emailParams)
+              );
+              await client.query(
+                `UPDATE procedure_approval_actions SET email_sent_at = NOW() WHERE id = $1`,
+                [action.actionId]
+              );
+            } catch (mailErr) {
+              console.error('Error sending approval email to prepared approver:', mailErr);
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Error in smtp check during start approval:', e);
+      }
+    }
+
     return NextResponse.json({
       success: true,
-      message: 'Detail dokumen dan approval berhasil diperbarui.',
+      startedApproval,
+      message: startedApproval
+        ? 'Data approver berhasil disimpan dan dokumen resmi masuk ke tahap approval (Prepared)!'
+        : 'Detail dokumen dan approval berhasil diperbarui.',
     });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});

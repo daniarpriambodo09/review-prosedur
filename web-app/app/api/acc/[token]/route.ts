@@ -35,8 +35,8 @@ export async function GET(
 
     const result = await client.query(
       `SELECT a.role, a.nama, a.email, a.acc_status, a.acc_at, a.reject_reason,
-              c.id AS cycle_id, c.nomor_dokumen, c.status AS cycle_status,
-              pd.nama_dokumen,
+              c.id AS cycle_id, c.nomor_dokumen, c.status AS cycle_status, c.current_stage,
+              pd.nama_dokumen, pd.level_dokumen, pd.revisi, pd.owner, pd.pic,
               af.file_name, af.file_path
        FROM procedure_approval_actions a
        JOIN procedure_approval_cycles c ON c.id = a.cycle_id
@@ -55,10 +55,25 @@ export async function GET(
 
     const row = result.rows[0];
 
-    // 🆕 Kalau cycle-nya sudah 'rejected' (entah ditolak orang ini sendiri
-    // atau orang lain di role yang sama), ambil detail siapa & kenapa —
-    // supaya orang lain di role yang sama tetap bisa lihat alasan penolakan
-    // begitu mereka buka link mereka sendiri.
+    // Detail timeline persetujuan semua approver di cycle ini
+    const timelineResult = await client.query(
+      `SELECT role, nama, email, acc_status, acc_at
+       FROM procedure_approval_actions
+       WHERE cycle_id = $1
+       ORDER BY id ASC`,
+      [row.cycle_id]
+    );
+
+    const timeline = timelineResult.rows.map(t => ({
+      role: t.role,
+      roleLabel: STAGE_DISPLAY[t.role as ApprovalRole] || t.role,
+      nama: t.nama,
+      email: t.email,
+      accStatus: t.acc_status,
+      accAt: t.acc_at,
+    }));
+
+    // 🆕 Kalau cycle-nya sudah 'rejected', ambil detail siapa & kenapa
     let rejection = null;
     if (row.cycle_status === 'rejected') {
       const rejectResult = await client.query(
@@ -91,13 +106,18 @@ export async function GET(
       rejectReason: row.reject_reason,
       nomorDokumen: row.nomor_dokumen,
       namaDokumen:  row.nama_dokumen,
+      levelDokumen: row.level_dokumen ?? null,
+      revisi:       row.revisi ?? null,
+      owner:        row.owner ?? null,
+      pic:          row.pic ?? null,
       cycleStatus:  row.cycle_status,
-      // 🆕 Info file aktif, untuk preview PDF di halaman ACC (null kalau
-      // dokumen belum punya file ter-upload sama sekali).
+      currentStage: row.current_stage,
+      // 🆕 Info file aktif, untuk preview PDF di halaman ACC
       fileName:     row.file_name ?? null,
       filePath:     row.file_path ?? null,
-      // 🆕 detail penolakan (dari siapapun di role ini) — null kalau belum ada
+      // 🆕 detail penolakan & timeline alur
       rejection,
+      timeline,
     });
   } catch (error) {
     console.error('Error fetching ACC info:', error);

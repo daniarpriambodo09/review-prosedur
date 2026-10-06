@@ -44,6 +44,37 @@ def log_info(msg: str)  -> None: log("INFO",  msg)
 def log_error(msg: str) -> None: log("ERROR", msg)
 def log_warn(msg: str)  -> None: log("WARN",  msg)
 
+def update_heartbeat(status="RUNNING", error_msg=None) -> None:
+    """Mencatat detak jantung (heartbeat) scheduler ke database agar dapat dipantau di web admin."""
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS system_heartbeats (
+                service_name VARCHAR(100) PRIMARY KEY,
+                last_heartbeat TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                status VARCHAR(50),
+                last_error TEXT,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        cur.execute("""
+            INSERT INTO system_heartbeats (service_name, last_heartbeat, status, last_error, updated_at)
+            VALUES ('email-scheduler', CURRENT_TIMESTAMP, %s, %s, CURRENT_TIMESTAMP)
+            ON CONFLICT (service_name)
+            DO UPDATE SET 
+                last_heartbeat = CURRENT_TIMESTAMP, 
+                status = EXCLUDED.status, 
+                last_error = EXCLUDED.last_error,
+                updated_at = CURRENT_TIMESTAMP;
+        """, (status, error_msg))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        log_warn(f"Failed to record system heartbeat: {e}")
+
+
 def _ensure_scheme(url: str) -> str:
     """
     Tanpa skema (http:// atau https://), sebagian besar mail client TIDAK
@@ -646,7 +677,8 @@ def check_and_send_manager_emails(conn, smtp_cfg: dict) -> None:
               ON es.nomor_dokumen = pd.nomor_dokumen
             WHERE es.manager_email_status = 'not_applicable'
               AND es.manager_email_scheduled_at IS NOT NULL
-              AND es.manager_email_scheduled_at::date BETWEEN (CURRENT_DATE - %s) AND CURRENT_DATE
+              AND es.manager_email_scheduled_at <= NOW()
+              AND es.manager_email_scheduled_at::date >= (CURRENT_DATE - %s)
         """, (GRACE_DAYS,))
         rows = cur.fetchall()
     except Exception as e:
@@ -815,6 +847,7 @@ def check_and_send_emails() -> None:
     # 'failed' dan menunggu siklus tahun depan — TIDAK ada susulan tak
     # terbatas.
     log_info("Checking email schedules...")
+    update_heartbeat("RUNNING")
 
     smtp_cfg = load_smtp_settings()
     if smtp_cfg is None:
@@ -848,7 +881,8 @@ def check_and_send_emails() -> None:
             JOIN procedure_documents pd
               ON es.nomor_dokumen = pd.nomor_dokumen
             WHERE es.email_status = 'pending'
-              AND es.scheduled_email_at::date BETWEEN (CURRENT_DATE - %s) AND CURRENT_DATE
+              AND es.scheduled_email_at <= NOW()
+              AND es.scheduled_email_at::date >= (CURRENT_DATE - %s)
               AND pd.email IS NOT NULL
               AND pd.email != ''
             ORDER BY es.scheduled_email_at ASC
@@ -909,6 +943,7 @@ def check_and_send_emails() -> None:
         log_error(f"Manager escalation check failed: {e}")
 
     conn.close()
+    update_heartbeat("RUNNING")
     log_info("Email check cycle completed.")
 
 print("=" * 70)
@@ -919,6 +954,7 @@ print(f"Database     : {DB_CONFIG['dbname']} @ {DB_CONFIG['host']}")
 print(f"Started at   : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 print("=" * 70)
 
+update_heartbeat("RUNNING")
 check_and_send_emails()
 
 scheduler = BlockingScheduler()

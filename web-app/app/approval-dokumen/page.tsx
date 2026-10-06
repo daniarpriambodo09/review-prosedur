@@ -8,6 +8,7 @@ import ApprovalFilterCards, { StageFilterType } from '@/components/approval/Appr
 import ApprovalTable, { ApprovalDocumentItem } from '@/components/approval/ApprovalTable';
 import ApprovalDetailModal from '@/components/approval/ApprovalDetailModal';
 import ApprovalEditModal from '@/components/approval/ApprovalEditModal';
+import ApprovalUploadModal from '@/components/approval/ApprovalUploadModal';
 import {
   RotateCw,
   Search,
@@ -15,9 +16,13 @@ import {
   FileCheck2,
   Clock,
   Layers,
+  Upload,
+  Sparkles,
 } from 'lucide-react';
 
 interface ApprovalStats {
+  settingApprover?: number;
+  revisi?: number;
   prepared: number;
   checked: number;
   approved: number;
@@ -28,6 +33,8 @@ interface ApprovalStats {
 
 export default function ApprovalDokumenPage() {
   const [stats, setStats] = useState<ApprovalStats>({
+    settingApprover: 0,
+    revisi: 0,
     prepared: 0,
     checked: 0,
     approved: 0,
@@ -41,14 +48,16 @@ export default function ApprovalDokumenPage() {
   const [refreshing, setRefreshing] = useState(false);
 
   // Tab & Filters
-  // Default 'in_progress' untuk menampilkan dokumen yang sedang berjalan sesuai deskripsi
-  const [statusTab, setStatusTab] = useState<'in_progress' | 'all'>('in_progress');
+  // 'in_progress' | 'setting_approver' | 'all'
+  const [statusTab, setStatusTab] = useState<'in_progress' | 'setting_approver' | 'all'>('in_progress');
   const [stageFilter, setStageFilter] = useState<StageFilterType>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Modals state
   const [detailDoc, setDetailDoc] = useState<ApprovalDocumentItem | null>(null);
   const [editDoc, setEditDoc] = useState<ApprovalDocumentItem | null>(null);
+  const [uploadDoc, setUploadDoc] = useState<ApprovalDocumentItem | null>(null);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
   // Load data approval dokumen dari API
   const fetchData = useCallback(async (isSilent = false) => {
@@ -66,6 +75,8 @@ export default function ApprovalDokumenPage() {
 
       const data = await res.json();
       setStats(data.stats || {
+        settingApprover: 0,
+        revisi: 0,
         prepared: 0,
         checked: 0,
         approved: 0,
@@ -85,6 +96,32 @@ export default function ApprovalDokumenPage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Jika ada param openEdit saat load page, langsung arahkan tab ke 'setting_approver'
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('openEdit')) {
+        setStatusTab('setting_approver');
+      }
+    }
+  }, []);
+
+  // Auto-buka modal edit jika ada query param openEdit (misal setelah buat dokumen dari request PIC)
+  useEffect(() => {
+    if (typeof window !== 'undefined' && documents.length > 0) {
+      const params = new URLSearchParams(window.location.search);
+      const openEditNomor = params.get('openEdit');
+      if (openEditNomor) {
+        const found = documents.find(d => d.nomorDokumen.toLowerCase() === openEditNomor.toLowerCase());
+        if (found) {
+          setEditDoc(found);
+          const newUrl = window.location.pathname;
+          window.history.replaceState({}, '', newUrl);
+        }
+      }
+    }
+  }, [documents]);
 
   // Handle klik card filter stage
   const handleStageCardClick = (stage: StageFilterType) => {
@@ -116,6 +153,20 @@ export default function ApprovalDokumenPage() {
             {/* Header Action Buttons */}
             <div className="flex items-center gap-2.5">
               <button
+                onClick={() => {
+                  setUploadDoc(null);
+                  setIsUploadModalOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl
+                           bg-blue-600 text-xs font-bold text-white hover:bg-blue-700
+                           transition-all shadow-md shadow-blue-500/25 active:scale-95"
+                title="Unggah dokumen baru / revisi untuk memulai alur approval"
+              >
+                <Upload size={14} />
+                <span>Upload Dokumen Approval</span>
+              </button>
+
+              <button
                 onClick={() => fetchData(true)}
                 disabled={refreshing || loading}
                 className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200
@@ -129,10 +180,12 @@ export default function ApprovalDokumenPage() {
             </div>
           </div>
 
-          {/* ── 3 Card Approval (Prepared, Checked, Approved) ── */}
+          {/* ── 5 Card Approval (Perlu Masuk Approval, Perlu Revisi, Prepared, Checked, Approved) ── */}
           <div>
             <ApprovalFilterCards
               stats={{
+                settingApprover: stats.settingApprover,
+                revisi: stats.revisi,
                 prepared: stats.prepared,
                 checked: stats.checked,
                 approved: stats.approved,
@@ -145,8 +198,8 @@ export default function ApprovalDokumenPage() {
 
           {/* ── Filter Controls & Search ── */}
           <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3">
-            {/* Tabs: Dokumen Berjalan vs Semua Siklus */}
-            <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 border border-slate-200/60 text-xs self-start">
+            {/* Tabs: Dokumen Berjalan vs Perlu Masuk Approval vs Semua Siklus */}
+            <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl bg-slate-100 border border-slate-200/60 text-xs self-start">
               <button
                 onClick={() => {
                   setStatusTab('in_progress');
@@ -162,6 +215,29 @@ export default function ApprovalDokumenPage() {
                 <span>Sedang Berjalan</span>
                 <span className="ml-1 text-[10px] px-1.5 py-0.2 rounded-full bg-blue-100 text-blue-800">
                   {stats.inProgressTotal}
+                </span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setStatusTab('setting_approver');
+                  setStageFilter(null);
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all ${
+                  statusTab === 'setting_approver'
+                    ? 'bg-white text-sky-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="Dokumen baru dibuat yang menunggu penentuan approver & masuk tahap approval"
+              >
+                <Sparkles size={13} className={statusTab === 'setting_approver' ? 'text-sky-600' : 'text-slate-400'} />
+                <span>Perlu Masuk Approval</span>
+                <span className={`ml-1 text-[10px] px-1.5 py-0.2 rounded-full ${
+                  (stats.settingApprover || 0) > 0
+                    ? 'bg-sky-100 text-sky-800 font-extrabold'
+                    : 'bg-slate-200 text-slate-700'
+                }`}>
+                  {stats.settingApprover || 0}
                 </span>
               </button>
 
@@ -187,13 +263,23 @@ export default function ApprovalDokumenPage() {
             {/* Filter Stage Pill (jika aktif) & Search Input */}
             <div className="flex flex-wrap items-center gap-2.5">
               {stageFilter && (
-                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-700 font-semibold">
-                  <span>Filter Tahap:</span>
-                  <span className="capitalize font-bold">{stageFilter}</span>
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-700 font-semibold shadow-2xs">
+                  <span className="text-slate-500 font-medium">Filter Status:</span>
+                  <span className="font-bold text-blue-800">
+                    {stageFilter === 'setting_approver'
+                      ? 'Dokumen Baru'
+                      : stageFilter === 'revisi'
+                      ? 'Perlu Revisi'
+                      : stageFilter === 'prepared'
+                      ? 'Prepared'
+                      : stageFilter === 'checked'
+                      ? 'Checked'
+                      : 'Approved'}
+                  </span>
                   <button
                     onClick={() => setStageFilter(null)}
                     className="w-4 h-4 rounded-full hover:bg-blue-200 text-blue-600 flex items-center justify-center transition-colors ml-0.5"
-                    title="Hapus filter tahap"
+                    title="Hapus filter"
                   >
                     <X size={11} />
                   </button>
@@ -229,6 +315,10 @@ export default function ApprovalDokumenPage() {
               loading={loading}
               onOpenDetail={doc => setDetailDoc(doc)}
               onOpenEdit={doc => setEditDoc(doc)}
+              onOpenUpload={doc => {
+                setUploadDoc(doc);
+                setIsUploadModalOpen(true);
+              }}
             />
           </div>
 
@@ -255,6 +345,16 @@ export default function ApprovalDokumenPage() {
           onClose={() => setEditDoc(null)}
           document={editDoc}
           onSaved={() => fetchData(true)}
+        />
+
+        <ApprovalUploadModal
+          isOpen={isUploadModalOpen}
+          onClose={() => {
+            setIsUploadModalOpen(false);
+            setUploadDoc(null);
+          }}
+          document={uploadDoc}
+          onUploaded={() => fetchData(true)}
         />
       </AdminLayout>
     </ProtectedRoute>

@@ -10,6 +10,10 @@ import {
   Eye,
   Pencil,
   FileText,
+  Upload,
+  RotateCcw,
+  AlertCircle,
+  UserCheck,
 } from 'lucide-react';
 
 export interface ApproverDetail {
@@ -42,8 +46,8 @@ export interface ApprovalDocumentItem {
   pic: string;
   email: string;
   documentStatus: string;
-  cycleStatus: 'in_progress' | 'completed' | 'rejected' | 'cancelled';
-  currentStage: 'prepared' | 'checked' | 'approved' | 'completed';
+  cycleStatus: 'in_progress' | 'completed' | 'rejected' | 'cancelled' | 'revisi' | 'setting_approver';
+  currentStage: 'prepared' | 'checked' | 'approved' | 'completed' | 'revisi';
   startedAt: string;
   completedAt: string | null;
   fileName: string | null;
@@ -68,6 +72,7 @@ interface ApprovalTableProps {
   loading: boolean;
   onOpenDetail: (doc: ApprovalDocumentItem) => void;
   onOpenEdit: (doc: ApprovalDocumentItem) => void;
+  onOpenUpload: (doc: ApprovalDocumentItem) => void;
 }
 
 export default function ApprovalTable({
@@ -75,6 +80,7 @@ export default function ApprovalTable({
   loading,
   onOpenDetail,
   onOpenEdit,
+  onOpenUpload,
 }: ApprovalTableProps) {
   if (loading) {
     return (
@@ -167,6 +173,28 @@ export default function ApprovalTable({
                   {/* Kolom 4: Status (Daftar 3 ke bawah: Prepared, Checked, Approved) */}
                   <td className="py-3 px-4">
                     <div className="space-y-1.5 w-full max-w-[270px]">
+                      {/* Highlight Badge jika dokumen baru dibuat dan butuh setting approver */}
+                      {(doc.documentStatus === 'Menunggu Setting Approver' || doc.cycleStatus === 'setting_approver') && (
+                        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 text-[11px] font-bold shadow-xs">
+                          <AlertCircle size={13} className="text-amber-600 flex-shrink-0" />
+                          <span className="truncate">Perlu Setting Approver</span>
+                        </div>
+                      )}
+
+                      {/* Highlight Badge jika dokumen berstatus Revisi atau Ditolak */}
+                      {(doc.documentStatus === 'Revisi' || doc.cycleStatus === 'revisi') && (
+                        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-bold">
+                          <RotateCcw size={13} className="text-rose-600 flex-shrink-0" />
+                          <span className="truncate">Perlu Upload Revisi</span>
+                        </div>
+                      )}
+                      {(doc.documentStatus === 'Ditolak' || doc.cycleStatus === 'rejected') && (
+                        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 border border-red-200 text-red-800 text-[11px] font-bold">
+                          <XCircle size={13} className="text-red-600 flex-shrink-0" />
+                          <span className="truncate">Ditolak (Upload Ulang)</span>
+                        </div>
+                      )}
+
                       {stages.map(({ key, label, stage }) => {
                         const status = stage.status;
 
@@ -227,32 +255,76 @@ export default function ApprovalTable({
                     </div>
                   </td>
 
-                  {/* Kolom 5: Tombol Aksi (Detail dan Edit) */}
+                  {/* Kolom 5: Tombol Aksi (Upload Ulang, Detail, dan Edit) */}
                   <td className="py-3.5 px-4 text-center whitespace-nowrap">
                     <div className="flex items-center justify-center gap-1.5">
-                      {/* Tombol Detail */}
-                      <button
-                        onClick={() => onOpenDetail(doc)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold
-                                   bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:text-blue-800
-                                   transition-all active:scale-95 shadow-2xs"
-                        title="Lihat detail dokumen dan siapa yang sudah approve"
-                      >
-                        <Eye size={13} />
-                        <span>Detail</span>
-                      </button>
+                      {doc.documentStatus === 'Menunggu Setting Approver' || doc.cycleStatus === 'setting_approver' ? (
+                        <>
+                          {/* Tombol Prioritas: Atur Approver */}
+                          <button
+                            onClick={() => onOpenEdit(doc)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold
+                                       bg-amber-500 hover:bg-amber-600 text-white shadow-sm shadow-amber-500/25 ring-2 ring-amber-500/20
+                                       transition-all active:scale-95"
+                            title="Atur approver (Prepared, Checked, Approved) untuk memulai alur approval"
+                          >
+                            <UserCheck size={13} />
+                            <span>Atur Approver</span>
+                          </button>
 
-                      {/* Tombol Edit */}
-                      <button
-                        onClick={() => onOpenEdit(doc)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold
-                                   bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 hover:text-amber-800
-                                   transition-all active:scale-95 shadow-2xs"
-                        title="Edit nama dokumen dan ketiga approver (Prepared, Checked, Approved)"
-                      >
-                        <Pencil size={13} />
-                        <span>Edit</span>
-                      </button>
+                          {/* Tombol Detail */}
+                          <button
+                            onClick={() => onOpenDetail(doc)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold
+                                       bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-100
+                                       transition-all active:scale-95 shadow-2xs"
+                            title="Lihat detail dokumen"
+                          >
+                            <Eye size={13} />
+                            <span>Detail</span>
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          {/* Tombol Upload Ulang */}
+                          <button
+                            onClick={() => onOpenUpload(doc)}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all active:scale-95 shadow-2xs ${
+                              doc.documentStatus === 'Revisi' || doc.documentStatus === 'Ditolak'
+                                ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-500/25 ring-2 ring-blue-500/20'
+                                : 'bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 hover:text-indigo-800'
+                            }`}
+                            title="Upload ulang dokumen untuk memulai / mengulang alur approval"
+                          >
+                            <Upload size={13} />
+                            <span>Upload</span>
+                          </button>
+
+                          {/* Tombol Detail */}
+                          <button
+                            onClick={() => onOpenDetail(doc)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold
+                                       bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:text-blue-800
+                                       transition-all active:scale-95 shadow-2xs"
+                            title="Lihat detail dokumen dan siapa yang sudah approve"
+                          >
+                            <Eye size={13} />
+                            <span>Detail</span>
+                          </button>
+
+                          {/* Tombol Edit */}
+                          <button
+                            onClick={() => onOpenEdit(doc)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold
+                                       bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 hover:text-amber-800
+                                       transition-all active:scale-95 shadow-2xs"
+                            title="Edit nama dokumen dan ketiga approver (Prepared, Checked, Approved)"
+                          >
+                            <Pencil size={13} />
+                            <span>Edit</span>
+                          </button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>

@@ -1,24 +1,36 @@
 // app/acc/[token]/page.tsx
 //
-// Halaman publik (TANPA login) yang dibuka dari link di email ACC.
-// Menampilkan info dokumen + tombol "Setujui Dokumen". Setelah diklik,
-// backend (app/api/acc/[token]/route.ts) menandai ACC dan otomatis
-// melanjutkan ke tahap berikutnya (Prepared -> Checked -> Approved) atau
-// menyelesaikan cycle jika tahap terakhir sudah selesai.
-//
-// 🆕 Di bagian bawah ada Diskusi Dokumen — chat real-time dengan admin dan
-// approver lain. Chat SENGAJA ditampilkan di semua kondisi (termasuk setelah
-// orang ini sudah ACC, setelah dokumen maju ke tahap berikutnya, maupun
-// setelah cycle ditolak/selesai) — sesuai alur: yang dibatasi oleh tahap
-// hanyalah tombol Setujui/Tolak, bukan kemampuan berkomunikasi.
+// Halaman publik persetujuan dokumen (TANPA login) dari tautan email ACC.
+// Tata letak 2 kolom modern (Split-Screen):
+// - Bagian Kiri: Pratinjau dokumen PDF interaktif dengan anotasi & fitur bandingkan versi
+// - Bagian Kanan: Panel persetujuan terstruktur (Info Dokumen, Identitas, Stepper Alur, & Tombol Aksi)
+// - Pojok Kanan Bawah: Floating Chat Widget untuk diskusi real-time dengan tim
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import AnnotatablePDFViewer from '@/components/documents/AnnotatablePDFViewer';
+import PDFViewer from '@/components/documents/PDFViewer';
 import VersionToggleBar from '@/components/documents/VersionToggleBar';
 import DocumentChat from '@/components/chat/DocumentChat';
+import {
+  FileText,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  ShieldCheck,
+  User,
+  Mail,
+  Download,
+  ExternalLink,
+  AlertCircle,
+  Check,
+  Calendar,
+  Layers,
+  Info,
+  ChevronRight,
+  FileCheck2,
+} from 'lucide-react';
 
 interface RejectionInfo {
   role: 'prepared' | 'checked' | 'approved';
@@ -27,6 +39,15 @@ interface RejectionInfo {
   email: string;
   reason: string;
   rejectedAt: string;
+}
+
+interface TimelineItem {
+  role: string;
+  roleLabel: string;
+  nama: string | null;
+  email: string;
+  accStatus: 'acc' | 'pending' | 'rejected' | 'waiting';
+  accAt: string | null;
 }
 
 interface AccInfo {
@@ -39,10 +60,16 @@ interface AccInfo {
   rejectReason: string | null;
   nomorDokumen: string;
   namaDokumen: string;
+  levelDokumen?: string | null;
+  revisi?: string | null;
+  owner?: string | null;
+  pic?: string | null;
   cycleStatus: 'in_progress' | 'completed' | 'cancelled' | 'rejected';
+  currentStage?: string;
   fileName: string | null;
   filePath: string | null;
   rejection: RejectionInfo | null;
+  timeline?: TimelineItem[];
 }
 
 interface AccSubmitResult {
@@ -58,6 +85,12 @@ const ROLE_COLOR: Record<string, string> = {
   approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
 };
 
+const ROLE_BADGE_COLOR: Record<string, string> = {
+  prepared: 'bg-blue-600 text-white',
+  checked:  'bg-amber-600 text-white',
+  approved: 'bg-emerald-600 text-white',
+};
+
 function formatDate(iso: string): string {
   try {
     return new Date(iso).toLocaleString('id-ID', {
@@ -67,49 +100,41 @@ function formatDate(iso: string): string {
   } catch { return iso; }
 }
 
-function Shell({ children, wide = false }: { children: React.ReactNode; wide?: boolean }) {
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 flex items-center justify-center p-4">
-      <div className={`w-full transition-all ${wide ? 'max-w-3xl' : 'max-w-lg'}`}>{children}</div>
-    </div>
-  );
-}
-
-function Card({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-      {children}
-    </div>
-  );
+function getInitials(name: string | null, email: string): string {
+  if (name && name.trim()) {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  return email.slice(0, 2).toUpperCase();
 }
 
 function LoadingState() {
   return (
-    <Shell>
-      <div className="text-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto mb-4" />
-        <p className="text-slate-500 text-sm">Memuat data persetujuan...</p>
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <div className="text-center p-8 bg-white rounded-3xl border border-slate-200 shadow-xl max-w-sm w-full">
+        <div className="animate-spin rounded-full h-12 w-12 border-3 border-blue-600 border-t-transparent mx-auto mb-4" />
+        <h2 className="text-base font-bold text-slate-800">Memuat Dokumen</h2>
+        <p className="text-xs text-slate-400 mt-1">Mengambil data persetujuan & file dokumen...</p>
       </div>
-    </Shell>
+    </div>
   );
 }
 
 function ErrorState({ message }: { message: string }) {
   return (
-    <Shell>
-      <Card>
-        <div className="p-8 text-center">
-          <div className="w-14 h-14 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-7 h-7 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-            </svg>
-          </div>
-          <h1 className="text-lg font-bold text-slate-900 mb-1.5">Link Tidak Valid</h1>
-          <p className="text-sm text-slate-500 leading-relaxed">{message}</p>
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl shadow-xl border border-slate-200 max-w-md w-full p-8 text-center">
+        <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-sm">
+          <AlertCircle size={32} />
         </div>
-      </Card>
-    </Shell>
+        <h1 className="text-lg font-extrabold text-slate-900 mb-2">Akses Tidak Valid</h1>
+        <p className="text-xs text-slate-500 leading-relaxed mb-6">{message}</p>
+        <p className="text-[11px] text-slate-400">
+          Silakan hubungi administrator jika Anda merasa ini adalah sebuah kesalahan.
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -122,15 +147,17 @@ export default function AccPage() {
   const [loadError,  setLoadError]  = useState('');
   const [submitError, setSubmitError] = useState('');
   const [result,     setResult]     = useState<AccSubmitResult | null>(null);
-  const [showDocument, setShowDocument] = useState(false);
+
+  // Form tolak dokumen
   const [showRejectForm, setShowRejectForm] = useState(false);
   const [rejectReason,   setRejectReason]   = useState('');
   const [submittingAction, setSubmittingAction] = useState<'approve' | 'reject' | null>(null);
 
-  // 🆕 State untuk fitur Bandingkan Dokumen (versi lama vs baru)
+  // Fitur Bandingkan Dokumen (versi lama vs baru)
   const [versions, setVersions] = useState<Array<{ id: number; fileName: string; filePath: string; version: number; uploadedAt: string; isActive: boolean }>>([]);
   const [viewing,  setViewing]  = useState<'current' | 'previous'>('current');
 
+  // Fetch data approval dari token
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
@@ -148,8 +175,7 @@ export default function AccPage() {
     return () => { cancelled = true; };
   }, [token]);
 
-  // 🆕 Fetch riwayat versi file — dipakai untuk fitur Bandingkan Dokumen.
-  // Butuh nomorDokumen, jadi baru jalan setelah `info` berhasil dimuat.
+  // Fetch riwayat versi file untuk nomor dokumen ini
   useEffect(() => {
     if (!info?.nomorDokumen) return;
     let cancelled = false;
@@ -207,307 +233,519 @@ export default function AccPage() {
   };
 
   if (loading) return <LoadingState />;
-  if (loadError || !info) return <ErrorState message={loadError || 'Data tidak ditemukan.'} />;
+  if (loadError || !info) return <ErrorState message={loadError || 'Data persetujuan tidak ditemukan.'} />;
 
   const alreadyAcc = info.accStatus === 'acc';
   const cycleRejected = info.cycleStatus === 'rejected';
   const roleColorCls = ROLE_COLOR[info.role] ?? ROLE_COLOR.prepared;
+  const roleBadgeCls = ROLE_BADGE_COLOR[info.role] ?? ROLE_BADGE_COLOR.prepared;
 
-  // 🆕 Bandingkan Dokumen: tampil selama cycle belum selesai (in_progress
-  // atau rejected — keduanya masih "dalam proses revisi"), dan ada minimal
-  // 2 versi file untuk dibandingkan.
+  // File resolution untuk viewing
   const currentFile  = versions.find(v => v.isActive) ?? versions[0] ?? null;
   const previousFile = versions.filter(v => v.id !== currentFile?.id).sort((a, b) => b.version - a.version)[0] ?? null;
   const canCompare = info.cycleStatus !== 'completed' && !!currentFile && !!previousFile;
   const displayFilePath = canCompare && viewing === 'previous' && previousFile ? previousFile.filePath : (currentFile?.filePath || info.filePath);
   const displayFileId   = canCompare && viewing === 'previous' && previousFile ? previousFile.id : (currentFile?.id ?? 0);
-  // 🆕 Boleh mencoret/komentar selama belum ACC/tolak dan cycle belum berakhir
-  // — sama seperti kondisi tombol Setujui/Tolak di bawah.
-  const canAnnotate = !cycleRejected && !alreadyAcc && !result;
+
+  const handleDownload = () => {
+    if (!displayFilePath) return;
+    const downloadUrl = displayFilePath.startsWith('http') ? displayFilePath : `/review-prosedur${displayFilePath}`;
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = currentFile?.fileName || `${info.nomorDokumen}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleOpenNewTab = () => {
+    if (!displayFilePath) return;
+    const url = displayFilePath.startsWith('http') ? displayFilePath : `/review-prosedur${displayFilePath}`;
+    window.open(url, '_blank');
+  };
+
+  // Susun 3 tahap workflow untuk visual progress stepper
+  const rolesList: Array<{ key: 'prepared' | 'checked' | 'approved'; label: string; stepNo: number }> = [
+    { key: 'prepared', label: 'Prepared', stepNo: 1 },
+    { key: 'checked',  label: 'Checked',  stepNo: 2 },
+    { key: 'approved', label: 'Approved', stepNo: 3 },
+  ];
 
   return (
-    <Shell wide={showDocument}>
-      <Card>
-        {/* Header */}
-        <div className={`px-6 py-5 bg-gradient-to-r ${
-          (result?.rejected || (cycleRejected && !result))
-            ? 'from-red-600 to-red-700'
-            : 'from-blue-700 to-blue-900'
-        }`}>
-          <p className="text-white/70 text-xs font-medium mb-1">Procedure Management System</p>
-          <h1 className="text-white text-lg font-bold">Persetujuan Dokumen Prosedur</h1>
-        </div>
-
-        <div className="p-6 space-y-5">
-          {/* Info dokumen */}
-          <div>
-            <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border mb-3 ${roleColorCls}`}>
-              Tahap: {info.roleLabel}
-            </span>
-            <h2 className="text-base font-bold text-slate-900 leading-snug">{info.namaDokumen}</h2>
-            <p className="text-xs text-slate-500 font-mono mt-1">{info.nomorDokumen}</p>
+    <div className="min-h-screen bg-slate-50/60 flex flex-col antialiased text-slate-800">
+      {/* ── Top Navigation Bar (Glassmorphic) ── */}
+      <header className="bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-6 py-2.5 flex items-center justify-between sticky top-0 z-30 shadow-[0_1px_3px_rgba(0,0,0,0.03)]">
+        <div className="flex items-center gap-3.5 min-w-0">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white flex items-center justify-center shadow-md shadow-blue-500/20 ring-4 ring-blue-50 flex-shrink-0">
+            <ShieldCheck size={22} className="stroke-[2.2]" />
           </div>
-
-          {/* Info penerima */}
-          <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
-            <p className="text-xs text-slate-500 mb-0.5">Menyetujui sebagai</p>
-            <p className="text-sm font-semibold text-slate-800">
-              {info.nama ? `${info.nama} · ` : ''}{info.email}
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-mono text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200/80 px-2 py-0.5 rounded-lg flex-shrink-0">
+                {info.nomorDokumen}
+              </span>
+              <h1 className="text-sm font-bold text-slate-900 truncate">
+                {info.namaDokumen}
+              </h1>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-0.5 hidden sm:flex items-center gap-1.5">
+              <span>Portal Persetujuan Dokumen</span>
+              <span className="text-slate-300">•</span>
+              <span className="text-slate-400">Sistem Manajemen Mutu (QMS) PT JAI</span>
             </p>
           </div>
+        </div>
 
-          {/* ── Lihat dokumen sebelum menyetujui ────────────────────────────── */}
-          {info.filePath ? (
-            <div>
-              <button
-                type="button"
-                onClick={() => setShowDocument(prev => !prev)}
-                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5
-                           border border-slate-300 hover:bg-slate-50 text-slate-700
-                           text-sm font-semibold rounded-xl transition-all active:scale-[0.98]"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  {showDocument ? (
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12" />
-                  ) : (
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                      d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  )}
-                </svg>
-                {showDocument ? 'Sembunyikan Dokumen' : 'Lihat Dokumen'}
-              </button>
+        {/* Right Info: Role Badge & Approver Identity */}
+        <div className="flex items-center gap-3 flex-shrink-0">
+          <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border shadow-xs ${roleColorCls}`}>
+            <span className="w-2 h-2 rounded-full bg-current animate-pulse" />
+            <span>Tahap: {info.roleLabel}</span>
+          </div>
 
-              {showDocument && (
-                <div className="mt-3 space-y-2">
-                  {canCompare && currentFile && previousFile && (
-                    <VersionToggleBar
-                      current={{ version: currentFile.version, uploadedAt: currentFile.uploadedAt }}
-                      previous={{ version: previousFile.version, uploadedAt: previousFile.uploadedAt }}
-                      viewing={viewing}
-                      onChange={setViewing}
-                    />
+          <div className="hidden md:flex items-center gap-2.5 pl-3 border-l border-slate-200/80">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-xs ring-2 ring-slate-100">
+              {getInitials(info.nama, info.email)}
+            </div>
+            <div className="text-left">
+              <p className="font-bold text-slate-800 text-[11px] leading-tight">
+                {info.nama || 'Approver'}
+              </p>
+              <p className="text-[10px] text-slate-500 leading-tight truncate max-w-[160px]">
+                {info.email}
+              </p>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* ── Main Layout: Split Screen ── */}
+      <main className="flex-1 flex flex-col lg:flex-row p-3 sm:p-5 gap-5 max-w-[1840px] w-full mx-auto">
+        {/* ── BAGIAN KIRI: Area Pratinjau Dokumen PDF (~68% width) ── */}
+        <section className="flex-1 flex flex-col bg-white rounded-3xl border border-slate-200/90 shadow-xs overflow-hidden min-h-[620px] lg:min-h-[calc(100vh-5.8rem)]">
+          {/* Header Toolbar Pratinjau PDF */}
+          <div className="px-5 py-3 border-b border-slate-100 bg-gradient-to-r from-slate-50/90 via-white to-slate-50/90 flex flex-wrap items-center justify-between gap-3 flex-shrink-0">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center flex-shrink-0 border border-rose-100 shadow-2xs">
+                <FileText size={18} className="stroke-[2.2]" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-xs font-bold text-slate-800 tracking-wide uppercase">
+                    Lembar Dokumen Prosedur
+                  </h2>
+                  {currentFile && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                      Versi {currentFile.version}
+                    </span>
                   )}
-                  <div className="border border-slate-200 rounded-xl overflow-auto bg-slate-100"
-                       style={{ height: '65vh', minHeight: '420px' }}>
-                    <AnnotatablePDFViewer
-                      filePath={displayFilePath || ''}
-                      fileId={displayFileId}
-                      nomorDokumen={info.nomorDokumen}
-                      canEdit={canAnnotate}
-                      myRole={info.role}
-                      myNama={info.nama}
-                      accToken={token}
-                    />
-                  </div>
+                </div>
+                <p className="text-[11px] text-slate-500 truncate max-w-sm sm:max-w-md font-mono" title={currentFile?.fileName || info.fileName || ''}>
+                  {currentFile?.fileName || info.fileName || 'Pratinjau PDF'}
+                </p>
+              </div>
+            </div>
+
+            {/* Versi Compare, Download & New Tab Controls */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {canCompare && currentFile && previousFile && (
+                <div className="scale-95 origin-right">
+                  <VersionToggleBar
+                    current={{ version: currentFile.version, uploadedAt: currentFile.uploadedAt }}
+                    previous={{ version: previousFile.version, uploadedAt: previousFile.uploadedAt }}
+                    viewing={viewing}
+                    onChange={setViewing}
+                  />
+                </div>
+              )}
+
+              {displayFilePath && (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={handleDownload}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-all active:scale-95 shadow-2xs cursor-pointer"
+                    title="Unduh file PDF ini ke komputer"
+                  >
+                    <Download size={13} className="text-slate-500" />
+                    <span className="hidden sm:inline">Download PDF</span>
+                  </button>
+                  <button
+                    onClick={handleOpenNewTab}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-all active:scale-95 shadow-2xs cursor-pointer"
+                    title="Buka PDF di tab baru browser"
+                  >
+                    <ExternalLink size={13} className="text-slate-500" />
+                    <span className="hidden md:inline">Buka di Tab Baru</span>
+                  </button>
                 </div>
               )}
             </div>
-          ) : (
-            <p className="text-xs text-slate-400 text-center">
-              Dokumen belum tersedia untuk pratinjau.
-            </p>
-          )}
+          </div>
 
-          {/* ── Baru saja submit di sesi ini: berhasil ACC atau berhasil Tolak ── */}
-          {result && (
-            result.rejected ? (
-              <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3.5">
-                <svg className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-                <div>
-                  <p className="text-sm font-semibold text-red-800">Dokumen Ditolak</p>
-                  <p className="text-xs text-red-700 mt-0.5 leading-relaxed">
-                    Penolakan Anda tercatat. Admin akan mendapat notifikasi beserta alasan
-                    yang Anda berikan, dan perlu memperbaiki dokumen ini sebelum mengulang
-                    proses approval dari awal.
-                  </p>
-                  {info.rejectReason && (
-                    <p className="text-xs text-red-700 mt-2 bg-white/60 border border-red-200 rounded-lg px-3 py-2 italic">
-                      &ldquo;{info.rejectReason}&rdquo;
-                    </p>
-                  )}
-                </div>
+          {/* Area Render PDF Asli (Native Browser Viewer) */}
+          <div className="flex-1 bg-slate-100/60 overflow-hidden relative min-h-[550px] flex flex-col">
+            {displayFilePath ? (
+              <div className="w-full h-full flex-1">
+                <PDFViewer
+                  filePath={displayFilePath}
+                  fileName={currentFile?.fileName || `${info.nomorDokumen}.pdf`}
+                />
               </div>
             ) : (
-              <div className="flex items-start gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3.5">
-                <svg className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.5 12.75l6 6 9-13.5" />
-                </svg>
-                <div>
-                  <p className="text-sm font-semibold text-emerald-800">Berhasil Disetujui</p>
-                  <p className="text-xs text-emerald-700 mt-0.5 leading-relaxed">
-                    {result.cycleCompleted
-                      ? 'Semua tahap approval (Prepared, Checked, Approved) telah selesai. Dokumen kini berstatus Relevan.'
-                      : `Terima kasih. Persetujuan Anda tercatat. Dokumen akan dilanjutkan ke tahap berikutnya begitu semua orang di tahap ${info.roleLabel} selesai menyetujui.`}
-                  </p>
-                  {result.emailWarning && (
-                    <p className="text-xs text-amber-600 mt-2">{result.emailWarning}</p>
-                  )}
+              <div className="h-full flex flex-col items-center justify-center text-slate-400 p-8 text-center min-h-[450px]">
+                <div className="w-16 h-16 rounded-3xl bg-slate-100 flex items-center justify-center mb-4 text-slate-300">
+                  <FileText size={36} />
                 </div>
-              </div>
-            )
-          )}
-
-          {/* ── Sudah pernah diproses sebelumnya (buka link lagi), cycle DITOLAK ── */}
-          {!result && cycleRejected && (
-            info.accStatus === 'rejected' ? (
-              <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3.5">
-                <svg className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-                <div>
-                  <p className="text-sm font-semibold text-red-800">Anda Menolak Dokumen Ini</p>
-                  <p className="text-xs text-red-700 mt-0.5">
-                    {info.accAt ? `Pada ${formatDate(info.accAt)}.` : ''} Tidak ada tindakan lain yang diperlukan.
-                  </p>
-                  {info.rejectReason && (
-                    <p className="text-xs text-red-700 mt-2 bg-white/60 border border-red-200 rounded-lg px-3 py-2 italic">
-                      &ldquo;{info.rejectReason}&rdquo;
-                    </p>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3.5">
-                <svg className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-                </svg>
-                <div>
-                  <p className="text-sm font-semibold text-red-800">Dokumen Ini Telah Ditolak</p>
-                  <p className="text-xs text-red-700 mt-0.5">
-                    Ditolak oleh{' '}
-                    <strong>{info.rejection?.nama || info.rejection?.email}</strong>
-                    {' '}({info.rejection?.roleLabel})
-                    {info.rejection?.rejectedAt ? ` pada ${formatDate(info.rejection.rejectedAt)}` : ''}.
-                  </p>
-                  {info.rejection?.reason && (
-                    <p className="text-xs text-red-700 mt-2 bg-white/60 border border-red-200 rounded-lg px-3 py-2 italic">
-                      &ldquo;{info.rejection.reason}&rdquo;
-                    </p>
-                  )}
-                  <p className="text-xs text-red-600 mt-2">
-                    Tidak ada tindakan lebih lanjut yang diperlukan dari Anda — admin perlu
-                    memperbaiki dan mengunggah ulang dokumen ini untuk memulai proses baru.
-                  </p>
-                </div>
-              </div>
-            )
-          )}
-
-          {/* ── Sudah pernah ACC sebelumnya (buka link lagi), cycle belum ditolak ── */}
-          {!result && !cycleRejected && alreadyAcc && (
-            <div className="flex items-start gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3.5">
-              <svg className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.5 12.75l6 6 9-13.5" />
-              </svg>
-              <div>
-                <p className="text-sm font-semibold text-emerald-800">Sudah Disetujui</p>
-                <p className="text-xs text-emerald-700 mt-0.5">
-                  Anda sudah menyetujui dokumen ini
-                  {info.accAt ? ` pada ${formatDate(info.accAt)}` : ''}. Tidak ada tindakan lain yang diperlukan.
+                <p className="text-sm font-bold text-slate-700">Dokumen Belum Tersedia</p>
+                <p className="text-xs text-slate-400 max-w-sm mt-1 leading-relaxed">
+                  File dokumen PDF belum diunggah untuk alur persetujuan ini. Silakan hubungi admin pengelola prosedur.
                 </p>
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* ── BAGIAN KANAN: Panel Persetujuan & Alur (~32% width, max 430px) ── */}
+        <aside className="w-full lg:w-[400px] xl:w-[430px] flex flex-col flex-shrink-0 space-y-4">
+          {/* Card Utama: Informasi Dokumen & Tindakan Persetujuan */}
+          <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs overflow-hidden">
+            {/* Top Header Card */}
+            <div className="p-5 border-b border-slate-100 bg-gradient-to-b from-slate-50/50 to-white">
+              <div className="flex items-center justify-between gap-2 mb-2.5">
+                <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${roleColorCls}`}>
+                  Tahap: {info.roleLabel}
+                </span>
+                <span className="font-mono text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md">
+                  {info.nomorDokumen}
+                </span>
+              </div>
+              <h3 className="text-base font-extrabold text-slate-900 leading-snug">
+                {info.namaDokumen}
+              </h3>
+
+              {/* Metadata Pills */}
+              <div className="flex flex-wrap items-center gap-1.5 mt-3">
+                {info.levelDokumen && (
+                  <span className="px-2.5 py-0.5 rounded-lg bg-slate-100 text-slate-700 text-[11px] font-semibold border border-slate-200/60">
+                    Level {info.levelDokumen}
+                  </span>
+                )}
+                {info.revisi && (
+                  <span className="px-2.5 py-0.5 rounded-lg bg-blue-50 text-blue-700 text-[11px] font-semibold border border-blue-100">
+                    Rev. {info.revisi}
+                  </span>
+                )}
+                {info.owner && (
+                  <span className="px-2.5 py-0.5 rounded-lg bg-slate-100 text-slate-600 text-[11px] border border-slate-200/60">
+                    Owner: <strong className="text-slate-800">{info.owner}</strong>
+                  </span>
+                )}
               </div>
             </div>
-          )}
 
-          {/* ── Belum ada aksi sama sekali, cycle masih berjalan → tombol ───── */}
-          {!result && !cycleRejected && !alreadyAcc && (
-            !showRejectForm ? (
-              <>
-                <p className="text-sm text-slate-600 leading-relaxed">
-                  Silakan periksa dokumen di atas, lalu tentukan tindakan Anda sebagai{' '}
-                  <strong>{info.roleLabel}</strong>.
-                </p>
-                {submitError && (
-                  <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                    {submitError}
-                  </p>
-                )}
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handleSubmit('approve')}
-                    disabled={submittingAction !== null}
-                    className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold rounded-xl transition-all active:scale-[0.98] shadow-sm hover:shadow-md"
-                  >
-                    {submittingAction === 'approve' && (
-                      <span className="animate-spin w-4 h-4 border-2 border-white/40 border-t-white rounded-full" />
-                    )}
-                    {submittingAction === 'approve' ? 'Memproses...' : 'Setujui Dokumen'}
-                  </button>
-                  <button
-                    onClick={() => { setShowRejectForm(true); setSubmitError(''); }}
-                    disabled={submittingAction !== null}
-                    className="px-5 py-3 border border-red-300 text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-bold rounded-xl transition-all active:scale-[0.98]"
-                  >
-                    Tolak Dokumen
-                  </button>
+            {/* Body Card */}
+            <div className="p-5 space-y-4">
+              {/* Executive Approver Identity */}
+              <div className="bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/30 border border-blue-100/80 rounded-2xl p-3.5 flex items-center gap-3 shadow-2xs">
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center font-bold text-sm shadow-sm shadow-blue-500/25 flex-shrink-0">
+                  {getInitials(info.nama, info.email)}
                 </div>
-              </>
-            ) : (
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                    Alasan Penolakan <span className="text-red-500">*</span>
-                  </label>
-                  <textarea
-                    value={rejectReason}
-                    onChange={e => setRejectReason(e.target.value)}
-                    placeholder="Jelaskan alasan Anda menolak dokumen ini..."
-                    rows={4}
-                    disabled={submittingAction !== null}
-                    className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm text-slate-900
-                               placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-red-400
-                               focus:border-transparent transition-all resize-none disabled:opacity-60"
-                  />
-                </div>
-                {submitError && (
-                  <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                    {submitError}
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">
+                    Menyetujui Sebagai
                   </p>
-                )}
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => { setShowRejectForm(false); setRejectReason(''); setSubmitError(''); }}
-                    disabled={submittingAction !== null}
-                    className="flex-1 px-4 py-2.5 border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-50 rounded-xl text-sm font-semibold transition-all"
-                  >
-                    Batal
-                  </button>
-                  <button
-                    onClick={() => handleSubmit('reject')}
-                    disabled={submittingAction !== null}
-                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold rounded-xl transition-all active:scale-[0.98]"
-                  >
-                    {submittingAction === 'reject' && (
-                      <span className="animate-spin w-4 h-4 border-2 border-white/40 border-t-white rounded-full" />
-                    )}
-                    {submittingAction === 'reject' ? 'Memproses...' : 'Kirim Penolakan'}
-                  </button>
+                  <p className="text-xs font-bold text-slate-900 truncate mt-0.5">
+                    {info.nama || 'Approver Terdaftar'}
+                  </p>
+                  <p className="text-[11px] text-slate-500 truncate flex items-center gap-1 mt-0.5">
+                    <Mail size={12} className="text-slate-400 flex-shrink-0" />
+                    <span className="truncate">{info.email}</span>
+                  </p>
                 </div>
               </div>
-            )
-          )}
 
-          {/* 🆕 Diskusi dengan admin & approver lain.
-              Sengaja DI LUAR semua kondisi di atas — chat tetap tersedia
-              setelah Anda ACC, setelah dokumen maju ke tahap berikutnya,
-              maupun setelah cycle ditolak/selesai. */}
-          <DocumentChat
-            accToken={token}
-            myEmail={info.email}
-            subtitle={info.namaDokumen}
-          />
-        </div>
+              {/* Visual Progress Stepper Alur Persetujuan (Prepared -> Checked -> Approved) */}
+              <div className="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/70">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Alur Persetujuan Dokumen
+                  </span>
+                  <span className="text-[10px] font-semibold text-slate-400">
+                    3 Tahap Berjenjang
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {rolesList.map(({ key, label, stepNo }) => {
+                    const timelineAction = info.timeline?.find(t => t.role === key);
+                    const isCurrentRole = info.role === key;
+                    const isPast =
+                      (info.role === 'checked' && key === 'prepared') ||
+                      (info.role === 'approved' && (key === 'prepared' || key === 'checked'));
+                    
+                    const isDone = timelineAction?.accStatus === 'acc' || (isPast && !cycleRejected) || (isCurrentRole && (alreadyAcc || result?.rejected === false));
+                    const isRejected = timelineAction?.accStatus === 'rejected' || (isCurrentRole && (info.accStatus === 'rejected' || result?.rejected === true));
 
-        <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-100">
-          <p className="text-[11px] text-slate-400 text-center">
-            Link ini khusus untuk Anda dan hanya berlaku sekali.
-          </p>
-        </div>
-      </Card>
-    </Shell>
+                    let statusText = 'Menunggu';
+                    let badgeBg = 'bg-slate-100 text-slate-500 border border-slate-200/60';
+                    let StatusIcon = Clock;
+                    let iconColor = 'text-slate-300';
+
+                    if (isDone) {
+                      statusText = 'Disetujui';
+                      badgeBg = 'bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold';
+                      StatusIcon = CheckCircle2;
+                      iconColor = 'text-emerald-600';
+                    } else if (isRejected) {
+                      statusText = 'Ditolak';
+                      badgeBg = 'bg-rose-50 text-rose-700 border border-rose-200 font-bold';
+                      StatusIcon = XCircle;
+                      iconColor = 'text-rose-600';
+                    } else if (isCurrentRole) {
+                      statusText = 'Tahap Anda';
+                      badgeBg = 'bg-blue-600 text-white font-bold shadow-xs';
+                      StatusIcon = Clock;
+                      iconColor = 'text-blue-600';
+                    }
+
+                    return (
+                      <div
+                        key={key}
+                        className={`flex items-center justify-between p-2.5 rounded-xl border text-xs transition-all ${
+                          isCurrentRole
+                            ? 'bg-white border-blue-300 shadow-xs ring-1 ring-blue-100'
+                            : 'bg-white/80 border-slate-200/70'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <StatusIcon size={16} className={`flex-shrink-0 ${iconColor}`} />
+                          <div className="min-w-0">
+                            <p className="font-bold text-slate-800 leading-tight">
+                              {stepNo}. {label}
+                            </p>
+                            {timelineAction?.nama && (
+                              <p className="text-[10px] text-slate-500 truncate mt-0.5">
+                                {timelineAction.nama}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-md flex-shrink-0 ${badgeBg}`}>
+                          {statusText}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* ── Status Hasil Aksi ── */}
+              {/* 1. Baru selesai submit aksi */}
+              {result && (
+                result.rejected ? (
+                  <div className="p-4 rounded-2xl bg-rose-50/80 border border-rose-200 space-y-2 animate-in fade-in">
+                    <div className="flex items-center gap-2 text-rose-800 font-bold text-xs">
+                      <XCircle size={16} className="text-rose-600" />
+                      <span>Dokumen Ditolak</span>
+                    </div>
+                    <p className="text-xs text-rose-700 leading-relaxed">
+                      Penolakan Anda telah dicatat. Admin pengelola prosedur akan menerima notifikasi untuk merevisi dokumen ini.
+                    </p>
+                    {info.rejectReason && (
+                      <div className="p-2.5 rounded-xl bg-white/90 border border-rose-200 text-xs text-rose-900 italic">
+                        &ldquo;{info.rejectReason}&rdquo;
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-2xl bg-emerald-50/80 border border-emerald-200 space-y-2 animate-in fade-in">
+                    <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs">
+                      <CheckCircle2 size={16} className="text-emerald-600" />
+                      <span>Persetujuan Berhasil Dicatat</span>
+                    </div>
+                    <p className="text-xs text-emerald-700 leading-relaxed">
+                      {result.cycleCompleted
+                        ? 'Seluruh tahapan persetujuan telah selesai! Dokumen ini sekarang resmi berstatus Relevan.'
+                        : 'Terima kasih. Persetujuan Anda telah dicatat dan sistem secara otomatis meneruskan dokumen ke tahap berikutnya.'}
+                    </p>
+                    {result.emailWarning && (
+                      <p className="text-[11px] text-amber-700 mt-1">{result.emailWarning}</p>
+                    )}
+                  </div>
+                )
+              )}
+
+              {/* 2. Sebelumnya sudah ditolak */}
+              {!result && cycleRejected && (
+                info.accStatus === 'rejected' ? (
+                  <div className="p-4 rounded-2xl bg-rose-50/80 border border-rose-200 space-y-2">
+                    <div className="flex items-center gap-2 text-rose-800 font-bold text-xs">
+                      <XCircle size={16} className="text-rose-600" />
+                      <span>Anda Menolak Dokumen Ini</span>
+                    </div>
+                    <p className="text-xs text-rose-700">
+                      {info.accAt ? `Tercatat pada ${formatDate(info.accAt)}.` : ''} Tidak ada tindakan lanjutan yang diperlukan dari Anda.
+                    </p>
+                    {info.rejectReason && (
+                      <div className="p-2.5 rounded-xl bg-white/90 border border-rose-200 text-xs text-rose-900 italic">
+                        &ldquo;{info.rejectReason}&rdquo;
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-2xl bg-rose-50/80 border border-rose-200 space-y-2">
+                    <div className="flex items-center gap-2 text-rose-800 font-bold text-xs">
+                      <XCircle size={16} className="text-rose-600" />
+                      <span>Dokumen Telah Ditolak</span>
+                    </div>
+                    <p className="text-xs text-rose-700 leading-relaxed">
+                      Dokumen ditolak oleh <strong>{info.rejection?.nama || info.rejection?.email}</strong> ({info.rejection?.roleLabel})
+                      {info.rejection?.rejectedAt ? ` pada ${formatDate(info.rejection.rejectedAt)}` : ''}.
+                    </p>
+                    {info.rejection?.reason && (
+                      <div className="p-2.5 rounded-xl bg-white/90 border border-rose-200 text-xs text-rose-900 italic">
+                        &ldquo;{info.rejection.reason}&rdquo;
+                      </div>
+                    )}
+                  </div>
+                )
+              )}
+
+              {/* 3. Sebelumnya sudah pernah ACC */}
+              {!result && !cycleRejected && alreadyAcc && (
+                <div className="p-4 rounded-2xl bg-emerald-50/80 border border-emerald-200 space-y-2">
+                  <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs">
+                    <CheckCircle2 size={16} className="text-emerald-600" />
+                    <span>Sudah Disetujui</span>
+                  </div>
+                  <p className="text-xs text-emerald-700 leading-relaxed">
+                    Anda telah menyetujui dokumen ini{info.accAt ? ` pada ${formatDate(info.accAt)}` : ''}. Menunggu persetujuan dari approver lainnya.
+                  </p>
+                </div>
+              )}
+
+              {/* 4. FORM TINDAKAN: Tombol Approve & Tombol Tolak */}
+              {!result && !cycleRejected && !alreadyAcc && (
+                !showRejectForm ? (
+                  <div className="space-y-3 pt-3 border-t border-slate-100">
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      Harap teliti lembar dokumen di sebelah kiri, kemudian tentukan keputusan Anda:
+                    </p>
+
+                    {submitError && (
+                      <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 flex items-center gap-2 font-medium">
+                        <AlertCircle size={14} className="text-rose-600 flex-shrink-0" />
+                        <span>{submitError}</span>
+                      </div>
+                    )}
+
+                    <div className="space-y-2 pt-1">
+                      {/* Tombol Setujui Dokumen (Emerald Gradient dengan Glow) */}
+                      <button
+                        onClick={() => handleSubmit('approve')}
+                        disabled={submittingAction !== null}
+                        className="w-full inline-flex items-center justify-center gap-2 px-5 py-3.5 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-extrabold rounded-2xl transition-all shadow-md shadow-emerald-500/25 active:scale-[0.99] disabled:opacity-50 cursor-pointer"
+                      >
+                        {submittingAction === 'approve' ? (
+                          <>
+                            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            <span>Memproses Persetujuan...</span>
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 size={16} className="stroke-[2.5]" />
+                            <span>Setujui Dokumen</span>
+                          </>
+                        )}
+                      </button>
+
+                      {/* Tombol Tolak Dokumen */}
+                      <button
+                        onClick={() => {
+                          setShowRejectForm(true);
+                          setSubmitError('');
+                        }}
+                        disabled={submittingAction !== null}
+                        className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 hover:border-rose-300 text-xs font-bold rounded-2xl transition-all active:scale-[0.99] disabled:opacity-50 cursor-pointer"
+                      >
+                        <XCircle size={15} className="text-rose-600" />
+                        <span>Tolak Dokumen</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  /* Form Input Alasan Penolakan */
+                  <div className="space-y-3 pt-3 border-t border-slate-100 animate-in fade-in">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                        Alasan Penolakan <span className="text-rose-600">*</span>
+                      </label>
+                      <textarea
+                        value={rejectReason}
+                        onChange={e => setRejectReason(e.target.value)}
+                        placeholder="Jelaskan alasan atau bagian yang perlu direvisi oleh tim..."
+                        rows={4}
+                        disabled={submittingAction !== null}
+                        className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500 transition-all resize-none disabled:opacity-50"
+                      />
+                    </div>
+
+                    {submitError && (
+                      <p className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-lg p-2.5 font-medium">
+                        {submitError}
+                      </p>
+                    )}
+
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          setShowRejectForm(false);
+                          setRejectReason('');
+                          setSubmitError('');
+                        }}
+                        disabled={submittingAction !== null}
+                        className="flex-1 px-3 py-2.5 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl text-xs font-semibold transition-all disabled:opacity-50 cursor-pointer"
+                      >
+                        Batal
+                      </button>
+                      <button
+                        onClick={() => handleSubmit('reject')}
+                        disabled={submittingAction !== null}
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition-all active:scale-[0.99] shadow-sm shadow-rose-500/25 disabled:opacity-50 cursor-pointer"
+                      >
+                        {submittingAction === 'reject' ? (
+                          <>
+                            <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            <span>Mengirim...</span>
+                          </>
+                        ) : (
+                          <>
+                            <XCircle size={14} />
+                            <span>Kirim Penolakan</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
+          </div>
+
+          {/* Catatan Keamanan Privat */}
+          <div className="p-3 text-center text-[11px] text-slate-400 flex items-center justify-center gap-1.5">
+            <ShieldCheck size={13} className="text-slate-400" />
+            <span>Link persetujuan ini bersifat privat dan dikhususkan untuk akun Anda.</span>
+          </div>
+        </aside>
+      </main>
+
+      {/* ── Floating Chat Widget (Pojok Kanan Bawah) ── */}
+      <DocumentChat
+        accToken={token}
+        myEmail={info.email}
+        subtitle={info.namaDokumen}
+        inline={false}
+      />
+    </div>
   );
 }

@@ -157,20 +157,26 @@ export async function POST(request: NextRequest) {
     let approvalCycleStarted = false;
     let pendingEmailActions: PendingAction[] = [];
 
-    if (previousStatus === 'Revisi' || previousStatus === 'Ditolak') {
+    const startApprovalParam = formData.get('startApproval');
+    const isApprovalRequested = startApprovalParam === 'true';
+    const isRevisiOrRejected =
+      previousStatus === 'Revisi' ||
+      previousStatus === 'Ditolak' ||
+      (typeof previousStatus === 'string' && previousStatus.startsWith('Menunggu ACC'));
+
+    if (isApprovalRequested || isRevisiOrRejected) {
       const cycleResult = await startApprovalCycle(client, nomorDokumen, uploadedFileId);
       if (cycleResult.started) {
         approvalCycleStarted = true;
         pendingEmailActions = cycleResult.actions;
       }
-      // Jika cycleResult.started === false (tidak ada approver 'prepared'
-      // terdaftar untuk dokumen ini), sengaja TIDAK melempar error — cukup
-      // fallback ke perilaku lama di bawah (langsung 'Relevan'), supaya admin
-      // tidak terhambat hanya karena data approver belum diisi di
-      // EditProcedureModal. Idealnya diberi tahu di response (lihat di bawah).
     }
 
-    if (!approvalCycleStarted) {
+    const isWaitingApprover =
+      previousStatus === 'Menunggu Setting Approver' ||
+      previousStatus === 'Menunggu Approval';
+
+    if (!approvalCycleStarted && !isWaitingApprover) {
       // ─── Perilaku LAMA: auto-update status → 'Relevan' ───────────────────
       await client.query(
         `UPDATE procedure_documents

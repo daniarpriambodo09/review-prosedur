@@ -21,7 +21,7 @@ import {
   Search, X, Plus, Calendar, Download, Archive,
   ChevronUp, ChevronDown, FileText, CheckCircle2,
   RefreshCw, Clock, Eye, Pencil, Trash2, Users,
-  CalendarX,
+  CalendarX, FileSpreadsheet, Upload,
 } from 'lucide-react';
 import RevisionNotesModal from '@/components/status-review/RevisionNotesModal';
 import { FileClock } from 'lucide-react';
@@ -405,21 +405,37 @@ const fieldCls =
 // AddProcedureModal — logic TIDAK DIUBAH, visual diperbarui
 // =============================================================================
 function AddProcedureModal({
-  isOpen, onClose, onSave, value, onChange, needsReview, onNeedsReviewChange, isSaving,
+  isOpen, onClose, onSave, value, onChange, file, onFileChange, isSaving,
 }: {
   isOpen: boolean; onClose: () => void; onSave: () => void;
   value: Omit<ProcedureDocument, 'status' | 'revisi' | 'id'> & { revisi?: string };
   onChange: (field: keyof Omit<ProcedureDocument, 'status' | 'revisi' | 'id'>, val: string) => void;
-  needsReview: boolean | null; onNeedsReviewChange: (val: boolean | null) => void; isSaving: boolean;
+  file: File | null;
+  onFileChange: (f: File | null) => void;
+  isSaving: boolean;
 }) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
+
   if (!isOpen) return null;
-  const inReviewRange = isInReviewRange(value.tanggalSelesaiApproval || '');
-  const isExpired = (() => {
-    if (!value.tanggalSelesaiApproval) return false;
-    const d = new Date(value.tanggalSelesaiApproval);
-    if (isNaN(d.getTime())) return false;
-    return new Date() >= new Date(d.getFullYear(), d.getMonth() + 2, d.getDate());
-  })();
+
+  const handleFile = (f: File | undefined | null) => {
+    setFileError(null);
+    if (!f) {
+      onFileChange(null);
+      return;
+    }
+    if (f.type !== 'application/pdf' && !f.name.toLowerCase().endsWith('.pdf')) {
+      setFileError('Hanya file format PDF yang diperbolehkan.');
+      return;
+    }
+    if (f.size > 10 * 1024 * 1024) {
+      setFileError('Ukuran file maksimal 10MB.');
+      return;
+    }
+    onFileChange(f);
+  };
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -428,7 +444,7 @@ function AddProcedureModal({
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <div>
             <h3 className="text-base font-bold text-slate-900">Tambah Prosedur Baru</h3>
-            <p className="text-xs text-slate-500 mt-0.5">Isi semua kolom dengan informasi yang akurat</p>
+            <p className="text-xs text-slate-500 mt-0.5">Isi semua kolom dan unggah file dokumen prosedur</p>
           </div>
           <button onClick={onClose} disabled={isSaving}
             className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all">
@@ -479,50 +495,92 @@ function AddProcedureModal({
               className={fieldCls} />
           </div>
 
-          {value.tanggalSelesaiApproval && (
-            <div className="col-span-2">
-              {isExpired ? (
-                <div className="flex items-start gap-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
-                  <p className="text-xs text-slate-600">ℹ️ Tanggal approval sudah lewat lebih dari 2 bulan. Dokumen akan otomatis berstatus <span className="font-semibold text-emerald-700">Relevan</span> — tidak masuk alur review.</p>
-                </div>
-              ) : inReviewRange ? (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-2">Status Awal Dokumen <span className="text-red-500">*</span></label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <button type="button" onClick={() => onNeedsReviewChange(true)} disabled={isSaving}
-                      className={`p-3 rounded-xl border-2 text-left transition-all ${needsReview === true ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-blue-300 bg-white'}`}>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-sm">📨</span>
-                        <span className="font-semibold text-xs text-slate-900">Perlu Direview</span>
-                        {needsReview === true && <CheckCircle2 size={14} className="ml-auto text-blue-600" />}
-                      </div>
-                      <p className="text-xs text-slate-500">Dokumen masuk alur review — dijadwalkan kirim email ke PIC</p>
-                    </button>
-                    <button type="button" onClick={() => onNeedsReviewChange(false)} disabled={isSaving}
-                      className={`p-3 rounded-xl border-2 text-left transition-all ${needsReview === false ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 hover:border-emerald-300 bg-white'}`}>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-sm">✓</span>
-                        <span className="font-semibold text-xs text-slate-900">Langsung Relevan</span>
-                        {needsReview === false && <CheckCircle2 size={14} className="ml-auto text-emerald-600" />}
-                      </div>
-                      <p className="text-xs text-slate-500">Dokumen sudah OK — tidak masuk alur review</p>
+          {/* Upload File Dokumen Baru */}
+          <div className="col-span-2 space-y-1.5">
+            <label className="block text-xs font-semibold text-slate-700">
+              Upload File Dokumen Baru (PDF) <span className="text-red-500">*</span>
+            </label>
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
+              onDragLeave={e => { e.preventDefault(); setIsDragging(false); }}
+              onDrop={e => {
+                e.preventDefault();
+                setIsDragging(false);
+                handleFile(e.dataTransfer.files?.[0]);
+              }}
+              className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all ${
+                file
+                  ? 'border-emerald-400 bg-emerald-50/40 hover:bg-emerald-50/60'
+                  : isDragging
+                  ? 'border-blue-500 bg-blue-50/60 scale-[0.99]'
+                  : 'border-slate-300 hover:border-blue-400 hover:bg-slate-50/70 bg-slate-50/30'
+              }`}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/pdf"
+                className="hidden"
+                disabled={isSaving}
+                onChange={e => handleFile(e.target.files?.[0])}
+              />
+
+              {file ? (
+                <div className="flex items-center justify-between gap-3 text-left">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-lg bg-red-100 text-red-600 flex items-center justify-center flex-shrink-0 font-bold text-[11px] border border-red-200">
+                      PDF
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-slate-800 truncate">{file.name}</p>
+                      <p className="text-[11px] text-slate-500">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <span className="px-2 py-1 text-[11px] font-semibold text-emerald-700 bg-emerald-100/70 rounded-md">
+                      ✓ Terpilih
+                    </span>
+                    <button
+                      type="button"
+                      onClick={e => {
+                        e.stopPropagation();
+                        onFileChange(null);
+                        if (fileInputRef.current) fileInputRef.current.value = '';
+                      }}
+                      disabled={isSaving}
+                      className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                      title="Hapus file"
+                    >
+                      <X size={15} />
                     </button>
                   </div>
-                  {needsReview === null && <p className="text-xs text-amber-600 mt-2">⚠ Pilih salah satu status awal untuk melanjutkan</p>}
                 </div>
               ) : (
-                <div className="flex items-start gap-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
-                  <p className="text-xs text-slate-600">ℹ️ Jadwal review otomatis akan aktif pada <span className="font-semibold text-blue-700">
-                    {(() => {
-                      const d     = new Date(value.tanggalSelesaiApproval);
-                      const sched = new Date(d.getFullYear(), d.getMonth() - 2, 1);
-                      return sched.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
-                    })()}
-                  </span>.</p>
+                <div className="py-2.5">
+                  <Upload size={22} className="mx-auto text-blue-600 mb-1.5" />
+                  <p className="text-xs font-bold text-slate-700">
+                    Klik untuk upload dokumen baru <span className="font-normal text-slate-500">atau drag & drop ke sini</span>
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Format file: PDF (Maks. 10MB)</p>
                 </div>
               )}
             </div>
-          )}
+            {fileError && <p className="text-xs text-rose-600 font-semibold">{fileError}</p>}
+          </div>
+
+          {/* Banner Alur Approval Dokumen */}
+          <div className="col-span-2">
+            <div className="flex items-start gap-3 bg-gradient-to-r from-blue-50/90 to-indigo-50/90 border border-blue-200/90 rounded-xl px-4 py-3 shadow-2xs">
+              <span className="text-lg leading-none">🛡️</span>
+              <div>
+                <p className="text-xs font-bold text-blue-900">Alur Approval Dokumen Otomatis</p>
+                <p className="text-xs text-blue-700/90 mt-0.5 leading-relaxed">
+                  Dokumen baru yang dibuat akan langsung masuk ke halaman <span className="font-bold text-blue-900">Approval Dokumen</span> untuk melewati proses verifikasi dan persetujuan bertahap (<strong className="text-slate-800">Prepared</strong>, <strong className="text-slate-800">Checked</strong>, dan <strong className="text-slate-800">Approved</strong>) sebelum aktif.
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Footer */}
@@ -532,7 +590,7 @@ function AddProcedureModal({
             Batal
           </button>
           <button onClick={onSave}
-            disabled={isSaving || (inReviewRange && needsReview === null)}
+            disabled={isSaving}
             className="inline-flex items-center gap-2 px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-all shadow-sm hover:shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
             {isSaving && <span className="animate-spin w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full" />}
             {isSaving ? 'Menyimpan...' : 'Simpan Prosedur'}
@@ -566,7 +624,9 @@ export default function StatusReviewPage() {
     tanggalSelesaiApproval: '', owner: '', pic: '', email: '',
   });
   const [needsReview, setNeedsReview] = useState<boolean | null>(null);
+  const [newProcedureFile, setNewProcedureFile] = useState<File | null>(null);
   const [requestIdToComplete, setRequestIdToComplete] = useState<number | null>(null);
+  const [isExportingAudit, setIsExportingAudit] = useState(false);
 
   const [editingProcedure, setEditingProcedure] = useState<ProcedureDocument | null>(null);
   const [isEditModalOpen,  setIsEditModalOpen]  = useState(false);
@@ -826,12 +886,43 @@ export default function StatusReviewPage() {
     }
   };
 
+  const handleDownloadAuditExcel = async () => {
+    try {
+      setIsExportingAudit(true);
+      const response = await fetch('/review-prosedur/api/audit/export-excel');
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || `Server error: ${response.status}`);
+      }
+      const blob = await response.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `Rekap-Matriks-Audit-Prosedur-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error('Download Rekap Audit gagal:', err);
+      alert('Gagal membuat file Rekap Audit: ' + (err.message || 'Silakan coba lagi.'));
+    } finally {
+      setIsExportingAudit(false);
+    }
+  };
+
   const handleSaveNewProcedure = async () => {
     if (!newProcedure.namaDokumen || !newProcedure.nomorDokumen || !newProcedure.levelDokumen ||
         !newProcedure.tanggalSelesaiApproval || !newProcedure.owner || !newProcedure.pic || !newProcedure.email) {
       alert('Semua kolom wajib diisi.');
       return;
     }
+
+    if (!newProcedureFile) {
+      alert('Silakan upload file dokumen prosedur baru (format PDF) terlebih dahulu.');
+      return;
+    }
+
     try {
       setIsSaving(true);
       const response = await fetch('/review-prosedur/api/procedures', {
@@ -840,7 +931,7 @@ export default function StatusReviewPage() {
         body: JSON.stringify({
           ...newProcedure,
           revisi: '0',
-          needsReview,
+          needsApproval: true,
           requestId: requestIdToComplete,
         }),
       });
@@ -853,16 +944,38 @@ export default function StatusReviewPage() {
         }
         return;
       }
+      const createdNomor = newProcedure.nomorDokumen;
+
+      // ── Upload file dokumen baru yang dipilih ──
+      const formData = new FormData();
+      formData.append('file', newProcedureFile);
+      formData.append('nomorDokumen', createdNomor);
+      formData.append('uploadedBy', 'admin');
+
+      const uploadRes = await fetch('/review-prosedur/api/files/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!uploadRes.ok) {
+        const upErr = await uploadRes.json().catch(() => ({}));
+        console.error('Warning: Dokumen tersimpan tapi file gagal diupload:', upErr);
+        alert(`Dokumen berhasil dibuat, namun file gagal diupload: ${upErr.error || 'Error upload'}. Anda dapat mengupload ulang di halaman Approval Dokumen.`);
+      }
+
       await loadData(false);
       setNewProcedure({
         namaDokumen: '', nomorDokumen: '', levelDokumen: '',
         tanggalSelesaiApproval: '', owner: '', pic: '', email: '',
       });
+      setNewProcedureFile(null);
       setNeedsReview(null);
       setRequestIdToComplete(null);
       setIsAddModalOpen(false);
       setCurrentPage(1);
-      alert('Prosedur berhasil ditambahkan!');
+
+      alert('Dokumen dan file baru berhasil dibuat! Mengarahkan ke halaman Approval Dokumen untuk menentukan approver...');
+      window.location.href = `/review-prosedur/approval-dokumen?openEdit=${encodeURIComponent(createdNomor)}`;
     } catch (error: any) {
       console.error('Error saving procedure:', error);
       alert('Gagal menambahkan prosedur. Silakan coba lagi.');
@@ -996,6 +1109,15 @@ export default function StatusReviewPage() {
                 className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 transition-all shadow-sm hover:shadow active:scale-95"
               >
                 <Download size={14} /> Excel
+              </button>
+              <button
+                onClick={handleDownloadAuditExcel}
+                disabled={isExportingAudit}
+                title="Unduh Rekap Matriks Status Review & Approval untuk Audit Mutu ISO 9001 / IATF 16949"
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 hover:border-indigo-300 transition-all shadow-sm active:scale-95 disabled:opacity-60"
+              >
+                <FileSpreadsheet size={14} className={isExportingAudit ? 'animate-spin' : ''} />
+                {isExportingAudit ? 'Menyiapkan...' : 'Rekap Audit ISO/IATF'}
               </button>
               <button
                 onClick={() => setIsAddModalOpen(true)}
@@ -1260,12 +1382,12 @@ export default function StatusReviewPage() {
         {/* AddProcedureModal */}
         <AddProcedureModal
           isOpen={isAddModalOpen}
-          onClose={() => { if (!isSaving) { setIsAddModalOpen(false); setNeedsReview(null); } }}
+          onClose={() => { if (!isSaving) { setIsAddModalOpen(false); setNewProcedureFile(null); setNeedsReview(null); } }}
           onSave={handleSaveNewProcedure}
           value={newProcedure}
           onChange={handleNewProcedureChange}
-          needsReview={needsReview}
-          onNeedsReviewChange={setNeedsReview}
+          file={newProcedureFile}
+          onFileChange={setNewProcedureFile}
           isSaving={isSaving}
         />
 
