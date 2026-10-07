@@ -87,7 +87,13 @@ export default function AnnotatablePDFViewer({
   const [saving,          setSaving]          = useState(false);
   const [saveMsg,         setSaveMsg]         = useState('');
   const [textDraft,       setTextDraft]       = useState<{ page: number; x: number; y: number; value: string } | null>(null);
-  const [useNativeViewer, setUseNativeViewer] = useState(false);
+  const [useNativeViewer, setUseNativeViewer] = useState(true);
+
+  // Reset ke mode PDF Asli setiap kali filePath berubah
+  useEffect(() => {
+    setUseNativeViewer(true);
+    setTool('none');
+  }, [filePath]);
 
   const pdfDocRef        = useRef<any>(null);
   const canvasRefs       = useRef<Record<number, HTMLCanvasElement | null>>({});
@@ -410,21 +416,27 @@ export default function AnnotatablePDFViewer({
           <>
             <button
               type="button"
-              onClick={() => setTool(t => t === 'pen' ? 'none' : 'pen')}
+              onClick={() => {
+                setUseNativeViewer(false);
+                setTool(t => t === 'pen' ? 'none' : 'pen');
+              }}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                tool === 'pen' ? 'text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                tool === 'pen' && !useNativeViewer ? 'text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
-              style={tool === 'pen' ? { backgroundColor: myColor } : undefined}
+              style={tool === 'pen' && !useNativeViewer ? { backgroundColor: myColor } : undefined}
             >
               ✏️ Coret
             </button>
             <button
               type="button"
-              onClick={() => setTool(t => t === 'text' ? 'none' : 'text')}
+              onClick={() => {
+                setUseNativeViewer(false);
+                setTool(t => t === 'text' ? 'none' : 'text');
+              }}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                tool === 'text' ? 'text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                tool === 'text' && !useNativeViewer ? 'text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
-              style={tool === 'text' ? { backgroundColor: myColor } : undefined}
+              style={tool === 'text' && !useNativeViewer ? { backgroundColor: myColor } : undefined}
             >
               💬 Teks
             </button>
@@ -457,9 +469,19 @@ export default function AnnotatablePDFViewer({
             <div className="inline-flex bg-slate-100 rounded-lg p-1 gap-1">
               <button
                 type="button"
+                onClick={() => setUseNativeViewer(true)}
+                className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${
+                  useNativeViewer ? 'bg-white text-blue-700 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800'
+                }`}
+                title="Tampilkan dokumen PDF asli berkualitas penuh"
+              >
+                📄 PDF Asli
+              </button>
+              <button
+                type="button"
                 onClick={() => { setShowOverlay(false); setUseNativeViewer(false); }}
                 className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${
-                  !showOverlay && !useNativeViewer ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
+                  !showOverlay && !useNativeViewer ? 'bg-white text-slate-900 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
                 Dokumen Bersih
@@ -468,7 +490,7 @@ export default function AnnotatablePDFViewer({
                 type="button"
                 onClick={() => { setShowOverlay(true); setUseNativeViewer(false); }}
                 className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${
-                  showOverlay && !useNativeViewer ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
+                  showOverlay && !useNativeViewer ? 'bg-white text-slate-900 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
                 Dengan Coretan{existing.length > 0 ? ` (${existing.length})` : ''}
@@ -478,18 +500,27 @@ export default function AnnotatablePDFViewer({
           </>
         )}
 
-        <button
-          type="button"
-          onClick={() => setUseNativeViewer(prev => !prev)}
-          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-            useNativeViewer
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-          }`}
-          title={useNativeViewer ? 'Beralih ke mode canvas interaktif' : 'Beralih ke viewer PDF asli bawaan browser'}
-        >
-          {useNativeViewer ? '✏️ Mode Anotasi' : '📄 Mode PDF Asli'}
-        </button>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => {
+              setUseNativeViewer(prev => !prev);
+              if (useNativeViewer) {
+                if (tool === 'none') setTool('pen');
+              } else {
+                setTool('none');
+              }
+            }}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+              useNativeViewer
+                ? 'bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+            }`}
+            title={useNativeViewer ? 'Beralih ke mode canvas untuk mencoret & catatan' : 'Kembali ke viewer PDF asli'}
+          >
+            {useNativeViewer ? '✏️ Mode Coretan' : '📄 Kembali ke PDF Asli'}
+          </button>
+        )}
         {saveMsg && <span className="text-xs text-emerald-600 font-medium">{saveMsg}</span>}
       </div>
 

@@ -10,7 +10,7 @@ CREATE TABLE procedure_documents (
     nama_dokumen VARCHAR(500) NOT NULL,
     nomor_dokumen VARCHAR(100) UNIQUE NOT NULL,
     level_dokumen VARCHAR(50) NOT NULL,
-    tanggal_selesai_approval VARCHAR(50) NOT NULL,
+    tanggal_selesai_approval VARCHAR(50), -- nullable: terisi otomatis saat seluruh tahap approval selesai
     revisi VARCHAR(20) NOT NULL,
     owner VARCHAR(200) NOT NULL,
     pic VARCHAR(100) NOT NULL,

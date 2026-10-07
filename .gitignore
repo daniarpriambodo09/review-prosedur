@@ -63,3 +63,8 @@ __pycache__/
 
 .DS_Store
 .vercel
+
+# PM2 & Logs
+ecosystem.config.js
+logs/
+*.log

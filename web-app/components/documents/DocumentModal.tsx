@@ -2,6 +2,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { Printer, Download, Upload } from 'lucide-react';
 import AnnotatablePDFViewer from './AnnotatablePDFViewer';
 import FileUploader from './FileUploader';
 import VersionToggleBar, { type VersionOption } from './VersionToggleBar';
@@ -92,6 +93,7 @@ export default function DocumentModal({
   const [loading,      setLoading]      = useState(false);
   const [showUploader, setShowUploader] = useState(false);
   const [blobUrl,      setBlobUrl]      = useState<string | null>(null);
+  const [isPrinting,   setIsPrinting]   = useState(false);
   const blobRef = useRef<string | null>(null);
 
   // 🆕 State untuk fitur Bandingkan Dokumen (versi lama vs baru)
@@ -211,6 +213,56 @@ export default function DocumentModal({
     a.href       = blobUrl;
     a.download   = displayFile.fileName || `${nomorDokumen}.pdf`;
     a.click();
+  };
+
+  const handlePrint = () => {
+    if (!blobUrl) return;
+    setIsPrinting(true);
+
+    try {
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.top = '-9999px';
+      iframe.style.left = '-9999px';
+      iframe.style.width = '1px';
+      iframe.style.height = '1px';
+      iframe.style.opacity = '0';
+      iframe.style.border = '0';
+      iframe.src = blobUrl;
+      document.body.appendChild(iframe);
+
+      const cleanup = () => {
+        setIsPrinting(false);
+        setTimeout(() => {
+          if (document.body.contains(iframe)) {
+            document.body.removeChild(iframe);
+          }
+        }, 1500);
+      };
+
+      iframe.onload = () => {
+        setTimeout(() => {
+          try {
+            iframe.contentWindow?.focus();
+            iframe.contentWindow?.print();
+          } catch (err) {
+            console.warn('Iframe print failed, fallback to window.open print', err);
+            const printWin = window.open(blobUrl, '_blank');
+            printWin?.focus();
+            printWin?.print();
+          }
+          cleanup();
+        }, 400);
+      };
+
+      setTimeout(() => {
+        if (isPrinting) cleanup();
+      }, 6000);
+    } catch (err) {
+      console.error('Print error:', err);
+      setIsPrinting(false);
+      window.open(blobUrl, '_blank');
+    }
   };
 
   const handleUploadSuccess = (status?: string) => {
@@ -354,16 +406,25 @@ export default function DocumentModal({
           </p>
           <div className="flex gap-3">
             {displayFile && blobUrl && !showUploader && (
-              <button
-                onClick={handleDownload}
-                className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-semibold transition-all flex items-center gap-2"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-                Download PDF
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={handlePrint}
+                  disabled={isPrinting}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-lg text-sm font-semibold transition-all flex items-center gap-2 shadow-xs cursor-pointer disabled:opacity-50"
+                  title="Cetak langsung dokumen PDF tanpa perlu download"
+                >
+                  <Printer size={16} className={isPrinting ? 'animate-pulse' : ''} />
+                  <span>{isPrinting ? 'Menyiapkan Print...' : 'Cetak / Print'}</span>
+                </button>
+                <button
+                  onClick={handleDownload}
+                  className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-semibold transition-all flex items-center gap-2"
+                >
+                  <Download size={16} />
+                  Download PDF
+                </button>
+              </>
             )}
 
             {!hideUpload && !showUploader && (

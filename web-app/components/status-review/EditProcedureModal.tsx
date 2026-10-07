@@ -238,7 +238,6 @@ export default function EditProcedureModal({
     if (!values.namaDokumen.trim())     return 'Nama Dokumen wajib diisi.';
     if (!values.nomorDokumen.trim())    return 'Nomor Dokumen wajib diisi.';
     if (!values.levelDokumen.trim())    return 'Level Dokumen wajib diisi.';
-    if (!values.tanggalSelesaiApproval) return 'Tanggal Selesai Approval wajib diisi.';
     if (!values.owner.trim())           return 'Owner wajib diisi.';
     if (!values.pic.trim())             return 'PIC wajib diisi.';
     return '';
@@ -447,7 +446,7 @@ export default function EditProcedureModal({
               {/* Tanggal Selesai Approval */}
               <div className="col-span-2">
                 <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-                  Tanggal Selesai Approval <span className="text-red-500">*</span>
+                  Tanggal Selesai Approval <span className="text-slate-400 font-normal text-xs">(Opsional / Otomatis)</span>
                 </label>
                 <input
                   type="date"
@@ -456,6 +455,9 @@ export default function EditProcedureModal({
                   disabled={isSaving}
                   className={fieldCls}
                 />
+                <p className="text-xs text-slate-400 mt-1">
+                  Otomatis terisi saat semua approver (Prepared, Checked, Approved) telah menyetujui dokumen.
+                </p>
               </div>
 
               {/* Revisi */}

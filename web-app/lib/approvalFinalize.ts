@@ -36,17 +36,25 @@ const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads', 'documents');
 async function syncRelevanStatus(
   client: PoolClient,
   nomorDokumen: string,
-  tanggalSelesaiApproval: string,
+  tanggalSelesaiApproval: string | null,
   currentRevisi: string | null
 ): Promise<void> {
+  // Tanggal Selesai Approval otomatis terisi tanggal hari ini saat semua tahap approval selesai
   await client.query(
     `UPDATE procedure_documents
-     SET status = 'Relevan', updated_at = CURRENT_TIMESTAMP
+     SET status = 'Relevan',
+         tanggal_selesai_approval = COALESCE(tanggal_selesai_approval, CURRENT_DATE),
+         updated_at = CURRENT_TIMESTAMP
      WHERE nomor_dokumen = $1`,
     [nomorDokumen]
   );
 
-  const docDate = new Date(tanggalSelesaiApproval);
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const effectiveTanggal = (tanggalSelesaiApproval && String(tanggalSelesaiApproval).trim())
+    ? String(tanggalSelesaiApproval).slice(0, 10)
+    : todayIso;
+
+  const docDate = new Date(effectiveTanggal);
   const approvalMonth = isNaN(docDate.getTime()) ? new Date().getMonth() : docDate.getMonth();
   const revisiValue = currentRevisi || '0';
 
@@ -57,6 +65,14 @@ async function syncRelevanStatus(
      ON CONFLICT (nomor_dokumen, last_reviewed_month)
      DO UPDATE SET status = 'Relevan', revisi = $2, updated_at = CURRENT_TIMESTAMP`,
     [nomorDokumen, revisiValue, approvalMonth]
+  );
+
+  // Update tanggal_selesai_approval pada catatan revisi jika belum ada
+  await client.query(
+    `UPDATE procedure_revision_notes
+     SET tanggal_selesai_approval = COALESCE(tanggal_selesai_approval, CURRENT_DATE)
+     WHERE nomor_dokumen = $1 AND rev_no = $2 AND tanggal_selesai_approval IS NULL`,
+    [nomorDokumen, revisiValue]
   );
 
   // 🆕 Selesaikan permintaan revisi aktif untuk dokumen ini
@@ -100,10 +116,22 @@ export async function finalizeApprovalCycle(
 
   const namaDokumen             = docResult.rows[0].nama_dokumen;
   const levelDokumen            = docResult.rows[0].level_dokumen;
-  const tanggalSelesaiApproval  = docResult.rows[0].tanggal_selesai_approval;
   const currentRevisi           = docResult.rows[0].revisi;
   const blockActivity           = docResult.rows[0].block_activity;
   const hadLastPageTemplate     = docResult.rows[0].uses_last_page_template === true;
+
+  // Tanggal Selesai Approval otomatis terisi tanggal hari ini saat semua tahap approval selesai
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const tanggalSelesaiApproval = docResult.rows[0].tanggal_selesai_approval
+    ? String(docResult.rows[0].tanggal_selesai_approval).slice(0, 10)
+    : todayIso;
+
+  await client.query(
+    `UPDATE procedure_documents
+     SET tanggal_selesai_approval = COALESCE(tanggal_selesai_approval, CURRENT_DATE)
+     WHERE nomor_dokumen = $1`,
+    [nomorDokumen]
+  );
 
   // Ambil semua approver yang sudah ACC di cycle ini, per role, beserta jabatan & unit (section/department)
   // Aturan unit: jika ada section & department, ambil section saja. Jika hanya salah satu, ambil yang ada.

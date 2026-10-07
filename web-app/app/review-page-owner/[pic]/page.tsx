@@ -23,6 +23,7 @@ import {
   markDocumentAsRead,
 } from '@/data/procedures/all-procedures';
 import DocumentModal from '@/components/documents/DocumentModal';
+import { useDialog } from '@/contexts/DialogContext';
 
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -390,6 +391,8 @@ export default function PicReviewPage() {
     ? extractPicCode(user.email ?? '')
     : '';
 
+  const { showWarning, showSuccess, showError } = useDialog();
+
   // State
   const [documents,           setDocuments]           = useState<DocWithSchedule[]>([]);
   const [pendingChanges,      setPendingChanges]       = useState<Record<string, ReviewStatus>>({});
@@ -515,7 +518,7 @@ export default function PicReviewPage() {
       });
 
     if (reviews.length === 0) {
-      alert('Tidak ada perubahan review untuk disimpan.');
+      showWarning('Tidak ada perubahan review untuk disimpan.');
       return;
     }
 
@@ -543,10 +546,10 @@ export default function PicReviewPage() {
       }));
 
       setPendingChanges({});
-      alert('✓ Seluruh review berhasil disimpan ke sistem. Terima kasih atas partisipasi Anda!');
+      showSuccess('Seluruh review berhasil disimpan ke sistem. Terima kasih atas partisipasi Anda!');
     } catch (err) {
       console.error(err);
-      alert('Gagal menyimpan review. Silakan coba lagi.');
+      showError('Gagal menyimpan review. Silakan coba lagi.');
     } finally {
       setSaving(false);
     }

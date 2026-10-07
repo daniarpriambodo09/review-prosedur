@@ -419,10 +419,11 @@ async function runAutoStatusChain(
 async function resolveInitialStatus(
   client: any,
   nomorDokumen: string,
-  tanggal: string,
+  tanggal: string | null,
   needsReview: boolean | null = null
 ): Promise<string> {
   if (needsReview === false) return 'Relevan';
+  if (!tanggal) return 'Relevan';
 
   const deadline = currentCycleDeadline(tanggal);
   if (!deadline) return 'Relevan';
@@ -630,16 +631,18 @@ export async function POST(request: NextRequest) {
 
     await client.query('BEGIN');
 
-    let status = await resolveInitialStatus(
-      client,
-      body.nomorDokumen,
-      body.tanggalSelesaiApproval,
-      needsReview
-    );
+    const finalTanggal = (body.tanggalSelesaiApproval && String(body.tanggalSelesaiApproval).trim())
+      ? String(body.tanggalSelesaiApproval).trim()
+      : null;
 
-    // Dokumen baru yang dibuat masuk ke tahap approval terlebih dahulu agar dicek & disetujui:
-    if (body.requestId || body.needsApproval !== false) {
-      status = 'Menunggu Setting Approver';
+    let status = 'Menunggu Setting Approver';
+    if (!body.requestId && body.needsApproval === false) {
+      status = await resolveInitialStatus(
+        client,
+        body.nomorDokumen,
+        finalTanggal,
+        needsReview
+      );
     }
 
     const result = await client.query(
@@ -652,7 +655,7 @@ export async function POST(request: NextRequest) {
         body.namaDokumen,
         body.nomorDokumen,
         body.levelDokumen,
-        body.tanggalSelesaiApproval,
+        finalTanggal,
         body.revisi || '0',
         body.owner,
         body.pic,

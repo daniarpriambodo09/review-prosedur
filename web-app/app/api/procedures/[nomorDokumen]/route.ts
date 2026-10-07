@@ -28,9 +28,9 @@ export async function PATCH(
       blockActivity, // 🆕
     } = body;
 
-    if (!namaDokumen || !levelDokumen || !tanggalSelesaiApproval || !owner || !pic) {
+    if (!namaDokumen || !levelDokumen || !owner || !pic) {
       return NextResponse.json(
-        { error: 'Field wajib tidak boleh kosong' },
+        { error: 'Field wajib (Nama, Level Dokumen, Owner, PIC) tidak boleh kosong' },
         { status: 400 }
       );
     }
@@ -73,7 +73,7 @@ export async function PATCH(
         namaDokumen,
         finalNomor,
         levelDokumen,
-        tanggalSelesaiApproval,
+        (tanggalSelesaiApproval && String(tanggalSelesaiApproval).trim()) ? String(tanggalSelesaiApproval).trim() : null,
         revisi || '0',
         owner,
         pic,

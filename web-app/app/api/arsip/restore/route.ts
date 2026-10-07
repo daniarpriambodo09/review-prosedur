@@ -48,11 +48,13 @@ export async function POST(request: NextRequest) {
       RETURNING *
     `;
 
+    const tanggalApproval = row.tanggal_selesai_approval && String(row.tanggal_selesai_approval).trim() ? row.tanggal_selesai_approval : null;
+
     const insertValues = [
       row.nama_dokumen,
       row.nomor_dokumen,
       row.level_dokumen,
-      row.tanggal_selesai_approval,
+      tanggalApproval,
       row.revisi,
       row.owner,
       row.pic,

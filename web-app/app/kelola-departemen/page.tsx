@@ -19,6 +19,7 @@ import {
   UserCog, ShieldCheck, ShieldOff, AlertTriangle, ArrowUpCircle,
   FileText, Upload, Link2, Unlink,
 } from 'lucide-react';
+import { useDialog } from '@/contexts/DialogContext';
 
 // =============================================================================
 // Types
@@ -171,6 +172,7 @@ function SectionMultiPicker({
 function SectionTab({
   sections, departments, onRefresh,
 }: { sections: SectionItem[]; departments: DepartmentItem[]; onRefresh: () => void }) {
+  const { showConfirm, showWarning, showError, showSuccess } = useDialog();
   const [namaBaru, setNamaBaru] = useState('');
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -187,10 +189,11 @@ function SectionTab({
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        alert(err.error || 'Gagal menambah section');
+        showError(err.error || 'Gagal menambah section');
         return;
       }
       setNamaBaru('');
+      showSuccess('Section baru berhasil ditambahkan!');
       onRefresh();
     } finally {
       setSaving(false);
@@ -206,32 +209,35 @@ function SectionTab({
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      alert(err.error || 'Gagal mengubah nama section');
+      showError(err.error || 'Gagal mengubah nama section');
       return;
     }
     const data = await res.json();
     setEditingId(null);
     onRefresh();
     if (editingNama.trim() !== s.nama && data.affectedDocs > 0) {
-      alert(`Nama section diubah. ${data.affectedDocs} dokumen di /status-review otomatis ikut diperbarui (kolom Owner).`);
+      showSuccess(`Nama section diubah. ${data.affectedDocs} dokumen di /status-review otomatis ikut diperbarui (kolom Owner).`);
     }
   };
 
   const handleDelete = async (s: SectionItem) => {
     if (s.staffCount > 0) {
-      alert(`Tidak bisa dihapus — masih ada ${s.staffCount} staff di section ini. Pindahkan staff-nya dulu.`);
+      showWarning(`Tidak bisa dihapus — masih ada ${s.staffCount} staff di section ini. Pindahkan staff-nya dulu.`);
       return;
     }
     const confirmMsg = s.docCount > 0
       ? `Hapus section "${s.nama}"?\n\nMasih ada ${s.docCount} dokumen di /status-review yang Owner-nya memakai nama ini — dokumen TIDAK akan berubah, hanya nama ini tidak lagi muncul sebagai pilihan Owner untuk dokumen baru.`
       : `Hapus section "${s.nama}"?`;
-    if (!window.confirm(confirmMsg)) return;
+    const confirmed = await showConfirm(confirmMsg, 'Konfirmasi Hapus Section');
+    if (!confirmed) return;
+
     const res = await fetch(`/review-prosedur/api/sections/${s.id}`, { method: 'DELETE' });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      alert(err.error || 'Gagal menghapus section');
+      showError(err.error || 'Gagal menghapus section');
       return;
     }
+    showSuccess(`Section "${s.nama}" berhasil dihapus.`);
     onRefresh();
   };
 
@@ -243,24 +249,28 @@ function SectionTab({
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      alert(err.error || 'Gagal mengubah departemen induk');
+      showError(err.error || 'Gagal mengubah departemen induk');
       return;
     }
     onRefresh();
   };
 
   const handlePromote = async (s: SectionItem) => {
-    if (!window.confirm(
+    const confirmed = await showConfirm(
       `Naikkan section "${s.nama}" menjadi Departemen baru?\n\n` +
       `Section ini akan dihapus dan digantikan Departemen dengan nama yang sama. ` +
-      `${s.staffCount > 0 ? `${s.staffCount} staff di section ini akan otomatis ikut pindah ke departemen baru.` : ''}`
-    )) return;
+      `${s.staffCount > 0 ? `${s.staffCount} staff di section ini akan otomatis ikut pindah ke departemen baru.` : ''}`,
+      'Naikkan ke Departemen'
+    );
+    if (!confirmed) return;
+
     const res = await fetch(`/review-prosedur/api/sections/${s.id}/promote`, { method: 'POST' });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      alert(err.error || 'Gagal menaikkan section menjadi departemen');
+      showError(err.error || 'Gagal menaikkan section menjadi departemen');
       return;
     }
+    showSuccess(`Section "${s.nama}" berhasil dinaikkan menjadi Departemen baru!`);
     onRefresh();
   };
 
@@ -367,6 +377,7 @@ function DepartemenTab({
   departments, sections, staff, onRefresh,
 }: { departments: DepartmentItem[]; sections: SectionItem[]; staff: Staff[]; onRefresh: () => void }) {
   const [namaBaru, setNamaBaru] = useState('');
+  const { showConfirm, showWarning, showError, showSuccess } = useDialog();
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingNama, setEditingNama] = useState('');
@@ -386,10 +397,11 @@ function DepartemenTab({
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        alert(err.error || 'Gagal menambah departemen');
+        showError(err.error || 'Gagal menambah departemen');
         return;
       }
       setNamaBaru('');
+      showSuccess('Departemen baru berhasil ditambahkan!');
       onRefresh();
     } finally {
       setSaving(false);
@@ -405,28 +417,32 @@ function DepartemenTab({
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      alert(err.error || 'Gagal mengubah nama departemen');
+      showError(err.error || 'Gagal mengubah nama departemen');
       return;
     }
     setEditingId(null);
+    showSuccess('Nama departemen berhasil diubah!');
     onRefresh();
   };
 
   const handleDelete = async (dept: DepartmentItem) => {
     if (dept.staffCount > 0) {
-      alert(`Tidak bisa dihapus — masih ada ${dept.staffCount} staff langsung di departemen ini. Pindahkan dulu.`);
+      showWarning(`Tidak bisa dihapus — masih ada ${dept.staffCount} staff langsung di departemen ini. Pindahkan dulu.`);
       return;
     }
     const msg = dept.sections.length > 0
       ? `Hapus departemen "${dept.nama}"?\n\n${dept.sections.length} section yang tergabung akan otomatis dilepas (jadi section mandiri lagi), tidak ikut terhapus.`
       : `Hapus departemen "${dept.nama}"?`;
-    if (!window.confirm(msg)) return;
+    const confirmed = await showConfirm(msg, 'Konfirmasi Hapus Departemen');
+    if (!confirmed) return;
+
     const res = await fetch(`/review-prosedur/api/departments/${dept.id}`, { method: 'DELETE' });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      alert(err.error || 'Gagal menghapus departemen');
+      showError(err.error || 'Gagal menghapus departemen');
       return;
     }
+    showSuccess(`Departemen "${dept.nama}" berhasil dihapus.`);
     onRefresh();
   };
 
@@ -440,24 +456,28 @@ function DepartemenTab({
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      alert(err.error || 'Gagal menambahkan manager');
+      showError(err.error || 'Gagal menambahkan manager');
       return;
     }
     setManagerKode('');
     setManagerPickerFor(null);
+    showSuccess(`Manager ${kode} berhasil ditugaskan!`);
     onRefresh();
   };
 
   const handleRemoveManager = async (deptId: number, kode: string) => {
-    if (!window.confirm(`Lepas ${kode} sebagai manager departemen ini?`)) return;
+    const confirmed = await showConfirm(`Lepas ${kode} sebagai manager departemen ini?`, 'Konfirmasi Lepas Manager');
+    if (!confirmed) return;
+
     const res = await fetch(
       `/review-prosedur/api/departments/${deptId}/managers?kode=${encodeURIComponent(kode)}`,
       { method: 'DELETE' }
     );
     if (!res.ok) {
-      alert('Gagal melepas manager');
+      showError('Gagal melepas manager');
       return;
     }
+    showSuccess(`Manager ${kode} berhasil dilepas.`);
     onRefresh();
   };
 
@@ -833,6 +853,7 @@ function ImportExcelButton({ onImported }: { onImported: (result: any) => void }
 function StaffTab({
   staff, sections, departments, onRefresh,
 }: { staff: Staff[]; sections: SectionItem[]; departments: DepartmentItem[]; onRefresh: () => void }) {
+  const { showConfirm, showWarning, showError, showSuccess } = useDialog();
   const [searchQuery, setSearchQuery] = useState('');
   const [editingKode, setEditingKode] = useState<string | null>(null);
   const [deletingKode, setDeletingKode] = useState<string | null>(null);
@@ -854,7 +875,7 @@ function StaffTab({
   };
 
   const handleSave = async (kode: string) => {
-    if (!editEmail.trim()) { alert('Email tidak boleh kosong'); return; }
+    if (!editEmail.trim()) { showWarning('Email tidak boleh kosong'); return; }
     const res = await fetch('/review-prosedur/api/staff', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -869,16 +890,18 @@ function StaffTab({
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      alert(err.error || 'Gagal menyimpan');
+      showError(err.error || 'Gagal menyimpan');
       return;
     }
     setEditingKode(null);
+    showSuccess('Data staff berhasil diperbarui!');
     onRefresh();
   };
 
   const handleDelete = async (s: Staff) => {
     const confirmMsg = `Hapus staff "${s.nama}" (${s.kode})?\n\nStaff ini akan dihapus dari daftar staff directory dan penugasan section/departemen.`;
-    if (!window.confirm(confirmMsg)) return;
+    const confirmed = await showConfirm(confirmMsg, 'Konfirmasi Hapus Staff');
+    if (!confirmed) return;
 
     setDeletingKode(s.kode);
     try {
@@ -887,13 +910,14 @@ function StaffTab({
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        alert(err.error || 'Gagal menghapus staff');
+        showError(err.error || 'Gagal menghapus staff');
         return;
       }
+      showSuccess(`Staff "${s.nama}" berhasil dihapus.`);
       onRefresh();
     } catch (err) {
       console.error('Error deleting staff:', err);
-      alert('Terjadi kesalahan saat menghapus staff');
+      showError('Terjadi kesalahan saat menghapus staff');
     } finally {
       setDeletingKode(null);
     }

@@ -32,16 +32,11 @@ export async function GET(request: NextRequest) {
   try {
     const client = await pool.connect();
     let procedures: any[] = [];
-    let approvalActions: Record<string, {
-      prepared?: { nama: string; accAt: string | null; status: string };
-      checked?: { nama: string; accAt: string | null; status: string };
-      approved?: { nama: string; accAt: string | null; status: string };
-      cycleStatus?: string;
-    }> = {};
-    let revisionNotesMap: Record<string, string> = {};
+    const approversByDoc: Record<string, Record<string, any[]>> = {};
+    const actionsByDoc: Record<string, Record<string, any[]>> = {};
 
     try {
-      // 1. Ambil dokumen + status review terbaru + email schedule
+      // 1. Ambil dokumen + status review terbaru + tanggal terakhir review + email schedule
       const procQuery = `
         SELECT 
           pd.nomor_dokumen,
@@ -53,12 +48,13 @@ export async function GET(request: NextRequest) {
           pd.pic,
           pd.email,
           COALESCE(dr.status, 'Menunggu') as status_review,
+          COALESCE(pd.last_reviewed_at, dr.updated_at, dr.created_at) as terakhir_direview,
           es.last_sent_at,
           es.email_status,
           es.scheduled_email_at
         FROM procedure_documents pd
         LEFT JOIN LATERAL (
-          SELECT status 
+          SELECT status, updated_at, created_at
           FROM document_reviews 
           WHERE nomor_dokumen = pd.nomor_dokumen 
           ORDER BY updated_at DESC, id DESC 
@@ -70,7 +66,20 @@ export async function GET(request: NextRequest) {
       const procRes = await client.query(procQuery);
       procedures = procRes.rows;
 
-      // 2. Ambil data approval cycle terbaru untuk setiap dokumen
+      // 2. Ambil seluruh approver terdaftar di procedure_approvers
+      const paRes = await client.query(`
+        SELECT nomor_dokumen, role, nama, email, grup, urutan 
+        FROM procedure_approvers 
+        ORDER BY nomor_dokumen, role, urutan ASC, id ASC
+      `);
+      for (const r of paRes.rows) {
+        if (!approversByDoc[r.nomor_dokumen]) approversByDoc[r.nomor_dokumen] = {};
+        const roleKey = (r.role || '').toLowerCase();
+        if (!approversByDoc[r.nomor_dokumen][roleKey]) approversByDoc[r.nomor_dokumen][roleKey] = [];
+        approversByDoc[r.nomor_dokumen][roleKey].push(r);
+      }
+
+      // 3. Ambil data approval cycle terbaru untuk setiap dokumen (beserta action approval)
       const cyclesQuery = `
         WITH RankedCycles AS (
           SELECT 
@@ -89,57 +98,66 @@ export async function GET(request: NextRequest) {
           rc.cycle_status,
           pa.role,
           pa.nama,
+          pa.email,
           pa.acc_status,
           pa.acc_at
         FROM RankedCycles rc
         JOIN procedure_approval_actions pa ON pa.cycle_id = rc.cycle_id
-        WHERE rc.rn = 1;
+        WHERE rc.rn = 1
+        ORDER BY pa.id ASC;
       `;
       const cyclesRes = await client.query(cyclesQuery);
       for (const row of cyclesRes.rows) {
-        if (!approvalActions[row.nomor_dokumen]) {
-          approvalActions[row.nomor_dokumen] = {
-            cycleStatus: row.cycle_status,
-          };
-        }
+        if (!actionsByDoc[row.nomor_dokumen]) actionsByDoc[row.nomor_dokumen] = {};
         const roleKey = (row.role || '').toLowerCase();
-        if (roleKey === 'prepared') {
-          approvalActions[row.nomor_dokumen].prepared = {
-            nama: row.nama,
-            accAt: row.acc_at,
-            status: row.acc_status,
-          };
-        } else if (roleKey === 'checked') {
-          approvalActions[row.nomor_dokumen].checked = {
-            nama: row.nama,
-            accAt: row.acc_at,
-            status: row.acc_status,
-          };
-        } else if (roleKey === 'approved') {
-          approvalActions[row.nomor_dokumen].approved = {
-            nama: row.nama,
-            accAt: row.acc_at,
-            status: row.acc_status,
-          };
-        }
-      }
-
-      // 3. Ambil catatan perubahan terbaru untuk setiap dokumen
-      const revQuery = `
-        SELECT DISTINCT ON (nomor_dokumen)
-          nomor_dokumen,
-          rev_no,
-          catatan_perubahan
-        FROM procedure_revision_notes
-        ORDER BY nomor_dokumen, urutan DESC, id DESC;
-      `;
-      const revRes = await client.query(revQuery);
-      for (const row of revRes.rows) {
-        revisionNotesMap[row.nomor_dokumen] = row.catatan_perubahan ? `[Rev ${row.rev_no}] ${row.catatan_perubahan}` : '-';
+        if (!actionsByDoc[row.nomor_dokumen][roleKey]) actionsByDoc[row.nomor_dokumen][roleKey] = [];
+        actionsByDoc[row.nomor_dokumen][roleKey].push(row);
       }
     } finally {
       client.release();
     }
+
+    // Helper untuk memformat nama approver per role:
+    // Menampilkan approver terdaftar, dan bila sedang/sudah ada siklus approval mencantumkan status ACC atau Pending
+    const formatRoleApprovers = (docNum: string, role: string): string => {
+      const registered = approversByDoc[docNum]?.[role] || [];
+      const actions = actionsByDoc[docNum]?.[role] || [];
+
+      if (actions.length > 0) {
+        const formattedList = actions.map(act => {
+          const nama = act.nama || '-';
+          if (act.acc_status === 'acc' && act.acc_at) {
+            return `${nama}\n(ACC: ${formatDateTime(act.acc_at)})`;
+          } else if (act.acc_status === 'rejected') {
+            return `${nama} (Ditolak)`;
+          } else if (act.acc_status === 'pending') {
+            return `${nama} (Pending)`;
+          }
+          return nama;
+        });
+
+        // Sertakan juga approver terdaftar yang belum masuk ke action siklus (jika ada)
+        const actionEmails = new Set(actions.map(a => (a.email || '').toLowerCase().trim()));
+        const actionNames = new Set(actions.map(a => (a.nama || '').toLowerCase().trim()));
+        for (const reg of registered) {
+          const regEmail = (reg.email || '').toLowerCase().trim();
+          const regNama = (reg.nama || '').toLowerCase().trim();
+          if ((!regEmail || !actionEmails.has(regEmail)) && (!regNama || !actionNames.has(regNama))) {
+            formattedList.push(reg.nama);
+          }
+        }
+
+        return formattedList.length > 0 ? formattedList.join('\n') : '-';
+      }
+
+      // Jika belum ada siklus approval, gunakan approver dari procedure_approvers
+      if (registered.length > 0) {
+        const names = registered.map(r => r.nama).filter(Boolean);
+        return names.length > 0 ? names.join('\n') : '-';
+      }
+
+      return '-';
+    };
 
     // ── Build Excel Workbook with ExcelJS ──────────────────────────────────────
     const workbook = new ExcelJS.Workbook();
@@ -152,12 +170,12 @@ export async function GET(request: NextRequest) {
     // SHEET 1: Matriks Audit Status Prosedur
     // ──────────────────────────────────────────────────────────────────────────
     const ws1 = workbook.addWorksheet('Matriks Audit Prosedur', {
-      views: [{ showGridLines: true }],
+      views: [{ state: 'frozen', xSplit: 2, ySplit: 4, showGridLines: true }],
       pageSetup: { orientation: 'landscape', paperSize: 9 }, // A4 Landscape
     });
 
-    // Judul Header Dokumen Audit
-    ws1.mergeCells('A1:P1');
+    // Judul Header Dokumen Audit (Kolom A s/d N: 14 Kolom)
+    ws1.mergeCells('A1:N1');
     const titleCell = ws1.getCell('A1');
     titleCell.value = 'MATRIKS REVIEW DAN STATUS DOKUMEN PROSEDUR (AUDIT MUTU ISO 9001 / IATF 16949)';
     titleCell.font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
@@ -166,7 +184,7 @@ export async function GET(request: NextRequest) {
     ws1.getRow(1).height = 36;
 
     // Sub-header informasi tanggal cetak & sistem
-    ws1.mergeCells('A2:P2');
+    ws1.mergeCells('A2:N2');
     const subCell = ws1.getCell('A2');
     subCell.value = `Tanggal Ekspor: ${new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })} WIB | Total Dokumen Terdaftar: ${procedures.length}`;
     subCell.font = { name: 'Arial', size: 9, italic: true, color: { argb: 'FF475569' } };
@@ -177,27 +195,26 @@ export async function GET(request: NextRequest) {
     // Baris kosong pemisah
     ws1.getRow(3).height = 10;
 
-    // Kolom Header Tabel (Baris 4)
+    // Kolom Header Tabel (Baris 4: 14 Kolom rapi dan presisi)
     const headers = [
       { header: 'No', key: 'no', width: 6 },
       { header: 'Nomor Dokumen', key: 'nomor_dokumen', width: 22 },
-      { header: 'Nama Dokumen Prosedur', key: 'nama_dokumen', width: 38 },
+      { header: 'Nama Dokumen Prosedur', key: 'nama_dokumen', width: 42 },
       { header: 'Level', key: 'level', width: 8 },
       { header: 'Rev', key: 'rev', width: 8 },
-      { header: 'Owner (Dept)', key: 'owner', width: 14 },
+      { header: 'Owner (Dept)', key: 'owner', width: 15 },
       { header: 'PIC', key: 'pic', width: 18 },
-      { header: 'Target Approval', key: 'target_date', width: 16 },
-      { header: 'Status Review', key: 'status_review', width: 16 },
-      { header: 'Notifikasi Terkirim', key: 'sent_at', width: 18 },
-      { header: 'Prepared By (ACC)', key: 'prepared', width: 24 },
-      { header: 'Checked By (ACC)', key: 'checked', width: 24 },
-      { header: 'Approved By (ACC)', key: 'approved', width: 24 },
-      { header: 'Status Siklus', key: 'cycle_status', width: 15 },
-      { header: 'Catatan Perubahan Terakhir', key: 'rev_note', width: 40 },
+      { header: 'Target Approval', key: 'target_date', width: 18 },
+      { header: 'Status Review', key: 'status_review', width: 18 },
+      { header: 'Terakhir Direview', key: 'terakhir_direview', width: 22 },
+      { header: 'Notifikasi Terkirim', key: 'sent_at', width: 22 },
+      { header: 'Prepared By (ACC)', key: 'prepared', width: 28 },
+      { header: 'Checked By (ACC)', key: 'checked', width: 28 },
+      { header: 'Approved By (ACC)', key: 'approved', width: 28 },
     ];
 
     ws1.getRow(4).values = headers.map(h => h.header);
-    ws1.getRow(4).height = 28;
+    ws1.getRow(4).height = 30;
 
     headers.forEach((h, idx) => {
       ws1.getColumn(idx + 1).width = h.width;
@@ -213,24 +230,15 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    // Aktifkan Filter Otomatis di Excel untuk Baris Header
+    ws1.autoFilter = 'A4:N4';
+
     // Isi Baris Data
     procedures.forEach((doc, idx) => {
-      const rowNum = idx + 5;
-      const approval = approvalActions[doc.nomor_dokumen] || {};
-
-      const formatApproverText = (item?: { nama: string; accAt: string | null; status: string }) => {
-        if (!item || !item.nama) return '-';
-        if (item.accAt) {
-          return `${item.nama}\n(ACC: ${formatDateTime(item.accAt)})`;
-        }
-        return `${item.nama} [${item.status || 'Pending'}]`;
-      };
-
-      const preparedText = formatApproverText(approval.prepared);
-      const checkedText = formatApproverText(approval.checked);
-      const approvedText = formatApproverText(approval.approved);
-      const noteText = revisionNotesMap[doc.nomor_dokumen] || '-';
-      const cycleStatusText = approval.cycleStatus ? approval.cycleStatus.toUpperCase() : '-';
+      const preparedText = formatRoleApprovers(doc.nomor_dokumen, 'prepared');
+      const checkedText = formatRoleApprovers(doc.nomor_dokumen, 'checked');
+      const approvedText = formatRoleApprovers(doc.nomor_dokumen, 'approved');
+      const reviewDateText = formatDateTime(doc.terakhir_direview);
 
       const rowValues = [
         idx + 1,
@@ -242,16 +250,25 @@ export async function GET(request: NextRequest) {
         doc.pic,
         formatToDDMonYYYY(doc.tanggal_selesai_approval),
         doc.status_review,
+        reviewDateText,
         doc.last_sent_at ? formatDateTime(doc.last_sent_at) : (doc.email_status === 'sent' ? 'Terkirim' : '-'),
         preparedText,
         checkedText,
         approvedText,
-        cycleStatusText,
-        noteText,
       ];
 
       const row = ws1.addRow(rowValues);
-      row.height = 26;
+
+      // Hitung tinggi baris dinamis agar konten multi-line pada approver tidak terpotong
+      const countLines = (str: string) => (str ? (str.match(/\n/g) || []).length + 1 : 1);
+      const maxLines = Math.max(
+        1,
+        countLines(preparedText),
+        countLines(checkedText),
+        countLines(approvedText),
+        Math.ceil((doc.nama_dokumen || '').length / 42)
+      );
+      row.height = Math.max(26, maxLines * 18);
 
       // Styling per cell
       row.eachCell((cell, colNumber) => {
@@ -263,12 +280,14 @@ export async function GET(request: NextRequest) {
           right: { style: 'thin', color: { argb: 'FFE2E8F0' } },
         };
 
-        // Alignment
-        if (colNumber === 1 || colNumber === 4 || colNumber === 5 || colNumber === 6 || colNumber === 8 || colNumber === 14) {
+        // Alignment kolom
+        if (colNumber === 1 || colNumber === 4 || colNumber === 5 || colNumber === 6 || colNumber === 7 || colNumber === 8 || colNumber === 10 || colNumber === 11) {
           cell.alignment = { vertical: 'middle', horizontal: 'center' };
         } else if (colNumber === 2) {
           cell.alignment = { vertical: 'middle', horizontal: 'center' };
           cell.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FF0F172A' } };
+        } else if (colNumber === 3) {
+          cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
         } else if (colNumber === 9) { // Status Review
           cell.alignment = { vertical: 'middle', horizontal: 'center' };
           const val = String(cell.value || '').toLowerCase();
@@ -281,19 +300,21 @@ export async function GET(request: NextRequest) {
           } else if (val === 'obsolete') {
             cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } }; // Red 100
             cell.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FF991B1B' } }; // Red 800
+          } else if (val === 'menunggu') {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0F2FE' } }; // Sky 100
+            cell.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FF0369A1' } }; // Sky 800
           } else {
             cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
             cell.font = { name: 'Arial', size: 9, color: { argb: 'FF64748B' } };
           }
-        } else if (colNumber >= 11 && colNumber <= 13) {
-          cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
-        } else if (colNumber === 15) {
+        } else if (colNumber >= 12 && colNumber <= 14) {
+          // Kolom Approver (Prepared, Checked, Approved)
           cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
         } else {
           cell.alignment = { vertical: 'middle', horizontal: 'left' };
         }
 
-        // Zebra striping untuk baris ganjil/genap (kecuali status review yang sudah punya warna sendiri)
+        // Zebra striping untuk baris ganjil/genap (kecuali status review)
         if (colNumber !== 9 && idx % 2 === 1) {
           cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
         }
@@ -308,7 +329,7 @@ export async function GET(request: NextRequest) {
     });
 
     ws2.getColumn(1).width = 4;
-    ws2.getColumn(2).width = 30;
+    ws2.getColumn(2).width = 32;
     ws2.getColumn(3).width = 16;
     ws2.getColumn(4).width = 16;
     ws2.getColumn(5).width = 16;

@@ -9,6 +9,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { X, Plus, Pencil, Trash2, FileClock, Info } from 'lucide-react';
+import { useDialog } from '@/contexts/DialogContext';
 
 interface RevisionEntry {
   id: number;
@@ -102,9 +103,11 @@ export default function RevisionNotesModal({
     setFormMode(entry.id);
   };
 
+  const { showConfirm, showWarning, showError, showSuccess } = useDialog();
+
   const handleSubmit = async () => {
     if (!form.revNo.trim() || !form.catatanPerubahan.trim()) {
-      alert('Rev No dan Catatan Perubahan wajib diisi.');
+      showWarning('Rev No dan Catatan Perubahan wajib diisi.');
       return;
     }
     setSaving(true);
@@ -129,15 +132,16 @@ export default function RevisionNotesModal({
       }
       setFormMode('closed');
       loadEntries();
+      showSuccess('Catatan perubahan berhasil disimpan!');
     } catch (err: any) {
-      alert(err.message || 'Gagal menyimpan catatan perubahan');
+      showError(err.message || 'Gagal menyimpan catatan perubahan');
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (entry: RevisionEntry) => {
-    const confirmed = window.confirm(`Hapus catatan perubahan Rev. ${entry.revNo}?`);
+    const confirmed = await showConfirm(`Hapus catatan perubahan Rev. ${entry.revNo}?`, 'Konfirmasi Hapus');
     if (!confirmed) return;
     try {
       const res = await fetch(
@@ -149,8 +153,9 @@ export default function RevisionNotesModal({
         throw new Error(err.error || 'Gagal menghapus');
       }
       loadEntries();
+      showSuccess('Catatan perubahan berhasil dihapus.');
     } catch (err: any) {
-      alert(err.message || 'Gagal menghapus catatan perubahan');
+      showError(err.message || 'Gagal menghapus catatan perubahan');
     }
   };
 

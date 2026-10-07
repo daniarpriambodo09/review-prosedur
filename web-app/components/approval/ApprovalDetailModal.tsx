@@ -289,8 +289,10 @@ export default function ApprovalDetailModal({
                       ) : (
                         stage.approvers.map((approver, aIdx) => {
                           const hasApproved = approver.accStatus === 'acc';
-                          const isPending = approver.accStatus === 'pending';
                           const isApproverRejected = approver.accStatus === 'rejected';
+                          const isPending =
+                            approver.accStatus === 'pending' ||
+                            (stage.status === 'in_progress' && !hasApproved && !isApproverRejected);
 
                           return (
                             <div

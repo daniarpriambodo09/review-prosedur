@@ -11,6 +11,7 @@ import {
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Search, X, RotateCcw, Trash2, Archive, FileText } from 'lucide-react';
+import { useDialog } from '@/contexts/DialogContext';
 
 // ── Status Badge ──────────────────────────────────────────────────────────────
 function StatusBadge({ status }: { status: StatusType }) {
@@ -136,6 +137,7 @@ function Pagination({
 const ROWS_PER_PAGE = 10;
 
 export default function ArsipProsedurPage() {
+  const { showConfirm, showSuccess, showError } = useDialog();
   const [searchValue,  setSearchValue]  = useState('');
   const [currentPage,  setCurrentPage]  = useState(1);
   const [archivedData, setArchivedData] = useState<ProcedureDocument[]>([]);
@@ -149,7 +151,7 @@ export default function ArsipProsedurPage() {
         setArchivedData(data);
       } catch (error) {
         console.error('Error loading archived procedures:', error);
-        alert('Gagal memuat data arsip. Silakan refresh halaman.');
+        showError('Gagal memuat data arsip. Silakan refresh halaman.');
       } finally {
         setLoading(false);
       }
@@ -158,27 +160,33 @@ export default function ArsipProsedurPage() {
   }, []);
 
   const handleRestore = async (nomorDokumen: string) => {
-    if (!window.confirm('Apakah Anda yakin ingin me-restore prosedur ini?\n\nProsedur akan dipindahkan kembali ke daftar aktif.')) return;
+    const confirmed = await showConfirm(
+      'Apakah Anda yakin ingin me-restore prosedur ini?\n\nProsedur akan dipindahkan kembali ke daftar aktif.',
+      'Restore Prosedur'
+    );
+    if (!confirmed) return;
     try {
       await restoreProcedure(nomorDokumen);
       setArchivedData(await getArchivedProcedures());
-      alert('Prosedur berhasil di-restore!');
+      showSuccess('Prosedur berhasil di-restore!');
     } catch (error: any) {
-      alert('Gagal me-restore prosedur: ' + (error.message || 'Unknown error'));
+      showError('Gagal me-restore prosedur: ' + (error.message || 'Unknown error'));
     }
   };
 
   const handleDeletePermanently = async (nomorDokumen: string) => {
-    if (!window.confirm(
-      '⚠️ PERINGATAN: Hapus Permanen! ⚠️\n\nApakah Anda YAKIN ingin menghapus prosedur ini secara PERMANEN?\n\nData yang terhapus TIDAK DAPAT dikembalikan!\n\nKlik OK untuk melanjutkan.'
-    )) return;
-    if (!window.confirm('Konfirmasi terakhir!\n\nAnda akan menghapus prosedur ini SELAMANYA.\n\nApakah Anda benar-benar yakin?')) return;
+    const confirmed = await showConfirm(
+      '⚠️ PERINGATAN: Hapus Permanen!\n\nApakah Anda YAKIN ingin menghapus prosedur ini secara PERMANEN?\n\nData yang terhapus TIDAK DAPAT dikembalikan!',
+      'Hapus Permanen'
+    );
+    if (!confirmed) return;
+
     try {
       await deleteProcedurePermanently(nomorDokumen);
       setArchivedData(await getArchivedProcedures());
-      alert('✓ Prosedur berhasil dihapus secara permanen!');
+      showSuccess('Prosedur berhasil dihapus secara permanen!');
     } catch (error: any) {
-      alert('Gagal menghapus prosedur: ' + (error.message || 'Unknown error'));
+      showError('Gagal menghapus prosedur: ' + (error.message || 'Unknown error'));
     }
   };
 

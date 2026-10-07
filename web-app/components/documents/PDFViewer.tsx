@@ -2,6 +2,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { Printer, Download } from 'lucide-react';
 
 interface PDFViewerProps {
   filePath: string;
@@ -14,14 +15,14 @@ interface PDFViewerProps {
  * KENAPA BLOB, BUKAN IFRAME LANGSUNG?
  * - <iframe src="/uploads/file.pdf"> → Browser/IDM mendeteksi URL file PDF → auto-download
  * - <iframe src="blob:..."> → Tidak ada URL yang bisa diintersep IDM → PDF tampil inline
- * - Juga berfungsi di halaman tanpa auth cookie (misal /review-page-owner)
- *   karena fetch dilakukan oleh Next.js API route (/api/files/serve) di server side
+ * - Dilengkapi fitur Cetak Langsung (Print) tanpa perlu mengunduh file terlebih dahulu
  */
 export default function PDFViewer({ filePath, fileName }: PDFViewerProps) {
-  const [blobUrl, setBlobUrl]   = useState<string | null>(null);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState(false);
-  const blobRef                 = useRef<string | null>(null);
+  const [blobUrl, setBlobUrl]       = useState<string | null>(null);
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
+  const blobRef                     = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,6 +68,64 @@ export default function PDFViewer({ filePath, fileName }: PDFViewerProps) {
     };
   }, [filePath]);
 
+  /**
+   * Fitur Print Langsung:
+   * Menggunakan hidden iframe yang memuat blob URL PDF sehingga dialog cetak
+   * browser langsung terbuka tanpa mengharuskan pengguna mengunduh file.
+   */
+  const handlePrint = () => {
+    if (!blobUrl) return;
+    setIsPrinting(true);
+
+    try {
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.top = '-9999px';
+      iframe.style.left = '-9999px';
+      iframe.style.width = '1px';
+      iframe.style.height = '1px';
+      iframe.style.opacity = '0';
+      iframe.style.border = '0';
+      iframe.src = blobUrl;
+      document.body.appendChild(iframe);
+
+      const cleanup = () => {
+        setIsPrinting(false);
+        setTimeout(() => {
+          if (document.body.contains(iframe)) {
+            document.body.removeChild(iframe);
+          }
+        }, 1500);
+      };
+
+      iframe.onload = () => {
+        setTimeout(() => {
+          try {
+            iframe.contentWindow?.focus();
+            iframe.contentWindow?.print();
+          } catch (err) {
+            console.warn('Iframe print failed, fallback to window.open print', err);
+            const printWin = window.open(blobUrl, '_blank');
+            printWin?.focus();
+            printWin?.print();
+          }
+          cleanup();
+        }, 400);
+      };
+
+      // Safety timeout jika onload tidak terpanggil
+      setTimeout(() => {
+        if (isPrinting) {
+          cleanup();
+        }
+      }, 6000);
+    } catch (err) {
+      console.error('Print error:', err);
+      setIsPrinting(false);
+      window.open(blobUrl, '_blank');
+    }
+  };
+
   if (loading) {
     return (
       <div className="w-full flex flex-col items-center justify-center gap-3 py-16 bg-slate-50">
@@ -94,30 +153,37 @@ export default function PDFViewer({ filePath, fileName }: PDFViewerProps) {
   }
 
   return (
-    <div className="w-full h-full" style={{ minHeight: '600px' }}>
-      {/*
-        Gunakan <object> bukan <iframe>:
-        - Lebih stabil untuk PDF di berbagai browser
-        - IDM tidak bisa mengintersep blob: URL
-      */}
-      <object
-        data={`${blobUrl}#toolbar=1&navpanes=0`}
-        type="application/pdf"
-        className="w-full h-full border-0"
-        style={{ minHeight: '600px', width: '100%', height: '100%', display: 'block' }}
-      >
-        {/* Fallback jika browser tidak support <object> untuk PDF */}
-        <div className="w-full flex flex-col items-center justify-center gap-3 py-16">
-          <p className="text-slate-600 text-sm">Browser Anda tidak mendukung tampilan PDF inline.</p>
-          <a
-            href={blobUrl}
-            download={fileName}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition-colors"
-          >
-            Download PDF
-          </a>
-        </div>
-      </object>
+    <div className="w-full h-full flex flex-col bg-slate-900" style={{ minHeight: '600px' }}>
+      {/* ── Konten Dokumen PDF (<object>) ── */}
+      <div className="flex-1 w-full h-full min-h-[550px] relative bg-slate-900">
+        <object
+          data={`${blobUrl}#toolbar=1&navpanes=0`}
+          type="application/pdf"
+          className="w-full h-full border-0 absolute inset-0"
+          style={{ width: '100%', height: '100%', display: 'block' }}
+        >
+          {/* Fallback jika browser tidak support <object> untuk PDF */}
+          <div className="w-full flex flex-col items-center justify-center gap-3 py-16 text-white">
+            <p className="text-slate-300 text-sm">Browser Anda tidak mendukung tampilan PDF inline.</p>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handlePrint}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition-colors flex items-center gap-2"
+              >
+                <Printer size={15} /> Cetak PDF
+              </button>
+              <a
+                href={blobUrl}
+                download={fileName}
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-semibold transition-colors flex items-center gap-2"
+              >
+                <Download size={15} /> Download PDF
+              </a>
+            </div>
+          </div>
+        </object>
+      </div>
     </div>
   );
 }

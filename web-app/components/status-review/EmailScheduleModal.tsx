@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { ProcedureDocument, StatusType } from '@/data/procedures/all-procedures';
 import { XCircle } from 'lucide-react';
+import { useDialog } from '@/contexts/DialogContext';
 
 interface EmailSchedule {
   id: number;
@@ -33,6 +34,7 @@ export default function EmailScheduleModal({
   emailSchedules,
   onScheduleChange,
 }: EmailScheduleModalProps) {
+  const { showConfirm, showSuccess, showError, showWarning } = useDialog();
   const [selectedMonth, setSelectedMonth] = useState('');
   const [selectedDocs,  setSelectedDocs]  = useState<Set<string>>(new Set());
   const [searchQuery,   setSearchQuery]   = useState('');
@@ -121,8 +123,9 @@ export default function EmailScheduleModal({
   // Handler batalkan jadwal satu dokumen
   const handleCancelSingle = async (doc: ProcedureDocument, e: React.MouseEvent) => {
     e.stopPropagation();
-    const confirmed = window.confirm(
-      `Apakah Anda yakin ingin membatalkan jadwal email untuk dokumen:\n"${doc.namaDokumen}" (${doc.nomorDokumen})?\n\nStatus dokumen akan dikembalikan ke status sebelumnya (Relevan/Revisi).`
+    const confirmed = await showConfirm(
+      `Apakah Anda yakin ingin membatalkan jadwal email untuk dokumen:\n"${doc.namaDokumen}" (${doc.nomorDokumen})?\n\nStatus dokumen akan dikembalikan ke status sebelumnya (Relevan/Revisi).`,
+      'Batalkan Jadwal Email'
     );
     if (!confirmed) return;
 
@@ -152,11 +155,11 @@ export default function EmailScheduleModal({
         return next;
       });
 
-      alert(`Jadwal pengiriman email untuk "${doc.namaDokumen}" berhasil dibatalkan.\nStatus dokumen dikembalikan ke: ${restored}`);
+      showSuccess(`Jadwal pengiriman email untuk "${doc.namaDokumen}" berhasil dibatalkan.\nStatus dokumen dikembalikan ke: ${restored}`);
       onScheduleChange?.();
     } catch (err: any) {
       console.error('Error cancelling schedule:', err);
-      alert('Gagal membatalkan jadwal: ' + (err.message || 'Unknown error'));
+      showError('Gagal membatalkan jadwal: ' + (err.message || 'Unknown error'));
     } finally {
       setCancellingDoc(null);
     }
@@ -165,8 +168,9 @@ export default function EmailScheduleModal({
   // Handler batalkan jadwal batch (dokumen terpilih)
   const handleCancelBatch = async () => {
     if (selectedPendingDocs.length === 0) return;
-    const confirmed = window.confirm(
-      `Apakah Anda yakin ingin membatalkan jadwal email untuk ${selectedPendingDocs.length} dokumen terpilih?\n\nStatus dokumen akan dikembalikan ke status sebelumnya (Relevan/Revisi).`
+    const confirmed = await showConfirm(
+      `Apakah Anda yakin ingin membatalkan jadwal email untuk ${selectedPendingDocs.length} dokumen terpilih?\n\nStatus dokumen akan dikembalikan ke status sebelumnya (Relevan/Revisi).`,
+      'Batalkan Jadwal Batch'
     );
     if (!confirmed) return;
 
@@ -201,11 +205,11 @@ export default function EmailScheduleModal({
       }));
 
       setSelectedDocs(new Set());
-      alert(`Jadwal email berhasil dibatalkan untuk ${selectedPendingDocs.length} dokumen.`);
+      showSuccess(`Jadwal email berhasil dibatalkan untuk ${selectedPendingDocs.length} dokumen.`);
       onScheduleChange?.();
     } catch (err: any) {
       console.error('Error cancelling batch schedules:', err);
-      alert('Gagal membatalkan jadwal: ' + (err.message || 'Unknown error'));
+      showError('Gagal membatalkan jadwal: ' + (err.message || 'Unknown error'));
     } finally {
       setIsCancellingBatch(false);
     }
@@ -221,7 +225,7 @@ export default function EmailScheduleModal({
 
   const handleSave = async () => {
     if (!isValid()) {
-      alert('Mohon lengkapi semua data dengan benar');
+      showWarning('Mohon lengkapi semua data dengan benar.');
       return;
     }
 
@@ -239,14 +243,14 @@ export default function EmailScheduleModal({
         )
       );
 
-      alert(`Jadwal email berhasil disimpan untuk ${selectedDocs.size} dokumen`);
+      showSuccess(`Jadwal email berhasil disimpan untuk ${selectedDocs.size} dokumen`);
       setSelectedDocs(new Set());
       setSelectedMonth('');
       onScheduleChange?.();
       onClose();
     } catch (error) {
       console.error('Error saving schedules:', error);
-      alert('Gagal menyimpan jadwal email');
+      showError('Gagal menyimpan jadwal email');
     } finally {
       setIsSaving(false);
     }

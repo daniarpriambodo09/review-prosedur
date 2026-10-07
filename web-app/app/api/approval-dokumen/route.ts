@@ -14,6 +14,8 @@ import {
   startApprovalCycle,
   STAGE_DISPLAY,
   STAGE_STATUS_LABEL,
+  generateToken,
+  generateVerificationCode,
   type ApprovalRole,
 } from '@/lib/approvalCycle';
 import { getActiveSmtpSettings, sendMail } from '@/lib/mailer';
@@ -225,6 +227,85 @@ export async function GET(request: NextRequest) {
       approversByDocAndRole[key].push(pa);
     }
 
+    // 4.5. Auto-sync: Jika ada dokumen berstatus in_progress, dan di current_stage-nya ada approver terdaftar
+    // yang belum dibuatkan action di procedure_approval_actions, buatkan action-nya & kirimkan email!
+    const unlinkedActionsToInsert: any[] = [];
+    for (const row of cycleRows) {
+      if (row.cycle_status === 'in_progress' && row.cycle_id) {
+        const curRole = row.current_stage as ApprovalRole;
+        if (curRole && ['prepared', 'checked', 'approved'].includes(curRole)) {
+          const actionKey = `${row.cycle_id}:${curRole}`;
+          const existingActions = actionsByCycleAndRole[actionKey] || [];
+          const registeredApprovers = approversByDocAndRole[`${row.nomor_dokumen}:${curRole}`] || [];
+          const existingApproverIds = new Set(existingActions.map(a => a.approver_id).filter(Boolean));
+
+          const missingApprovers = registeredApprovers.filter(pa => !existingApproverIds.has(pa.id));
+          for (const pa of missingApprovers) {
+            unlinkedActionsToInsert.push({
+              cycleId: row.cycle_id,
+              approverId: pa.id,
+              role: curRole,
+              nama: pa.nama,
+              email: pa.email,
+              nomorDokumen: row.nomor_dokumen,
+              namaDokumen: row.nama_dokumen,
+            });
+          }
+        }
+      }
+    }
+
+    if (unlinkedActionsToInsert.length > 0) {
+      for (const item of unlinkedActionsToInsert) {
+        try {
+          const token = generateToken();
+          const verificationCode = generateVerificationCode();
+          const insRes = await client.query(
+            `INSERT INTO procedure_approval_actions
+               (cycle_id, approver_id, role, nama, email, token, verification_code, acc_status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
+             RETURNING id, cycle_id, approver_id, role, nama, email, acc_status, acc_at, email_sent_at, reject_reason`,
+            [item.cycleId, item.approverId, item.role, item.nama, item.email, token, verificationCode]
+          );
+          const newAct = insRes.rows[0];
+          const key = `${item.cycleId}:${item.role}`;
+          if (!actionsByCycleAndRole[key]) actionsByCycleAndRole[key] = [];
+          actionsByCycleAndRole[key].push(newAct);
+
+          // Kirim email notifikasi
+          try {
+            const smtpSettings = await getActiveSmtpSettings(client);
+            if (smtpSettings) {
+              const accLink = `${smtpSettings.appUrl}/review-prosedur/acc/${token}`;
+              const emailParams = {
+                nama: item.nama,
+                namaDokumen: item.namaDokumen || item.nomorDokumen,
+                nomorDokumen: item.nomorDokumen,
+                role: item.role as ApprovalRole,
+                accLink,
+              };
+              await sendMail(
+                smtpSettings,
+                item.email,
+                `[Review Prosedur] Permintaan Approval Dokumen Prosedur (${STAGE_DISPLAY[item.role as ApprovalRole]}) - ${item.nomorDokumen}`,
+                buildAccEmailHtml(emailParams),
+                buildAccEmailText(emailParams)
+              );
+              await client.query(
+                `UPDATE procedure_approval_actions SET email_sent_at = NOW() WHERE id = $1`,
+                [newAct.id]
+              );
+              newAct.email_sent_at = new Date().toISOString();
+            }
+          } catch (mErr) {
+            console.error(`Gagal kirim email auto-sync ke ${item.email}:`, mErr);
+          }
+        } catch (e) {
+          console.error('Error auto-syncing missing approval action in GET:', e);
+        }
+      }
+    }
+
     // 5. Susun data dokumen terstruktur
     const stageOrder: Record<string, number> = {
       prepared: 1,
@@ -304,6 +385,24 @@ export async function GET(request: NextRequest) {
             emailSentAt: a.email_sent_at,
             rejectReason: a.reject_reason,
           }));
+
+          // 🆕 PENTING: Jika ada approver di registeredApprovers yang belum tercatat di actions
+          // (misalnya baru saja ditambahkan atau tahapnya belum dibuatkan action),
+          // gabungkan agar tetap tampil di modal edit dan tabel dokumen!
+          const existingApproverIds = new Set(existingActions.map(a => a.approver_id).filter(Boolean));
+          const unlinkedApprovers = registeredApprovers.filter(pa => !existingApproverIds.has(pa.id));
+          for (const pa of unlinkedApprovers) {
+            approverList.push({
+              id: null,
+              approverId: pa.id,
+              nama: pa.nama,
+              email: pa.email,
+              accStatus: stageStatus === 'completed' ? 'acc' : (stageStatus === 'in_progress' ? 'pending' : 'waiting'),
+              accAt: null,
+              emailSentAt: null,
+              rejectReason: null,
+            });
+          }
         } else {
           // Tahap belum dimulai di cycle ini, ambil dari daftar approver terdaftar
           approverList = registeredApprovers.map(pa => ({
@@ -311,7 +410,7 @@ export async function GET(request: NextRequest) {
             approverId: pa.id,
             nama: pa.nama,
             email: pa.email,
-            accStatus: stageStatus === 'completed' ? 'acc' : 'waiting',
+            accStatus: stageStatus === 'completed' ? 'acc' : (stageStatus === 'in_progress' ? 'pending' : 'waiting'),
             accAt: null,
             emailSentAt: null,
             rejectReason: null,
@@ -465,17 +564,38 @@ export async function PATCH(request: NextRequest) {
     //    PENTING: Jangan langsung DELETE semua rows karena procedure_approval_actions
     //    memiliki foreign key CASCADE ke procedure_approvers(id).
     //    Gunakan teknik update in-place dan hanya hapus rows yang tidak terikat actions!
+    const activeCycleRes = await client.query(
+      `SELECT id, current_stage, status FROM procedure_approval_cycles
+       WHERE nomor_dokumen = $1 AND status = 'in_progress'
+       ORDER BY id DESC LIMIT 1`,
+      [nomorDokumen]
+    );
+    const activeCycle = activeCycleRes.rows[0] || null;
+    const newActionsToNotify: any[] = [];
+
     if (approvers && typeof approvers === 'object') {
       const roles: ApprovalRole[] = ['prepared', 'checked', 'approved'];
+      const stageOrder: Record<string, number> = {
+        prepared: 1,
+        checked: 2,
+        approved: 3,
+      };
+      const curStageOrder = activeCycle ? (stageOrder[activeCycle.current_stage] || 1) : 1;
 
       for (const role of roles) {
+        // 🔒 Jika siklus sedang berjalan dan tahap ini SUDAH selesai disetujui (order < curStageOrder):
+        // Jangan izinkan ubah atau tambah approver pada tahap yang sudah selesai!
+        if (activeCycle && stageOrder[role] < curStageOrder) {
+          continue;
+        }
+
         const newApprovers: ApproverInput[] = Array.isArray(approvers[role])
           ? approvers[role].filter((a: ApproverInput) => a.email && a.email.trim())
           : [];
 
         // Ambil approver existing untuk role ini
         const existingRes = await client.query(
-          `SELECT id, urutan FROM procedure_approvers
+          `SELECT id, urutan, email, nama FROM procedure_approvers
            WHERE nomor_dokumen = $1 AND role = $2
            ORDER BY urutan ASC, id ASC`,
           [nomorDokumen, role]
@@ -505,13 +625,76 @@ export async function PATCH(request: NextRequest) {
                WHERE approver_id = $3 AND acc_status = 'pending'`,
               [incoming.nama?.trim() || null, incoming.email.trim(), existing.id]
             );
+
+            // Jika role ini sedang berjalan di activeCycle, cek apakah action sudah ada dan sudah dikirimi email
+            if (activeCycle && activeCycle.current_stage === role) {
+              const actCheck = await client.query(
+                `SELECT id, email_sent_at, token FROM procedure_approval_actions WHERE cycle_id = $1 AND approver_id = $2`,
+                [activeCycle.id, existing.id]
+              );
+              if (actCheck.rows.length === 0) {
+                const token = generateToken();
+                const verificationCode = generateVerificationCode();
+                const actionInsert = await client.query(
+                  `INSERT INTO procedure_approval_actions
+                     (cycle_id, approver_id, role, nama, email, token, verification_code, acc_status)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
+                   RETURNING id`,
+                  [activeCycle.id, existing.id, role, incoming.nama?.trim() || null, incoming.email.trim(), token, verificationCode]
+                );
+                newActionsToNotify.push({
+                  actionId: actionInsert.rows[0]?.id,
+                  cycleId: activeCycle.id,
+                  approverId: existing.id,
+                  role: role,
+                  nama: incoming.nama?.trim() || null,
+                  email: incoming.email.trim(),
+                  token,
+                });
+              } else if (!actCheck.rows[0].email_sent_at) {
+                newActionsToNotify.push({
+                  actionId: actCheck.rows[0].id,
+                  cycleId: activeCycle.id,
+                  approverId: existing.id,
+                  role: role,
+                  nama: incoming.nama?.trim() || null,
+                  email: incoming.email.trim(),
+                  token: actCheck.rows[0].token,
+                });
+              }
+            }
           } else if (!existing && incoming) {
-            // Insert row baru
-            await client.query(
+            // Insert row baru ke procedure_approvers
+            const insertRes = await client.query(
               `INSERT INTO procedure_approvers (nomor_dokumen, role, nama, email, urutan, grup)
-               VALUES ($1, $2, $3, $4, $5, 1)`,
+               VALUES ($1, $2, $3, $4, $5, 1)
+               RETURNING id`,
               [nomorDokumen, role, incoming.nama?.trim() || null, incoming.email.trim(), i]
             );
+            const newApproverId = insertRes.rows[0]?.id;
+
+            // 🆕 Jika dokumen memiliki siklus yang SEDANG BERJALAN di tahap ini (role === activeCycle.current_stage):
+            // Buatkan action approval baru dengan status 'pending', token unik, dan daftarkan untuk dikirimi email notifikasi!
+            if (activeCycle && activeCycle.current_stage === role && newApproverId) {
+              const token = generateToken();
+              const verificationCode = generateVerificationCode();
+              const actionInsert = await client.query(
+                `INSERT INTO procedure_approval_actions
+                   (cycle_id, approver_id, role, nama, email, token, verification_code, acc_status)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
+                 RETURNING id`,
+                [activeCycle.id, newApproverId, role, incoming.nama?.trim() || null, incoming.email.trim(), token, verificationCode]
+              );
+              newActionsToNotify.push({
+                actionId: actionInsert.rows[0]?.id,
+                cycleId: activeCycle.id,
+                approverId: newApproverId,
+                role: role,
+                nama: incoming.nama?.trim() || null,
+                email: incoming.email.trim(),
+                token,
+              });
+            }
           } else if (existing && !incoming) {
             // Approver dikurangi dari form. Cek apakah aman untuk dihapus (tidak direferensikan action)
             const refCheck = await client.query(
@@ -534,16 +717,11 @@ export async function PATCH(request: NextRequest) {
     );
     const curStatus = currentDocStatusRes.rows[0]?.status;
 
-    const activeCycleRes = await client.query(
-      `SELECT id FROM procedure_approval_cycles WHERE nomor_dokumen = $1 AND status = 'in_progress'`,
-      [nomorDokumen]
-    );
-
     let startedApproval = false;
     let pendingActions: any[] = [];
 
     if (
-      (curStatus === 'Menunggu Setting Approver' || curStatus === 'Menunggu Approval' || activeCycleRes.rows.length === 0) &&
+      (curStatus === 'Menunggu Setting Approver' || curStatus === 'Menunggu Approval' || !activeCycle) &&
       approvers && typeof approvers === 'object'
     ) {
       const hasPrepared = (approvers.prepared || []).some((a: any) => a.email && a.email.trim());
@@ -577,6 +755,42 @@ export async function PATCH(request: NextRequest) {
       targetType: 'procedure',
       targetId: nomorDokumen,
     });
+
+    // 🆕 Kirim email notifikasi ke approver baru yang ditambahkan di tahap yang sedang berjalan
+    if (newActionsToNotify.length > 0) {
+      try {
+        const smtpSettings = await getActiveSmtpSettings(client);
+        if (smtpSettings) {
+          for (const action of newActionsToNotify) {
+            try {
+              const accLink = `${smtpSettings.appUrl}/review-prosedur/acc/${action.token}`;
+              const emailParams = {
+                nama: action.nama,
+                namaDokumen: namaDokumen || nomorDokumen,
+                nomorDokumen,
+                role: action.role as ApprovalRole,
+                accLink,
+              };
+              await sendMail(
+                smtpSettings,
+                action.email,
+                `[Review Prosedur] Permintaan Approval Dokumen Prosedur (${STAGE_DISPLAY[action.role as ApprovalRole]}) - ${nomorDokumen}`,
+                buildAccEmailHtml(emailParams),
+                buildAccEmailText(emailParams)
+              );
+              await client.query(
+                `UPDATE procedure_approval_actions SET email_sent_at = NOW() WHERE id = $1`,
+                [action.actionId]
+              );
+            } catch (errSend) {
+              console.error(`Error sending email to newly added approver ${action.email}:`, errSend);
+            }
+          }
+        }
+      } catch (errSmtp) {
+        console.error('Error in smtp check during new approver notification:', errSmtp);
+      }
+    }
 
     // Kirim email notifikasi ke approver Prepared jika alur approval baru saja dimulai
     if (startedApproval && pendingActions.length > 0) {
@@ -617,8 +831,11 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({
       success: true,
       startedApproval,
+      newApproversAdded: newActionsToNotify.length,
       message: startedApproval
         ? 'Data approver berhasil disimpan dan dokumen resmi masuk ke tahap approval (Prepared)!'
+        : newActionsToNotify.length > 0
+        ? `Approver baru berhasil ditambahkan dan email permintaan approval telah dikirim!`
         : 'Detail dokumen dan approval berhasil diperbarui.',
     });
   } catch (error) {

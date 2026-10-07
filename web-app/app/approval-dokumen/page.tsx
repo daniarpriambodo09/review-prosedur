@@ -260,51 +260,24 @@ export default function ApprovalDokumenPage() {
               </button>
             </div>
 
-            {/* Filter Stage Pill (jika aktif) & Search Input */}
-            <div className="flex flex-wrap items-center gap-2.5">
-              {stageFilter && (
-                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-700 font-semibold shadow-2xs">
-                  <span className="text-slate-500 font-medium">Filter Status:</span>
-                  <span className="font-bold text-blue-800">
-                    {stageFilter === 'setting_approver'
-                      ? 'Dokumen Baru'
-                      : stageFilter === 'revisi'
-                      ? 'Perlu Revisi'
-                      : stageFilter === 'prepared'
-                      ? 'Prepared'
-                      : stageFilter === 'checked'
-                      ? 'Checked'
-                      : 'Approved'}
-                  </span>
-                  <button
-                    onClick={() => setStageFilter(null)}
-                    className="w-4 h-4 rounded-full hover:bg-blue-200 text-blue-600 flex items-center justify-center transition-colors ml-0.5"
-                    title="Hapus filter"
-                  >
-                    <X size={11} />
-                  </button>
-                </div>
+            {/* Input Pencarian */}
+            <div className="relative min-w-[240px] w-full sm:w-auto">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Cari nama atau nomor dokumen..."
+                className="w-full text-xs pl-8 pr-7 py-2 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  <X size={12} />
+                </button>
               )}
-
-              {/* Input Pencarian */}
-              <div className="relative min-w-[240px] flex-1 sm:flex-initial">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  placeholder="Cari nama atau nomor dokumen..."
-                  className="w-full text-xs pl-8 pr-7 py-2 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
-                />
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery('')}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  >
-                    <X size={12} />
-                  </button>
-                )}
-              </div>
             </div>
           </div>
 

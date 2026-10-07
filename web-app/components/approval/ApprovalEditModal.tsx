@@ -16,6 +16,9 @@ import {
   ExternalLink,
   User,
   Sparkles,
+  ChevronDown,
+  Search,
+  Clock,
 } from 'lucide-react';
 import { ApprovalDocumentItem } from './ApprovalTable';
 
@@ -70,7 +73,9 @@ function ApproverInputCombobox({
   staffList: StaffOption[];
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Tutup dropdown jika klik di luar area
   useEffect(() => {
@@ -83,18 +88,24 @@ function ApproverInputCombobox({
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, []);
 
-  const query = nama.trim().toLowerCase();
+  // Urutkan semua staff berdasarkan nama secara alfabetis
+  const sortedStaffList = useMemo(() => {
+    return [...staffList].sort((a, b) => (a.nama || '').localeCompare(b.nama || ''));
+  }, [staffList]);
+
+  // Filter staff: jika search kosong, tampilkan SEMUA staff (tidak dibatasi slice)
   const filteredStaff = useMemo(() => {
-    if (!query) return staffList.slice(0, 8);
-    return staffList
-      .filter(s =>
-        s.nama.toLowerCase().includes(query) ||
-        s.email.toLowerCase().includes(query) ||
-        (s.kode && s.kode.toLowerCase().includes(query)) ||
-        (s.jabatan && s.jabatan.toLowerCase().includes(query))
-      )
-      .slice(0, 8);
-  }, [staffList, query]);
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return sortedStaffList;
+    return sortedStaffList.filter(s =>
+      (s.nama && s.nama.toLowerCase().includes(q)) ||
+      (s.email && s.email.toLowerCase().includes(q)) ||
+      (s.kode && s.kode.toLowerCase().includes(q)) ||
+      (s.jabatan && s.jabatan.toLowerCase().includes(q)) ||
+      (s.unit_nama && s.unit_nama.toLowerCase().includes(q)) ||
+      (s.department_nama && s.department_nama.toLowerCase().includes(q))
+    );
+  }, [sortedStaffList, searchTerm]);
 
   // Periksa apakah nama yang diinput terdaftar di daftar staff (case-insensitive)
   const isRegistered = useMemo(() => {
@@ -102,63 +113,162 @@ function ApproverInputCombobox({
     return staffList.some(s => s.nama.toLowerCase().trim() === nama.toLowerCase().trim());
   }, [staffList, nama]);
 
+  const handleOpenDropdown = () => {
+    if (disabled) return;
+    setSearchTerm('');
+    setIsOpen(true);
+  };
+
   return (
     <div className="space-y-1.5" ref={containerRef}>
       <div className="flex items-center gap-2">
-        {/* Input Nama dengan Dropdown Sugesti */}
+        {/* Input Nama dengan Dropdown Sugesti Lengkap */}
         <div className="relative w-1/2">
-          <input
-            type="text"
-            value={nama}
-            onFocus={() => setIsOpen(true)}
-            onChange={e => {
-              onUpdateNama(e.target.value);
-              setIsOpen(true);
-            }}
-            placeholder="Ketik nama lengkap..."
-            disabled={disabled}
-            className="w-full text-xs px-3 py-2 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-          />
+          <div className="relative flex items-center">
+            <input
+              type="text"
+              value={nama}
+              onFocus={handleOpenDropdown}
+              onClick={handleOpenDropdown}
+              onChange={e => {
+                onUpdateNama(e.target.value);
+                setSearchTerm(e.target.value);
+                setIsOpen(true);
+              }}
+              placeholder="Pilih atau ketik nama..."
+              disabled={disabled}
+              className="w-full text-xs pl-3 pr-8 py-2 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            />
+            {/* Tombol Chevron Toggle Dropdown */}
+            <button
+              type="button"
+              tabIndex={-1}
+              onClick={() => {
+                if (disabled) return;
+                setIsOpen(prev => {
+                  const next = !prev;
+                  if (next) setSearchTerm('');
+                  return next;
+                });
+              }}
+              className="absolute right-2 p-1 text-slate-400 hover:text-slate-600 rounded transition-colors"
+              title="Tampilkan semua daftar staff"
+            >
+              <ChevronDown
+                size={14}
+                className={`transition-transform duration-200 ${isOpen ? 'rotate-180 text-blue-600' : ''}`}
+              />
+            </button>
+          </div>
 
-          {/* Floating Dropdown Options */}
-          {isOpen && filteredStaff.length > 0 && (
-            <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 max-h-56 overflow-y-auto divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-100">
-              <div className="px-3 py-1.5 bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-                <span>Daftar Staff / Pegawai</span>
-                <span className="font-normal lowercase">Pilih untuk auto-fill</span>
+          {/* Floating Dropdown Options - Menampilkan Semua Opsi */}
+          {isOpen && (
+            <div className="absolute left-0 top-full mt-1.5 w-[330px] sm:w-[380px] bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-100">
+              {/* Header Dropdown: Search Box & Counter */}
+              <div className="p-2.5 bg-slate-50/90 border-b border-slate-100 space-y-2">
+                <div className="relative">
+                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    ref={searchInputRef}
+                    type="text"
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                    placeholder="Cari nama, email, jabatan... (opsional)"
+                    className="w-full pl-8 pr-7 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    autoFocus
+                  />
+                  {searchTerm && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchTerm('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between text-[10px] text-slate-500 px-0.5 font-medium">
+                  <span>
+                    {searchTerm
+                      ? `Ditemukan: ${filteredStaff.length} dari ${staffList.length} staff`
+                      : `Daftar Semua Staff (${staffList.length} orang)`}
+                  </span>
+                  <span className="text-blue-600">Pilih untuk auto-fill</span>
+                </div>
               </div>
-              {filteredStaff.map((staff, idx) => (
-                <button
-                  key={`${staff.kode}-${idx}`}
-                  type="button"
-                  onClick={() => {
-                    onSelectStaff(staff);
-                    setIsOpen(false);
-                  }}
-                  className="w-full text-left px-3 py-2 hover:bg-blue-50/70 transition-colors flex items-center justify-between gap-2 group"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-bold text-slate-800 group-hover:text-blue-700 truncate">
-                      {staff.nama}
+
+              {/* Scrollable Staff List - Semua Staff Tampil Langsung */}
+              <div className="max-h-60 overflow-y-auto divide-y divide-slate-100">
+                {filteredStaff.length === 0 ? (
+                  <div className="p-4 text-center">
+                    <p className="text-xs text-slate-500">
+                      Tidak ada staff yang cocok dengan &quot;{searchTerm}&quot;
                     </p>
-                    <p className="text-[11px] text-slate-400 truncate">
-                      {staff.email}
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Anda tetap bisa menggunakan nama manual ini atau menambahkannya di{' '}
+                      <Link
+                        href="/kelola-departemen"
+                        target="_blank"
+                        className="text-blue-600 underline font-semibold"
+                      >
+                        Kelola Departemen
+                      </Link>
                     </p>
                   </div>
-                  <div className="flex flex-col items-end flex-shrink-0">
-                    {staff.jabatan && (
-                      <span className="text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.2 rounded">
-                        {staff.jabatan}
-                      </span>
-                    )}
-                    {staff.unit_nama && (
-                      <span className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[100px]">
-                        {staff.unit_nama}
-                      </span>
-                    )}
-                  </div>
-                </button>
-              ))}
+                ) : (
+                  filteredStaff.map((staff, idx) => {
+                    const isSelected =
+                      Boolean(nama.trim()) &&
+                      (nama.trim().toLowerCase() === staff.nama.trim().toLowerCase() ||
+                        nama.trim().toLowerCase().startsWith(staff.nama.trim().toLowerCase()));
+
+                    return (
+                      <button
+                        key={`${staff.kode}-${idx}`}
+                        type="button"
+                        onClick={() => {
+                          onSelectStaff(staff);
+                          setIsOpen(false);
+                          setSearchTerm('');
+                        }}
+                        className={`w-full text-left px-3 py-2.5 transition-colors flex items-center justify-between gap-2.5 group ${
+                          isSelected
+                            ? 'bg-blue-50/90 text-blue-900 border-l-4 border-blue-600'
+                            : 'hover:bg-slate-50/80 text-slate-800'
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-xs font-bold truncate group-hover:text-blue-700">
+                              {staff.nama}
+                            </p>
+                            {isSelected && (
+                              <CheckCircle2 size={13} className="text-blue-600 flex-shrink-0" />
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-400 truncate mt-0.5">
+                            {staff.email}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-col items-end flex-shrink-0">
+                          {staff.jabatan && (
+                            <span className="text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200/90 px-1.5 py-0.2 rounded">
+                              {staff.jabatan}
+                            </span>
+                          )}
+                          {staff.unit_nama && (
+                            <span className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[110px]">
+                              {staff.unit_nama}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -277,6 +387,14 @@ export default function ApprovalEditModal({
     doc.documentStatus === 'Menunggu Setting Approver' ||
     doc.documentStatus === 'Menunggu Approval' ||
     doc.cycleStatus === 'setting_approver';
+
+  const isPreparedCompleted = doc.stages?.prepared?.status === 'completed';
+  const isCheckedCompleted  = doc.stages?.checked?.status === 'completed';
+  const isApprovedCompleted = doc.stages?.approved?.status === 'completed';
+
+  const isPreparedInProgress = doc.stages?.prepared?.status === 'in_progress';
+  const isCheckedInProgress  = doc.stages?.checked?.status === 'in_progress';
+  const isApprovedInProgress = doc.stages?.approved?.status === 'in_progress';
 
   // Helpers manipulasi baris approver
   const updateRow = (
@@ -520,28 +638,46 @@ export default function ApprovalEditModal({
             </div>
 
             {/* 1. Prepared Approvers */}
-            <div className="border border-blue-200/80 rounded-2xl p-4 bg-blue-50/20 shadow-2xs">
-              <div className="flex items-center justify-between mb-3">
+            <div className={`border rounded-2xl p-4 shadow-2xs ${
+              isPreparedCompleted
+                ? 'border-emerald-200/90 bg-emerald-50/20'
+                : 'border-blue-200/80 bg-blue-50/20'
+            }`}>
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                 <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center">
-                    <FileEdit size={14} />
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
+                    isPreparedCompleted
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : 'bg-blue-100 text-blue-700'
+                  }`}>
+                    {isPreparedCompleted ? <CheckCircle2 size={15} /> : <FileEdit size={14} />}
                   </div>
                   <div>
-                    <h4 className="text-xs font-bold text-blue-900">
+                    <h4 className={`text-xs font-bold ${
+                      isPreparedCompleted ? 'text-emerald-950' : 'text-blue-900'
+                    }`}>
                       1. Approver Prepared (Pembuat Dokumen) <span className="text-red-500">*</span>
                     </h4>
                     <p className="text-[11px] text-slate-500">Pihak yang menyiapkan atau menyusun dokumen</p>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => addRow('prepared')}
-                  disabled={saving}
-                  className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800 bg-white px-2.5 py-1 rounded-lg border border-blue-200 shadow-2xs hover:bg-blue-50 transition-colors"
-                >
-                  <Plus size={13} />
-                  <span>Tambah Approver</span>
-                </button>
+
+                {isPreparedCompleted ? (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-800 bg-emerald-100 px-3 py-1 rounded-xl border border-emerald-300">
+                    <CheckCircle2 size={13} className="text-emerald-600" />
+                    <span>Sudah Diapprove (Terkunci)</span>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => addRow('prepared')}
+                    disabled={saving}
+                    className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800 bg-white px-2.5 py-1 rounded-lg border border-blue-200 shadow-2xs hover:bg-blue-50 transition-colors"
+                  >
+                    <Plus size={13} />
+                    <span>Tambah Approver</span>
+                  </button>
+                )}
               </div>
 
               <div className="space-y-3">
@@ -554,37 +690,71 @@ export default function ApprovalEditModal({
                     onUpdateEmail={val => updateRow('prepared', idx, 'email', val)}
                     onSelectStaff={staff => selectStaff('prepared', idx, staff)}
                     onRemove={() => removeRow('prepared', idx)}
-                    canRemove={preparedApprovers.length > 1}
-                    disabled={saving}
+                    canRemove={!isPreparedCompleted && preparedApprovers.length > 1}
+                    disabled={saving || isPreparedCompleted}
                     staffList={staffList}
                   />
                 ))}
               </div>
+
+              {isPreparedCompleted && (
+                <p className="text-[11px] text-emerald-700 bg-emerald-50/80 p-2.5 rounded-xl border border-emerald-200 mt-3 font-medium">
+                  ✓ Tahap Prepared telah disetujui. Approver pada tahap ini sudah mengesahkan dokumen sehingga tidak dapat ditambah atau diubah.
+                </p>
+              )}
             </div>
 
             {/* 2. Checked Approvers */}
-            <div className="border border-amber-200/80 rounded-2xl p-4 bg-amber-50/20 shadow-2xs">
-              <div className="flex items-center justify-between mb-3">
+            <div className={`border rounded-2xl p-4 shadow-2xs ${
+              isCheckedCompleted
+                ? 'border-emerald-200/90 bg-emerald-50/20'
+                : isCheckedInProgress
+                ? 'border-amber-300 bg-amber-50/30 ring-1 ring-amber-200'
+                : 'border-amber-200/80 bg-amber-50/20'
+            }`}>
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                 <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center">
-                    <FileSearch size={14} />
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
+                    isCheckedCompleted
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : 'bg-amber-100 text-amber-700'
+                  }`}>
+                    {isCheckedCompleted ? <CheckCircle2 size={15} /> : <FileSearch size={14} />}
                   </div>
                   <div>
-                    <h4 className="text-xs font-bold text-amber-900">
+                    <h4 className={`text-xs font-bold ${
+                      isCheckedCompleted ? 'text-emerald-950' : 'text-amber-900'
+                    }`}>
                       2. Approver Checked (Pemeriksa Dokumen) <span className="text-red-500">*</span>
                     </h4>
                     <p className="text-[11px] text-slate-500">Pihak yang memverifikasi isi dokumen</p>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => addRow('checked')}
-                  disabled={saving}
-                  className="inline-flex items-center gap-1 text-xs font-bold text-amber-600 hover:text-amber-800 bg-white px-2.5 py-1 rounded-lg border border-amber-200 shadow-2xs hover:bg-amber-50 transition-colors"
-                >
-                  <Plus size={13} />
-                  <span>Tambah Approver</span>
-                </button>
+
+                {isCheckedCompleted ? (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-800 bg-emerald-100 px-3 py-1 rounded-xl border border-emerald-300">
+                    <CheckCircle2 size={13} className="text-emerald-600" />
+                    <span>Sudah Diapprove (Terkunci)</span>
+                  </span>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    {isCheckedInProgress && (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-300">
+                        <Clock size={12} className="text-amber-600" />
+                        <span>Sedang Berjalan</span>
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => addRow('checked')}
+                      disabled={saving}
+                      className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 hover:text-amber-900 bg-white px-2.5 py-1 rounded-lg border border-amber-300 shadow-2xs hover:bg-amber-50 transition-colors"
+                    >
+                      <Plus size={13} />
+                      <span>Tambah Approver</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-3">
@@ -597,17 +767,33 @@ export default function ApprovalEditModal({
                     onUpdateEmail={val => updateRow('checked', idx, 'email', val)}
                     onSelectStaff={staff => selectStaff('checked', idx, staff)}
                     onRemove={() => removeRow('checked', idx)}
-                    canRemove={checkedApprovers.length > 1}
-                    disabled={saving}
+                    canRemove={!isCheckedCompleted && checkedApprovers.length > 1}
+                    disabled={saving || isCheckedCompleted}
                     staffList={staffList}
                   />
                 ))}
               </div>
+
+              {isCheckedCompleted ? (
+                <p className="text-[11px] text-emerald-700 bg-emerald-50/80 p-2.5 rounded-xl border border-emerald-200 mt-3 font-medium">
+                  ✓ Tahap Checked telah disetujui. Approver pada tahap ini sudah mengesahkan dokumen sehingga tidak dapat ditambah atau diubah.
+                </p>
+              ) : isCheckedInProgress ? (
+                <p className="text-[11px] text-amber-800 bg-amber-50 p-2.5 rounded-xl border border-amber-200 mt-3 font-medium">
+                  ℹ️ Tahap ini sedang berjalan. Approver baru yang ditambahkan akan langsung menerima email approval dan dapat langsung memeriksa dokumen bersamaan.
+                </p>
+              ) : null}
             </div>
 
             {/* 3. Approved Approvers */}
-            <div className="border border-emerald-200/80 rounded-2xl p-4 bg-emerald-50/20 shadow-2xs">
-              <div className="flex items-center justify-between mb-3">
+            <div className={`border rounded-2xl p-4 shadow-2xs ${
+              isApprovedCompleted
+                ? 'border-emerald-200/90 bg-emerald-50/20'
+                : isApprovedInProgress
+                ? 'border-emerald-300 bg-emerald-50/30 ring-1 ring-emerald-200'
+                : 'border-emerald-200/80 bg-emerald-50/20'
+            }`}>
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                 <div className="flex items-center gap-2">
                   <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
                     <ShieldCheck size={14} />
@@ -619,15 +805,31 @@ export default function ApprovalEditModal({
                     <p className="text-[11px] text-slate-500">Pihak otorisasi / manajemen tingkat akhir</p>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => addRow('approved')}
-                  disabled={saving}
-                  className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 hover:text-emerald-800 bg-white px-2.5 py-1 rounded-lg border border-emerald-200 shadow-2xs hover:bg-emerald-50 transition-colors"
-                >
-                  <Plus size={13} />
-                  <span>Tambah Approver</span>
-                </button>
+
+                {isApprovedCompleted ? (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-800 bg-emerald-100 px-3 py-1 rounded-xl border border-emerald-300">
+                    <CheckCircle2 size={13} className="text-emerald-600" />
+                    <span>Sudah Diapprove (Terkunci)</span>
+                  </span>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    {isApprovedInProgress && (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-300">
+                        <Clock size={12} className="text-emerald-600" />
+                        <span>Sedang Berjalan</span>
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => addRow('approved')}
+                      disabled={saving}
+                      className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 hover:text-emerald-800 bg-white px-2.5 py-1 rounded-lg border border-emerald-200 shadow-2xs hover:bg-emerald-50 transition-colors"
+                    >
+                      <Plus size={13} />
+                      <span>Tambah Approver</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-3">
@@ -640,12 +842,22 @@ export default function ApprovalEditModal({
                     onUpdateEmail={val => updateRow('approved', idx, 'email', val)}
                     onSelectStaff={staff => selectStaff('approved', idx, staff)}
                     onRemove={() => removeRow('approved', idx)}
-                    canRemove={approvedApprovers.length > 1}
-                    disabled={saving}
+                    canRemove={!isApprovedCompleted && approvedApprovers.length > 1}
+                    disabled={saving || isApprovedCompleted}
                     staffList={staffList}
                   />
                 ))}
               </div>
+
+              {isApprovedCompleted ? (
+                <p className="text-[11px] text-emerald-700 bg-emerald-50/80 p-2.5 rounded-xl border border-emerald-200 mt-3 font-medium">
+                  ✓ Tahap Approved telah disetujui. Approver pada tahap ini sudah mengesahkan dokumen sehingga tidak dapat ditambah atau diubah.
+                </p>
+              ) : isApprovedInProgress ? (
+                <p className="text-[11px] text-emerald-800 bg-emerald-50 p-2.5 rounded-xl border border-emerald-200 mt-3 font-medium">
+                  ℹ️ Tahap ini sedang berjalan. Approver baru yang ditambahkan akan langsung menerima email approval dan dapat langsung mengesahkan dokumen bersamaan.
+                </p>
+              ) : null}
             </div>
           </div>
 

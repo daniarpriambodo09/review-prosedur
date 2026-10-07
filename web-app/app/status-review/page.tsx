@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import RevisionNotesModal from '@/components/status-review/RevisionNotesModal';
 import { FileClock } from 'lucide-react';
+import { useDialog } from '@/contexts/DialogContext';
 
 // =============================================================================
 // Helpers — TIDAK DIUBAH
@@ -401,6 +402,14 @@ const fieldCls =
   'placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 ' +
   'focus:border-transparent transition-all bg-white hover:border-slate-300';
 
+interface StaffItem {
+  kode: string;
+  nama: string;
+  email: string;
+  jabatan?: string | null;
+  unitNama?: string | null;
+}
+
 // =============================================================================
 // AddProcedureModal — logic TIDAK DIUBAH, visual diperbarui
 // =============================================================================
@@ -417,6 +426,68 @@ function AddProcedureModal({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
+
+  // Dropdown PIC State
+  const [staffList, setStaffList] = useState<StaffItem[]>([]);
+  const [isPicOpen, setIsPicOpen] = useState(false);
+  const [picSearch, setPicSearch] = useState('');
+  const picContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // Load daftar staff untuk dropdown PIC
+  useEffect(() => {
+    if (!isOpen) return;
+    const loadStaff = async () => {
+      try {
+        const res = await fetch('/review-prosedur/api/staff');
+        if (res.ok) {
+          const data = await res.json();
+          setStaffList(data || []);
+        }
+      } catch (e) {
+        console.error('Error fetching staff list for PIC:', e);
+      }
+    };
+    loadStaff();
+  }, [isOpen]);
+
+  // Tutup dropdown PIC saat klik di luar
+  useEffect(() => {
+    const handleOutside = (e: MouseEvent) => {
+      if (picContainerRef.current && !picContainerRef.current.contains(e.target as Node)) {
+        setIsPicOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, []);
+
+  const sortedStaff = useMemo(() => {
+    return [...staffList].sort((a, b) => (a.kode || '').localeCompare(b.kode || ''));
+  }, [staffList]);
+
+  const filteredPicStaff = useMemo(() => {
+    const q = picSearch.trim().toLowerCase();
+    if (!q) return sortedStaff;
+    return sortedStaff.filter(s =>
+      (s.kode && s.kode.toLowerCase().includes(q)) ||
+      (s.nama && s.nama.toLowerCase().includes(q)) ||
+      (s.email && s.email.toLowerCase().includes(q)) ||
+      (s.jabatan && s.jabatan.toLowerCase().includes(q)) ||
+      (s.unitNama && s.unitNama.toLowerCase().includes(q))
+    );
+  }, [sortedStaff, picSearch]);
+
+  const selectedStaffObj = useMemo(() => {
+    if (!value.pic) return null;
+    return staffList.find(s => s.kode.toLowerCase().trim() === value.pic.toLowerCase().trim());
+  }, [staffList, value.pic]);
+
+  const handleSelectPic = (staff: StaffItem) => {
+    onChange('pic', staff.kode); // Diambil kode staff saja
+    onChange('email', staff.email); // Email terisi otomatis sesuai kode PIC
+    setIsPicOpen(false);
+    setPicSearch('');
+  };
 
   if (!isOpen) return null;
 
@@ -476,23 +547,187 @@ function AddProcedureModal({
             <AutoResizeTextarea value={value.owner || ''} onChange={v => onChange('owner', v)}
               placeholder="Masukkan owner" disabled={isSaving} minRows={1} maxRows={3} className={fieldCls} />
           </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">PIC <span className="text-red-500">*</span></label>
-            <input type="text" value={value.pic || ''} disabled={isSaving}
-              onChange={e => onChange('pic', e.target.value)}
-              placeholder="Masukkan PIC" className={fieldCls} />
+          {/* PIC (Kode Staff) dengan Dropdown & Search */}
+          <div className="relative" ref={picContainerRef}>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold text-slate-700">
+                PIC (Kode Staff) <span className="text-red-500">*</span>
+              </label>
+              {selectedStaffObj && (
+                <span
+                  className="text-[10px] font-medium text-blue-600 truncate max-w-[150px]"
+                  title={`${selectedStaffObj.nama} (${selectedStaffObj.jabatan || selectedStaffObj.unitNama || ''})`}
+                >
+                  {selectedStaffObj.nama}
+                </span>
+              )}
+            </div>
+
+            <div className="relative flex items-center">
+              <input
+                type="text"
+                value={value.pic || ''}
+                disabled={isSaving}
+                onFocus={() => {
+                  setPicSearch('');
+                  setIsPicOpen(true);
+                }}
+                onClick={() => {
+                  setPicSearch('');
+                  setIsPicOpen(true);
+                }}
+                onChange={e => {
+                  onChange('pic', e.target.value.toUpperCase());
+                  setPicSearch(e.target.value);
+                  setIsPicOpen(true);
+                }}
+                placeholder="Pilih kode PIC (mis. DP)..."
+                className={`${fieldCls} pr-8 font-mono font-bold tracking-wide uppercase`}
+              />
+
+              <button
+                type="button"
+                tabIndex={-1}
+                disabled={isSaving}
+                onClick={() => {
+                  setIsPicOpen(prev => {
+                    const next = !prev;
+                    if (next) setPicSearch('');
+                    return next;
+                  });
+                }}
+                className="absolute right-2 p-1 text-slate-400 hover:text-slate-600 rounded transition-colors"
+                title="Tampilkan daftar PIC"
+              >
+                <ChevronDown
+                  size={14}
+                  className={`transition-transform duration-200 ${isPicOpen ? 'rotate-180 text-blue-600' : ''}`}
+                />
+              </button>
+            </div>
+
+            {/* Dropdown Popover PIC */}
+            {isPicOpen && (
+              <div className="absolute left-0 top-full mt-1.5 w-[320px] sm:w-[350px] bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-100">
+                {/* Search Header */}
+                <div className="p-2.5 bg-slate-50/90 border-b border-slate-100 space-y-2">
+                  <div className="relative">
+                    <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      value={picSearch}
+                      onChange={e => setPicSearch(e.target.value)}
+                      placeholder="Cari kode staff, nama, email..."
+                      className="w-full pl-8 pr-7 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      autoFocus
+                    />
+                    {picSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setPicSearch('')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-slate-500 px-0.5 font-medium">
+                    <span>
+                      {picSearch
+                        ? `Ditemukan: ${filteredPicStaff.length} staff`
+                        : `Semua Staff PIC (${staffList.length})`}
+                    </span>
+                    <span className="text-blue-600">Pilih kode PIC</span>
+                  </div>
+                </div>
+
+                {/* Staff List */}
+                <div className="max-h-56 overflow-y-auto divide-y divide-slate-100">
+                  {filteredPicStaff.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-slate-500">
+                      Tidak ada PIC yang cocok dengan &quot;{picSearch}&quot;
+                    </div>
+                  ) : (
+                    filteredPicStaff.map((s, idx) => {
+                      const isSelected = value.pic?.toUpperCase() === s.kode?.toUpperCase();
+                      return (
+                        <button
+                          key={`${s.kode}-${idx}`}
+                          type="button"
+                          onClick={() => handleSelectPic(s)}
+                          className={`w-full text-left px-3 py-2.5 transition-colors flex items-center justify-between gap-2.5 group ${
+                            isSelected
+                              ? 'bg-blue-50/90 text-blue-900 border-l-4 border-blue-600'
+                              : 'hover:bg-slate-50/80 text-slate-800'
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 border border-blue-200/80">
+                                {s.kode}
+                              </span>
+                              <span className="text-xs font-bold text-slate-800 group-hover:text-blue-700 truncate">
+                                {s.nama}
+                              </span>
+                              {isSelected && (
+                                <CheckCircle2 size={13} className="text-blue-600 flex-shrink-0 ml-auto" />
+                              )}
+                            </div>
+                            <p className="text-[11px] text-slate-400 truncate mt-0.5 pl-0.5">
+                              {s.email}
+                            </p>
+                          </div>
+
+                          <div className="flex flex-col items-end flex-shrink-0">
+                            {s.jabatan && (
+                              <span className="text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200 px-1.5 py-0.2 rounded">
+                                {s.jabatan}
+                              </span>
+                            )}
+                            {s.unitNama && (
+                              <span className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[90px]">
+                                {s.unitNama}
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
           </div>
+
+          {/* Email PIC (Otomatis terisi dari PIC) */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Email <span className="text-red-500">*</span></label>
-            <input type="email" value={value.email || ''} disabled={isSaving}
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold text-slate-700">
+                Email <span className="text-red-500">*</span>
+              </label>
+              <span className="text-[10px] text-slate-400 font-normal">
+                Otomatis dari PIC
+              </span>
+            </div>
+            <input
+              type="email"
+              value={value.email || ''}
+              disabled={isSaving}
               onChange={e => onChange('email', e.target.value)}
-              placeholder="Masukkan email" className={fieldCls} />
+              placeholder="Email terisi otomatis dari kode PIC"
+              className={fieldCls}
+            />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Tanggal Selesai Approval <span className="text-red-500">*</span></label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              Tanggal Selesai Approval <span className="text-slate-400 font-normal">(Opsional)</span>
+            </label>
             <input type="date" value={value.tanggalSelesaiApproval || ''} disabled={isSaving}
               onChange={e => onChange('tanggalSelesaiApproval' as any, e.target.value)}
               className={fieldCls} />
+            <p className="text-[10px] text-slate-400 mt-1">
+              Otomatis terisi saat semua role approver (Prepared, Checked, Approved) telah menyetujui dokumen.
+            </p>
           </div>
 
           {/* Upload File Dokumen Baru */}
@@ -633,6 +868,8 @@ export default function StatusReviewPage() {
 
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>(null);
+
+  const { showAlert, showConfirm, showSuccess, showError, showWarning } = useDialog();
 
   // BUG FIX #3 & #4: selectedDocument untuk DocumentModal
   const [selectedDocument,         setSelectedDocument]         = useState<{ nomorDokumen: string; namaDokumen: string; status: string } | null>(null);
@@ -783,17 +1020,18 @@ export default function StatusReviewPage() {
   };
 
   const handleDeleteProcedure = async (nomorDokumen: string) => {
-    const confirmed = window.confirm(
-      'Apakah Anda yakin ingin mengarsipkan prosedur ini?\n\nProsedur akan dipindahkan ke arsip dan dapat di-restore kembali.'
+    const confirmed = await showConfirm(
+      'Apakah Anda yakin ingin mengarsipkan prosedur ini?\n\nProsedur akan dipindahkan ke arsip dan dapat di-restore kembali.',
+      'Konfirmasi Pengarsipan'
     );
     if (!confirmed) return;
     try {
       await archiveProcedure(nomorDokumen);
       await loadData(false);
-      alert('Prosedur berhasil diarsipkan!');
+      showSuccess('Prosedur berhasil diarsipkan!');
     } catch (error: any) {
       console.error('Error archiving procedure:', error);
-      alert('Gagal mengarsipkan prosedur: ' + (error.message || 'Unknown error'));
+      showError('Gagal mengarsipkan prosedur: ' + (error.message || 'Unknown error'));
     }
   };
 
@@ -829,8 +1067,9 @@ export default function StatusReviewPage() {
   };
 
   const handleCancelSchedule = async (nomorDokumen: string, namaDokumen: string) => {
-    const confirmed = window.confirm(
-      `Batalkan jadwal pengiriman email untuk "${namaDokumen}"?\n\nStatus dokumen akan dikembalikan ke status sebelumnya (Relevan/Revisi).`
+    const confirmed = await showConfirm(
+      `Batalkan jadwal pengiriman email untuk "${namaDokumen}"?\n\nStatus dokumen akan dikembalikan ke status sebelumnya (Relevan/Revisi).`,
+      'Konfirmasi Pembatalan Jadwal'
     );
     if (!confirmed) return;
 
@@ -841,11 +1080,11 @@ export default function StatusReviewPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Gagal membatalkan jadwal');
 
-      alert(`Jadwal email berhasil dibatalkan.\nStatus dokumen dikembalikan ke: ${data.restoredStatus || 'Relevan'}`);
+      showSuccess(`Jadwal email berhasil dibatalkan.\nStatus dokumen dikembalikan ke: ${data.restoredStatus || 'Relevan'}`);
       await Promise.all([loadData(false), loadEmailSchedules()]);
     } catch (err: any) {
       console.error('Error cancelling schedule:', err);
-      alert('Gagal membatalkan jadwal: ' + (err.message || 'Unknown error'));
+      showError('Gagal membatalkan jadwal: ' + (err.message || 'Unknown error'));
     }
   };
 
@@ -882,7 +1121,7 @@ export default function StatusReviewPage() {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error('Download Excel gagal:', err);
-      alert('Gagal membuat file Excel. Silakan coba lagi.');
+      showError('Gagal membuat file Excel. Silakan coba lagi.');
     }
   };
 
@@ -905,7 +1144,7 @@ export default function StatusReviewPage() {
       URL.revokeObjectURL(url);
     } catch (err: any) {
       console.error('Download Rekap Audit gagal:', err);
-      alert('Gagal membuat file Rekap Audit: ' + (err.message || 'Silakan coba lagi.'));
+      showError('Gagal membuat file Rekap Audit: ' + (err.message || 'Silakan coba lagi.'));
     } finally {
       setIsExportingAudit(false);
     }
@@ -913,13 +1152,13 @@ export default function StatusReviewPage() {
 
   const handleSaveNewProcedure = async () => {
     if (!newProcedure.namaDokumen || !newProcedure.nomorDokumen || !newProcedure.levelDokumen ||
-        !newProcedure.tanggalSelesaiApproval || !newProcedure.owner || !newProcedure.pic || !newProcedure.email) {
-      alert('Semua kolom wajib diisi.');
+        !newProcedure.owner || !newProcedure.pic || !newProcedure.email) {
+      showWarning('Kolom bertanda * (Nama, Nomor, Level Dokumen, Owner, PIC, dan Email) wajib diisi.');
       return;
     }
 
     if (!newProcedureFile) {
-      alert('Silakan upload file dokumen prosedur baru (format PDF) terlebih dahulu.');
+      showWarning('Silakan upload file dokumen prosedur baru (format PDF) terlebih dahulu.');
       return;
     }
 
@@ -938,7 +1177,7 @@ export default function StatusReviewPage() {
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
         if (response.status === 409) {
-          alert('Nomor dokumen sudah ada. Silakan gunakan nomor yang berbeda.');
+          showError('Nomor dokumen sudah ada. Silakan gunakan nomor yang berbeda.', 'Nomor Dokumen Terdaftar');
         } else {
           throw new Error(err.error || 'Gagal menambahkan prosedur');
         }
@@ -960,7 +1199,7 @@ export default function StatusReviewPage() {
       if (!uploadRes.ok) {
         const upErr = await uploadRes.json().catch(() => ({}));
         console.error('Warning: Dokumen tersimpan tapi file gagal diupload:', upErr);
-        alert(`Dokumen berhasil dibuat, namun file gagal diupload: ${upErr.error || 'Error upload'}. Anda dapat mengupload ulang di halaman Approval Dokumen.`);
+        showWarning(`Dokumen berhasil dibuat, namun file gagal diupload: ${upErr.error || 'Error upload'}. Anda dapat mengupload ulang di halaman Approval Dokumen.`);
       }
 
       await loadData(false);
@@ -974,11 +1213,16 @@ export default function StatusReviewPage() {
       setIsAddModalOpen(false);
       setCurrentPage(1);
 
-      alert('Dokumen dan file baru berhasil dibuat! Mengarahkan ke halaman Approval Dokumen untuk menentukan approver...');
+      await showAlert({
+        title: 'Dokumen Baru Berhasil Dibuat!',
+        message: 'Dokumen dan file baru berhasil dibuat! Mengarahkan ke halaman Approval Dokumen untuk menentukan approver...',
+        type: 'success',
+        okText: 'Lanjutkan ke Approval',
+      });
       window.location.href = `/review-prosedur/approval-dokumen?openEdit=${encodeURIComponent(createdNomor)}`;
     } catch (error: any) {
       console.error('Error saving procedure:', error);
-      alert('Gagal menambahkan prosedur. Silakan coba lagi.');
+      showError('Gagal menambahkan prosedur. Silakan coba lagi.');
     } finally {
       setIsSaving(false);
     }

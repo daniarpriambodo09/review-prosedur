@@ -20,6 +20,7 @@ import {
   Database,
   CalendarClock,
 } from 'lucide-react';
+import { useDialog } from '@/contexts/DialogContext';
 
 const NAV_ITEMS = [
   { label: 'Dashboard',             path: '/home',                     icon: LayoutDashboard },
@@ -38,9 +39,11 @@ export function AdminSidebar() {
   const { collapsed, setCollapsed } = useSidebar();
   const pathname = usePathname();
   const { logout, user } = useAuth();
+  const { showConfirm } = useDialog();
 
-  const handleLogout = () => {
-    if (window.confirm('Apakah Anda yakin ingin logout?')) logout();
+  const handleLogout = async () => {
+    const confirmed = await showConfirm('Apakah Anda yakin ingin logout dari sistem?', 'Konfirmasi Logout');
+    if (confirmed) logout();
   };
 
   const sidebarWidth = collapsed ? 'w-[72px]' : 'w-[260px]';
@@ -195,9 +198,11 @@ export function MobileSidebarDrawer({
 }) {
   const pathname = usePathname();
   const { logout, user } = useAuth();
+  const { showConfirm } = useDialog();
 
-  const handleLogout = () => {
-    if (window.confirm('Apakah Anda yakin ingin logout?')) {
+  const handleLogout = async () => {
+    const confirmed = await showConfirm('Apakah Anda yakin ingin logout dari sistem?', 'Konfirmasi Logout');
+    if (confirmed) {
       logout();
       onClose();
     }

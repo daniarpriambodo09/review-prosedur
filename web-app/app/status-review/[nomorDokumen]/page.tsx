@@ -19,6 +19,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useDialog } from '@/contexts/DialogContext';
 import {
   ProcedureDocument,
   StatusType,
@@ -208,6 +209,7 @@ export default function DocumentDetailPage() {
   const params = useParams<{ nomorDokumen: string }>();
   const router = useRouter();
   const { user } = useAuth();
+  const { showConfirm, showSuccess, showError } = useDialog();
   const nomorDokumen = decodeURIComponent(params?.nomorDokumen ?? '');
 
   const [doc, setDoc]           = useState<ProcedureDocument | null>(null);
@@ -283,8 +285,9 @@ export default function DocumentDetailPage() {
 
   const handleCancelSchedule = async () => {
     if (!doc) return;
-    const confirmed = window.confirm(
-      `Apakah Anda yakin ingin membatalkan jadwal pengiriman email untuk dokumen ini?\n\nStatus dokumen akan dikembalikan ke status sebelumnya (Relevan/Revisi).`
+    const confirmed = await showConfirm(
+      `Apakah Anda yakin ingin membatalkan jadwal pengiriman email untuk dokumen ini?\n\nStatus dokumen akan dikembalikan ke status sebelumnya (Relevan/Revisi).`,
+      'Batalkan Jadwal Email'
     );
     if (!confirmed) return;
 
@@ -296,11 +299,11 @@ export default function DocumentDetailPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Gagal membatalkan jadwal');
 
-      alert(`Jadwal email berhasil dibatalkan.\nStatus dokumen dikembalikan ke: ${data.restoredStatus || 'Relevan'}`);
+      showSuccess(`Jadwal email berhasil dibatalkan.\nStatus dokumen dikembalikan ke: ${data.restoredStatus || 'Relevan'}`);
       await loadData();
     } catch (err: any) {
       console.error('Error cancelling schedule:', err);
-      alert('Gagal membatalkan jadwal: ' + (err.message || 'Unknown error'));
+      showError('Gagal membatalkan jadwal: ' + (err.message || 'Unknown error'));
     } finally {
       setIsCancellingSchedule(false);
     }
@@ -308,17 +311,18 @@ export default function DocumentDetailPage() {
 
   const handleArchive = async () => {
     if (!doc) return;
-    const confirmed = window.confirm(
-      'Apakah Anda yakin ingin mengarsipkan prosedur ini?\n\nProsedur akan dipindahkan ke arsip dan dapat di-restore kembali.'
+    const confirmed = await showConfirm(
+      'Apakah Anda yakin ingin mengarsipkan prosedur ini?\n\nProsedur akan dipindahkan ke arsip dan dapat di-restore kembali.',
+      'Konfirmasi Pengarsipan'
     );
     if (!confirmed) return;
     try {
       await archiveProcedure(doc.nomorDokumen);
-      alert('Prosedur berhasil diarsipkan!');
+      showSuccess('Prosedur berhasil diarsipkan!');
       router.push('/status-review');
     } catch (error: any) {
       console.error('Error archiving procedure:', error);
-      alert('Gagal mengarsipkan prosedur: ' + (error.message || 'Unknown error'));
+      showError('Gagal mengarsipkan prosedur: ' + (error.message || 'Unknown error'));
     }
   };
 

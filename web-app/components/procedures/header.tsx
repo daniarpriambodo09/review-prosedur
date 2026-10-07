@@ -4,15 +4,17 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import { useDialog } from '@/contexts/DialogContext';
 import NotificationBell from '@/components/admin/NotificationBell';
 
 export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const pathname = usePathname();
   const { logout, user } = useAuth();
+  const { showConfirm } = useDialog();
 
-  const handleLogout = () => {
-    const confirmed = window.confirm('Apakah Anda yakin ingin logout?');
+  const handleLogout = async () => {
+    const confirmed = await showConfirm('Apakah Anda yakin ingin logout dari sistem?', 'Konfirmasi Logout');
     if (confirmed) logout();
   };
 
