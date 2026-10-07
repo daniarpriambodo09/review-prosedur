@@ -12,8 +12,8 @@ export async function replaceFirstPage(
   originalPdfBytes: Uint8Array,
   newFirstPageBytes: Uint8Array
 ): Promise<Uint8Array> {
-  const originalPdf     = await PDFDocument.load(originalPdfBytes);
-  const newFirstPagePdf = await PDFDocument.load(newFirstPageBytes);
+  const originalPdf     = await PDFDocument.load(originalPdfBytes, { ignoreEncryption: true });
+  const newFirstPagePdf = await PDFDocument.load(newFirstPageBytes, { ignoreEncryption: true });
 
   const mergedPdf = await PDFDocument.create();
 
@@ -50,9 +50,9 @@ export async function assembleFinalDocument(
   newLastPageBytes: Uint8Array,
   hadLastPageTemplate: boolean
 ): Promise<Uint8Array> {
-  const originalPdf    = await PDFDocument.load(originalPdfBytes);
-  const newFirstPdf    = await PDFDocument.load(newFirstPageBytes);
-  const newLastPdf     = await PDFDocument.load(newLastPageBytes);
+  const originalPdf    = await PDFDocument.load(originalPdfBytes, { ignoreEncryption: true });
+  const newFirstPdf    = await PDFDocument.load(newFirstPageBytes, { ignoreEncryption: true });
+  const newLastPdf     = await PDFDocument.load(newLastPageBytes, { ignoreEncryption: true });
 
   const mergedPdf = await PDFDocument.create();
 
