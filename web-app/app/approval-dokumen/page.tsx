@@ -200,10 +200,13 @@ export default function ApprovalDokumenPage() {
             />
           </div>
 
-          {/* ── Filter Controls & Search (1 Baris Rapi) ── */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-2.5 sm:p-3 shadow-2xs flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
+          {/* ── Filter Controls & Search (1 Baris Rapi Tanpa Scrollbar) ── */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-2.5 sm:p-3 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-2.5">
             {/* Tabs 1 Baris: Sedang Berjalan | Perlu Approval | Selesai (7 Hari) | Semua */}
-            <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 border border-slate-200/60 text-xs overflow-x-auto whitespace-nowrap scrollbar-none">
+            <div
+              className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 border border-slate-200/60 text-xs no-scrollbar overflow-x-auto whitespace-nowrap"
+              style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+            >
               <button
                 onClick={() => {
                   setStatusTab('in_progress');
@@ -280,7 +283,7 @@ export default function ApprovalDokumenPage() {
                 }`}
               >
                 <Layers size={13} className={statusTab === 'all' ? 'text-slate-800' : 'text-slate-400'} />
-                <span>Semua Dokumen</span>
+                <span>Semua</span>
                 <span className="ml-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-700">
                   {stats.allTotal}
                 </span>
@@ -288,7 +291,7 @@ export default function ApprovalDokumenPage() {
             </div>
 
             {/* Input Pencarian (Sejajar di sisi kanan) */}
-            <div className="relative w-full lg:w-72 shrink-0">
+            <div className="relative w-full md:w-60 lg:w-72 shrink-0">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
