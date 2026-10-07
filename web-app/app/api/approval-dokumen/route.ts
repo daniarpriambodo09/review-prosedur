@@ -82,14 +82,15 @@ export async function GET(request: NextRequest) {
     `);
     const settingApproverCount = settingApproverQuery.rows[0]?.count || 0;
 
-    // Total dokumen unik yang memiliki siklus approval
+    // Total dokumen unik yang memiliki siklus approval (completed dibatasi 7 hari terakhir)
     const totalsQuery = await client.query(`
       SELECT
-        COUNT(DISTINCT nomor_dokumen) FILTER (WHERE status = 'completed')::int AS completed_total,
-        COUNT(DISTINCT nomor_dokumen)::int AS all_total
+        COUNT(DISTINCT nomor_dokumen) FILTER (
+          WHERE status = 'completed' AND completed_at >= NOW() - INTERVAL '7 days'
+        )::int AS completed_total
       FROM procedure_approval_cycles
     `);
-    const totalsRow = totalsQuery.rows[0] || { completed_total: 0, all_total: 0 };
+    const totalsRow = totalsQuery.rows[0] || { completed_total: 0 };
 
     // 2. Ambil dokumen dengan siklus approval ATAU berstatus Revisi/Ditolak/Menunggu ACC/Menunggu Setting Approver
     const cyclesQuery = await client.query(`
@@ -113,6 +114,7 @@ export async function GET(request: NextRequest) {
             WHEN pd.status = 'Revisi' THEN 'revisi'
             WHEN pd.status = 'Ditolak' THEN 'rejected'
             WHEN lc.current_stage IS NOT NULL THEN lc.current_stage
+            WHEN lc.cycle_status = 'completed' THEN 'completed'
             ELSE 'setting_approver'
           END AS current_stage,
           CASE
@@ -137,7 +139,7 @@ export async function GET(request: NextRequest) {
         LEFT JOIN LatestCycles lc ON lc.nomor_dokumen = pd.nomor_dokumen
         LEFT JOIN active_procedure_files af ON af.nomor_dokumen = pd.nomor_dokumen
         WHERE
-          lc.cycle_id IS NOT NULL
+          (lc.cycle_id IS NOT NULL AND (lc.cycle_status != 'completed' OR lc.completed_at >= NOW() - INTERVAL '7 days'))
           OR pd.status = 'Revisi'
           OR pd.status = 'Ditolak'
           OR pd.status LIKE 'Menunggu ACC%'
@@ -154,7 +156,7 @@ export async function GET(request: NextRequest) {
           WHEN cycle_status = 'in_progress' THEN 3
           ELSE 4
         END,
-        started_at DESC,
+        COALESCE(completed_at, started_at) DESC,
         cycle_id DESC
     `);
 
@@ -494,11 +496,13 @@ export async function GET(request: NextRequest) {
     if (filter === 'in_progress') {
       filteredDocs = filteredDocs.filter(
         d =>
-          d.cycleStatus === 'in_progress' ||
+          (d.cycleStatus === 'in_progress' ||
           d.cycleStatus === 'revisi' ||
           d.cycleStatus === 'rejected' ||
           d.documentStatus === 'Revisi' ||
-          d.documentStatus === 'Ditolak'
+          d.documentStatus === 'Ditolak') &&
+          d.cycleStatus !== 'completed' &&
+          d.documentStatus !== 'Relevan'
       );
     } else if (filter === 'setting_approver' || filter === 'new_docs') {
       filteredDocs = filteredDocs.filter(
@@ -508,11 +512,22 @@ export async function GET(request: NextRequest) {
           d.documentStatus === 'Menunggu Approval'
       );
     } else if (filter === 'completed') {
-      filteredDocs = filteredDocs.filter(d => d.cycleStatus === 'completed');
+      filteredDocs = filteredDocs.filter(
+        d =>
+          (d.cycleStatus === 'completed' || d.currentStage === 'completed') &&
+          d.completedAt &&
+          new Date(d.completedAt).getTime() >= Date.now() - 7 * 24 * 60 * 60 * 1000
+      );
+      // Sort: dokumen yang paling baru selesai approval diletakkan di paling atas!
+      filteredDocs.sort((a, b) => {
+        const timeA = a.completedAt ? new Date(a.completedAt).getTime() : 0;
+        const timeB = b.completedAt ? new Date(b.completedAt).getTime() : 0;
+        return timeB - timeA;
+      });
     }
 
-    // Filter klik card stage (Setting Approver / Revisi / Prepared / Checked / Approved)
-    if (stageFilter && ['setting_approver', 'prepared', 'checked', 'approved', 'revisi'].includes(stageFilter)) {
+    // Filter klik card stage (Setting Approver / Revisi / Prepared / Checked / Approved / Selesai)
+    if (stageFilter && ['setting_approver', 'prepared', 'checked', 'approved', 'revisi', 'completed'].includes(stageFilter)) {
       filteredDocs = filteredDocs.filter(d => {
         if (stageFilter === 'setting_approver') {
           return (
@@ -529,8 +544,23 @@ export async function GET(request: NextRequest) {
             d.documentStatus === 'Ditolak'
           );
         }
+        if (stageFilter === 'completed') {
+          return (
+            (d.cycleStatus === 'completed' || d.currentStage === 'completed') &&
+            d.completedAt &&
+            new Date(d.completedAt).getTime() >= Date.now() - 7 * 24 * 60 * 60 * 1000
+          );
+        }
         return d.cycleStatus === 'in_progress' && d.currentStage === stageFilter;
       });
+
+      if (stageFilter === 'completed') {
+        filteredDocs.sort((a, b) => {
+          const timeA = a.completedAt ? new Date(a.completedAt).getTime() : 0;
+          const timeB = b.completedAt ? new Date(b.completedAt).getTime() : 0;
+          return timeB - timeA;
+        });
+      }
     }
 
     // Filter teks pencarian (nama dokumen / nomor dokumen)
@@ -543,6 +573,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const inProgressTotal = statsRow.in_progress_total + revisiCount;
+    const completedTotal = totalsRow.completed_total || 0;
+    const allTotal = inProgressTotal + settingApproverCount + completedTotal;
+
     return NextResponse.json({
       stats: {
         settingApprover: settingApproverCount,
@@ -550,9 +584,9 @@ export async function GET(request: NextRequest) {
         prepared: statsRow.prepared_count,
         checked: statsRow.checked_count,
         approved: statsRow.approved_count,
-        inProgressTotal: statsRow.in_progress_total + revisiCount,
-        completedTotal: totalsRow.completed_total,
-        allTotal: totalsRow.all_total + revisiCount + settingApproverCount,
+        inProgressTotal,
+        completedTotal,
+        allTotal,
       },
       documents: filteredDocs,
     });

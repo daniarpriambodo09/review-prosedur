@@ -19,6 +19,7 @@ import {
   Layers,
   Upload,
   Sparkles,
+  CheckCircle2,
 } from 'lucide-react';
 
 interface ApprovalStats {
@@ -49,8 +50,8 @@ export default function ApprovalDokumenPage() {
   const [refreshing, setRefreshing] = useState(false);
 
   // Tab & Filters
-  // 'in_progress' | 'setting_approver' | 'all'
-  const [statusTab, setStatusTab] = useState<'in_progress' | 'setting_approver' | 'all'>('in_progress');
+  // 'in_progress' | 'setting_approver' | 'completed' | 'all'
+  const [statusTab, setStatusTab] = useState<'in_progress' | 'setting_approver' | 'completed' | 'all'>('in_progress');
   const [stageFilter, setStageFilter] = useState<StageFilterType>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -182,7 +183,7 @@ export default function ApprovalDokumenPage() {
             </div>
           </div>
 
-          {/* ── 5 Card Approval (Perlu Masuk Approval, Perlu Revisi, Prepared, Checked, Approved) ── */}
+          {/* ── 6 Card Approval (Dokumen Baru, Perlu Revisi, Prepared, Checked, Approved, Selesai Approval) ── */}
           <div>
             <ApprovalFilterCards
               stats={{
@@ -191,6 +192,7 @@ export default function ApprovalDokumenPage() {
                 prepared: stats.prepared,
                 checked: stats.checked,
                 approved: stats.approved,
+                completedTotal: stats.completedTotal,
                 inProgressTotal: stats.inProgressTotal,
               }}
               activeStage={stageFilter}
@@ -198,24 +200,24 @@ export default function ApprovalDokumenPage() {
             />
           </div>
 
-          {/* ── Filter Controls & Search ── */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3">
-            {/* Tabs: Dokumen Berjalan vs Perlu Masuk Approval vs Semua Siklus */}
-            <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl bg-slate-100 border border-slate-200/60 text-xs self-start">
+          {/* ── Filter Controls & Search (1 Baris Rapi) ── */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-2.5 sm:p-3 shadow-2xs flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
+            {/* Tabs 1 Baris: Sedang Berjalan | Perlu Approval | Selesai (7 Hari) | Semua */}
+            <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 border border-slate-200/60 text-xs overflow-x-auto whitespace-nowrap scrollbar-none">
               <button
                 onClick={() => {
                   setStatusTab('in_progress');
                   setStageFilter(null);
                 }}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all ${
+                className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg font-bold transition-all shrink-0 ${
                   statusTab === 'in_progress'
                     ? 'bg-white text-blue-700 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <Clock size={13} />
+                <Clock size={13} className={statusTab === 'in_progress' ? 'text-blue-600' : 'text-slate-400'} />
                 <span>Sedang Berjalan</span>
-                <span className="ml-1 text-[10px] px-1.5 py-0.2 rounded-full bg-blue-100 text-blue-800">
+                <span className="ml-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-800">
                   {stats.inProgressTotal}
                 </span>
               </button>
@@ -225,16 +227,16 @@ export default function ApprovalDokumenPage() {
                   setStatusTab('setting_approver');
                   setStageFilter(null);
                 }}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all ${
+                className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg font-bold transition-all shrink-0 ${
                   statusTab === 'setting_approver'
                     ? 'bg-white text-sky-700 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
-                title="Dokumen baru dibuat yang menunggu penentuan approver & masuk tahap approval"
+                title="Dokumen baru yang menunggu penentuan approver"
               >
                 <Sparkles size={13} className={statusTab === 'setting_approver' ? 'text-sky-600' : 'text-slate-400'} />
-                <span>Perlu Masuk Approval</span>
-                <span className={`ml-1 text-[10px] px-1.5 py-0.2 rounded-full ${
+                <span>Perlu Approval</span>
+                <span className={`ml-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
                   (stats.settingApprover || 0) > 0
                     ? 'bg-sky-100 text-sky-800 font-extrabold'
                     : 'bg-slate-200 text-slate-700'
@@ -245,32 +247,55 @@ export default function ApprovalDokumenPage() {
 
               <button
                 onClick={() => {
+                  setStatusTab('completed');
+                  setStageFilter(null);
+                }}
+                className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg font-bold transition-all shrink-0 ${
+                  statusTab === 'completed'
+                    ? 'bg-white text-emerald-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="Dokumen yang telah selesai seluruh tahap approval dalam 7 hari terakhir"
+              >
+                <CheckCircle2 size={13} className={statusTab === 'completed' ? 'text-emerald-600' : 'text-slate-400'} />
+                <span>Selesai (7 Hari)</span>
+                <span className={`ml-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                  (stats.completedTotal || 0) > 0
+                    ? 'bg-emerald-100 text-emerald-800 font-extrabold'
+                    : 'bg-slate-200 text-slate-700'
+                }`}>
+                  {stats.completedTotal || 0}
+                </span>
+              </button>
+
+              <button
+                onClick={() => {
                   setStatusTab('all');
                   setStageFilter(null);
                 }}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all ${
+                className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg font-bold transition-all shrink-0 ${
                   statusTab === 'all'
                     ? 'bg-white text-slate-900 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <Layers size={13} />
+                <Layers size={13} className={statusTab === 'all' ? 'text-slate-800' : 'text-slate-400'} />
                 <span>Semua Dokumen</span>
-                <span className="ml-1 text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200 text-slate-700">
+                <span className="ml-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-700">
                   {stats.allTotal}
                 </span>
               </button>
             </div>
 
-            {/* Input Pencarian */}
-            <div className="relative min-w-[240px] w-full sm:w-auto">
+            {/* Input Pencarian (Sejajar di sisi kanan) */}
+            <div className="relative w-full lg:w-72 shrink-0">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 placeholder="Cari nama atau nomor dokumen..."
-                className="w-full text-xs pl-8 pr-7 py-2 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                className="w-full text-xs pl-8 pr-7 py-2 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-white focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder:text-slate-400"
               />
               {searchQuery && (
                 <button

@@ -27,6 +27,33 @@ export interface ApproverDetail {
   rejectReason: string | null;
 }
 
+function formatCompletedDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return '';
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+  } catch {
+    return dateStr;
+  }
+}
+
+function isRecentlyCompleted(dateStr: string | null | undefined): boolean {
+  if (!dateStr) return false;
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return false;
+    const diffDays = (Date.now() - d.getTime()) / (1000 * 60 * 60 * 24);
+    return diffDays >= 0 && diffDays <= 7;
+  } catch {
+    return false;
+  }
+}
+
 export interface StageInfo {
   role: 'prepared' | 'checked' | 'approved';
   roleLabel: string;
@@ -123,6 +150,11 @@ export default function ApprovalTable({
           </thead>
           <tbody className="divide-y divide-slate-100">
             {documents.map((doc, idx) => {
+              const isCompleted =
+                doc.cycleStatus === 'completed' ||
+                doc.documentStatus === 'Relevan' ||
+                doc.currentStage === 'completed';
+
               const stages = [
                 { key: 'prepared' as const, label: 'Prepared', stage: doc.stages.prepared },
                 { key: 'checked' as const, label: 'Checked', stage: doc.stages.checked },
@@ -146,6 +178,18 @@ export default function ApprovalTable({
                         {doc.namaDokumen}
                       </p>
                       <div className="flex flex-wrap items-center gap-1.5 mt-1 text-xs">
+                        {isCompleted && (
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                              isRecentlyCompleted(doc.completedAt)
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs'
+                                : 'bg-teal-50 text-teal-700 border border-teal-200'
+                            }`}
+                            title={doc.completedAt ? `Selesai approval: ${formatCompletedDate(doc.completedAt)}` : 'Selesai Approval'}
+                          >
+                            {isRecentlyCompleted(doc.completedAt) ? 'Baru Selesai ✨' : 'Selesai Approval'}
+                          </span>
+                        )}
                         {doc.levelDokumen && (
                           <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-semibold text-[10px]">
                             {doc.levelDokumen}
@@ -175,8 +219,23 @@ export default function ApprovalTable({
                   {/* Kolom 4: Status (Daftar 3 ke bawah: Prepared, Checked, Approved) */}
                   <td className="py-3 px-4">
                     <div className="space-y-1.5 w-full max-w-[270px]">
+                      {/* Highlight Badge jika dokumen telah SELESAI seluruh tahap approval */}
+                      {isCompleted && (
+                        <div className="flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 text-[11px] font-bold shadow-2xs">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <CheckCircle2 size={13} className="text-emerald-600 flex-shrink-0" />
+                            <span className="truncate">Selesai Approval (ACC)</span>
+                          </div>
+                          {doc.completedAt && (
+                            <span className="text-[10px] text-emerald-700/90 font-mono font-medium flex-shrink-0" title="Waktu selesai approval">
+                              {formatCompletedDate(doc.completedAt)}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
                       {/* Highlight Badge jika dokumen baru dibuat dan butuh setting approver */}
-                      {(doc.documentStatus === 'Menunggu Setting Approver' || doc.cycleStatus === 'setting_approver') && (
+                      {(doc.documentStatus === 'Menunggu Setting Approver' || doc.cycleStatus === 'setting_approver') && !isCompleted && (
                         <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 text-[11px] font-bold shadow-xs">
                           <AlertCircle size={13} className="text-amber-600 flex-shrink-0" />
                           <span className="truncate">Perlu Setting Approver</span>
@@ -184,7 +243,7 @@ export default function ApprovalTable({
                       )}
 
                       {/* Highlight Badge jika dokumen berstatus Revisi atau Ditolak */}
-                      {(doc.documentStatus === 'Revisi' || doc.cycleStatus === 'revisi') && (
+                      {(doc.documentStatus === 'Revisi' || doc.cycleStatus === 'revisi') && !isCompleted && (
                         <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-bold">
                           <RotateCcw size={13} className="text-rose-600 flex-shrink-0" />
                           <span className="truncate">Perlu Upload Revisi</span>
