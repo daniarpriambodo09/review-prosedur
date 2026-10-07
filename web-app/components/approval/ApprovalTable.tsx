@@ -73,6 +73,7 @@ interface ApprovalTableProps {
   onOpenDetail: (doc: ApprovalDocumentItem) => void;
   onOpenEdit: (doc: ApprovalDocumentItem) => void;
   onOpenUpload: (doc: ApprovalDocumentItem) => void;
+  onOpenRejection: (doc: ApprovalDocumentItem) => void;
 }
 
 export default function ApprovalTable({
@@ -81,6 +82,7 @@ export default function ApprovalTable({
   onOpenDetail,
   onOpenEdit,
   onOpenUpload,
+  onOpenRejection,
 }: ApprovalTableProps) {
   if (loading) {
     return (
@@ -188,11 +190,24 @@ export default function ApprovalTable({
                           <span className="truncate">Perlu Upload Revisi</span>
                         </div>
                       )}
-                      {(doc.documentStatus === 'Ditolak' || doc.cycleStatus === 'rejected') && (
-                        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 border border-red-200 text-red-800 text-[11px] font-bold">
-                          <XCircle size={13} className="text-red-600 flex-shrink-0" />
-                          <span className="truncate">Ditolak (Upload Ulang)</span>
-                        </div>
+                      {/* Highlight Badge jika dokumen berstatus Ditolak */}
+                      {(doc.documentStatus === 'Ditolak' || doc.cycleStatus === 'rejected' || doc.rejection) && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenRejection(doc)}
+                          className="w-full flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100/90 border border-red-300 text-red-900 text-[11px] font-bold shadow-2xs transition-all active:scale-98 group cursor-pointer text-left"
+                          title="Klik untuk melihat keterangan & alasan penolakan dokumen ini"
+                        >
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <XCircle size={13} className="text-red-600 flex-shrink-0 group-hover:scale-110 transition-transform" />
+                            <span className="truncate">
+                              Ditolak {doc.rejection ? `(${doc.rejection.roleLabel})` : ''}
+                            </span>
+                          </div>
+                          <span className="text-[10px] bg-red-200/90 text-red-800 px-1.5 py-0.5 rounded font-semibold flex-shrink-0 group-hover:bg-red-300 transition-colors">
+                            Lihat Alasan &rarr;
+                          </span>
+                        </button>
                       )}
 
                       {stages.map(({ key, label, stage }) => {
@@ -226,6 +241,31 @@ export default function ApprovalTable({
                           statusBadge = '-';
                         }
 
+                        const isRejectedStage = status === 'rejected';
+
+                        if (isRejectedStage) {
+                          return (
+                            <button
+                              type="button"
+                              key={key}
+                              onClick={() => onOpenRejection(doc)}
+                              className={`w-full flex items-center justify-between px-2.5 py-1 rounded-lg border text-xs transition-all cursor-pointer hover:bg-rose-100/90 active:scale-98 group ${styleClass}`}
+                              title={`Tahap ${label} ditolak — Klik untuk melihat alasan penolakan`}
+                            >
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <IconComponent
+                                  size={13}
+                                  className="flex-shrink-0 text-rose-600 group-hover:scale-110 transition-transform"
+                                />
+                                <span className="truncate">{label}</span>
+                              </div>
+                              <span className="text-[11px] font-mono ml-2 opacity-90 flex-shrink-0 group-hover:underline">
+                                {statusBadge}
+                              </span>
+                            </button>
+                          );
+                        }
+
                         return (
                           <div
                             key={key}
@@ -239,8 +279,6 @@ export default function ApprovalTable({
                                     ? 'text-emerald-600'
                                     : status === 'in_progress'
                                     ? 'text-amber-600'
-                                    : status === 'rejected'
-                                    ? 'text-rose-600'
                                     : 'text-slate-300'
                                 }`}
                               />

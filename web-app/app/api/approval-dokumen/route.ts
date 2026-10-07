@@ -205,6 +205,29 @@ export async function GET(request: NextRequest) {
       actionsByCycleAndRole[key].push(a);
     }
 
+    // 3.5. Ambil data penolakan terbaru (jika ada) untuk seluruh dokumen yang terdaftar
+    const rejectionsQuery = nomorDokumens.length > 0
+      ? await client.query(`
+          SELECT DISTINCT ON (pac.nomor_dokumen)
+            ra.id,
+            pac.nomor_dokumen,
+            ra.role,
+            ra.nama,
+            ra.email,
+            ra.reject_reason,
+            ra.acc_at
+          FROM procedure_approval_actions ra
+          JOIN procedure_approval_cycles pac ON pac.id = ra.cycle_id
+          WHERE pac.nomor_dokumen = ANY($1) AND ra.acc_status = 'rejected'
+          ORDER BY pac.nomor_dokumen, ra.id DESC
+        `, [nomorDokumens])
+      : { rows: [] };
+
+    const latestRejectionByDoc: Record<string, any> = {};
+    for (const rej of rejectionsQuery.rows) {
+      latestRejectionByDoc[rej.nomor_dokumen] = rej;
+    }
+
     // 4. Ambil seluruh approver terdaftar di procedure_approvers
     const approversQuery = await client.query(`
       SELECT
@@ -338,6 +361,19 @@ export async function GET(request: NextRequest) {
           };
           break;
         }
+      }
+
+      // Fallback: Jika rejection belum ditemukan tapi dokumen berstatus Ditolak atau ada data penolakan tercatat
+      if (!rejection && latestRejectionByDoc[row.nomor_dokumen]) {
+        const fallbackRej = latestRejectionByDoc[row.nomor_dokumen];
+        rejection = {
+          role: fallbackRej.role,
+          roleLabel: STAGE_DISPLAY[fallbackRej.role as ApprovalRole] || fallbackRej.role,
+          nama: fallbackRej.nama,
+          email: fallbackRej.email,
+          reason: fallbackRej.reject_reason,
+          rejectedAt: fallbackRej.acc_at,
+        };
       }
 
       // Susun status 3 tahap (Prepared, Checked, Approved)

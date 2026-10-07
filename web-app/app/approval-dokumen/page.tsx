@@ -9,6 +9,7 @@ import ApprovalTable, { ApprovalDocumentItem } from '@/components/approval/Appro
 import ApprovalDetailModal from '@/components/approval/ApprovalDetailModal';
 import ApprovalEditModal from '@/components/approval/ApprovalEditModal';
 import ApprovalUploadModal from '@/components/approval/ApprovalUploadModal';
+import RejectionDetailModal from '@/components/approval/RejectionDetailModal';
 import {
   RotateCw,
   Search,
@@ -57,6 +58,7 @@ export default function ApprovalDokumenPage() {
   const [detailDoc, setDetailDoc] = useState<ApprovalDocumentItem | null>(null);
   const [editDoc, setEditDoc] = useState<ApprovalDocumentItem | null>(null);
   const [uploadDoc, setUploadDoc] = useState<ApprovalDocumentItem | null>(null);
+  const [rejectionDoc, setRejectionDoc] = useState<ApprovalDocumentItem | null>(null);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
   // Load data approval dokumen dari API
@@ -292,6 +294,7 @@ export default function ApprovalDokumenPage() {
                 setUploadDoc(doc);
                 setIsUploadModalOpen(true);
               }}
+              onOpenRejection={doc => setRejectionDoc(doc)}
             />
           </div>
 
@@ -328,6 +331,16 @@ export default function ApprovalDokumenPage() {
           }}
           document={uploadDoc}
           onUploaded={() => fetchData(true)}
+        />
+
+        <RejectionDetailModal
+          isOpen={!!rejectionDoc}
+          onClose={() => setRejectionDoc(null)}
+          document={rejectionDoc}
+          onOpenUpload={doc => {
+            setUploadDoc(doc);
+            setIsUploadModalOpen(true);
+          }}
         />
       </AdminLayout>
     </ProtectedRoute>
