@@ -102,8 +102,8 @@ export default function ApprovalDetailModal({
 
         {/* ── Modal Body (Scrollable) ── */}
         <div className="p-6 overflow-y-auto space-y-6">
-          {/* Banner Penolakan (Jika Ada) */}
-          {doc.rejection && (
+          {/* Banner Penolakan (Jika dokumen saat ini sedang berstatus Ditolak) */}
+          {(doc.documentStatus === 'Ditolak' || doc.cycleStatus === 'rejected') && doc.rejection && (
             <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 flex items-start gap-3.5">
               <AlertTriangle size={20} className="text-rose-600 flex-shrink-0 mt-0.5" />
               <div className="min-w-0">

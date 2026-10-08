@@ -147,13 +147,14 @@ export async function POST(request: NextRequest) {
 
     const uploadedFileId = result.rows[0].id;
 
-    // ─── Alur approval berjenjang — trigger jika status SEBELUM upload adalah
-    // 'Revisi' (hasil review PIC) ATAU 'Ditolak' (hasil ditolak salah satu
-    // approver Prepared/Checked/Approved sebelumnya). Kedua kondisi berarti
-    // admin baru saja memperbaiki dokumen, sehingga perlu di-ACC ulang dari
-    // awal (Prepared -> Checked -> Approved) sebelum dianggap 'Relevan'.
-    // Untuk status sebelumnya selain itu (mis. upload dokumen baru pertama
-    // kali), perilaku LAMA tetap dipakai: langsung 'Relevan'.
+    // ─── Alur approval berjenjang ──────────────────────────────────────────
+    // Jika admin mengupload dokumen:
+    // 1. Jika startApproval === 'true': Langsung mulai siklus approval (Prepared -> Checked -> Approved).
+    // 2. Jika dokumen berstatus 'Revisi' atau 'Ditolak' dan startApproval !== 'true':
+    //    TIDAK otomatis mulai approval. Status diubah menjadi 'Menunggu Setting Approver'
+    //    sehingga dokumen tersimpan di tab "Perlu Approval" di /approval-dokumen.
+    // 3. Status lainnya (mis. dokumen Relevan yang diupdate tanpa request approval):
+    //    Perilaku normal, status tetap 'Relevan'.
     let approvalCycleStarted = false;
     let pendingEmailActions: PendingAction[] = [];
 
@@ -164,19 +165,70 @@ export async function POST(request: NextRequest) {
       previousStatus === 'Ditolak' ||
       (typeof previousStatus === 'string' && previousStatus.startsWith('Menunggu ACC'));
 
-    if (isApprovalRequested || isRevisiOrRejected) {
+    const isWaitingApprover =
+      previousStatus === 'Menunggu Setting Approver' ||
+      previousStatus === 'Menunggu Approval';
+
+    if (isApprovalRequested) {
+      // Admin memilih "Masuk Approval Sekarang"
       const cycleResult = await startApprovalCycle(client, nomorDokumen, uploadedFileId);
       if (cycleResult.started) {
         approvalCycleStarted = true;
         pendingEmailActions = cycleResult.actions;
       }
-    }
 
-    const isWaitingApprover =
-      previousStatus === 'Menunggu Setting Approver' ||
-      previousStatus === 'Menunggu Approval';
+      // Update request revisi aktif menjadi completed
+      await client.query(
+        `UPDATE pic_review_requests
+         SET status = 'completed', updated_at = CURRENT_TIMESTAMP
+         WHERE nomor_dokumen = $1 AND status = 'pending'`,
+        [nomorDokumen]
+      );
+    } else if (isRevisiOrRejected) {
+      // Admin memilih "Nanti Saja" pada dokumen revisi/ditolak:
+      // Simpan file dan masukkan dokumen ke daftar "Perlu Approval" ('Menunggu Setting Approver')
+      await client.query(
+        `UPDATE procedure_documents
+         SET status = 'Menunggu Setting Approver', updated_at = CURRENT_TIMESTAMP
+         WHERE nomor_dokumen = $1`,
+        [nomorDokumen]
+      );
 
-    if (!approvalCycleStarted && !isWaitingApprover) {
+      // Sync ke document_reviews
+      const docDate = new Date(tanggalSelesaiApproval);
+      const approvalMonth = isNaN(docDate.getTime())
+        ? new Date().getMonth()
+        : docDate.getMonth();
+      const revisiValue = currentRevisi || '0';
+
+      await client.query(
+        `INSERT INTO document_reviews
+           (nomor_dokumen, status, revisi, last_reviewed_month, updated_at)
+         VALUES ($1, 'Menunggu Setting Approver', $2, $3, CURRENT_TIMESTAMP)
+         ON CONFLICT (nomor_dokumen, last_reviewed_month)
+         DO UPDATE SET
+           status      = 'Menunggu Setting Approver',
+           revisi      = $2,
+           updated_at  = CURRENT_TIMESTAMP`,
+        [nomorDokumen, revisiValue, approvalMonth]
+      );
+
+      // Batalkan siklus lama yang rejected/in_progress agar bersih
+      await client.query(
+        `UPDATE procedure_approval_cycles
+         SET status = 'cancelled'
+         WHERE nomor_dokumen = $1 AND status IN ('in_progress', 'rejected')`,
+        [nomorDokumen]
+      );
+
+      // Selesaikan request revisi aktif dari PIC jika ada
+      await client.query(
+        `UPDATE pic_review_requests
+         SET status = 'completed', updated_at = CURRENT_TIMESTAMP
+         WHERE nomor_dokumen = $1 AND status = 'pending'`,
+        [nomorDokumen]
+      );
+    } else if (!isWaitingApprover) {
       // ─── Perilaku LAMA: auto-update status → 'Relevan' ───────────────────
       await client.query(
         `UPDATE procedure_documents
@@ -185,11 +237,6 @@ export async function POST(request: NextRequest) {
         [nomorDokumen]
       );
 
-      // Sync ke document_reviews menggunakan BULAN APPROVAL DOKUMEN, sama
-      // seperti pola yang dipakai di document-read/route.ts. Tanpa langkah
-      // ini, halaman status-review bisa menampilkan status lama (mis.
-      // "Revisi") lagi setelah upload — karena frontend meng-overlay status
-      // dari document_reviews per bulan approval untuk status non-workflow.
       const docDate = new Date(tanggalSelesaiApproval);
       const approvalMonth = isNaN(docDate.getTime())
         ? new Date().getMonth()
@@ -208,7 +255,7 @@ export async function POST(request: NextRequest) {
         [nomorDokumen, revisiValue, approvalMonth]
       );
 
-      // 🆕 Update request revisi aktif menjadi completed
+      // Update request revisi aktif menjadi completed
       await client.query(
         `UPDATE pic_review_requests
          SET status = 'completed', updated_at = CURRENT_TIMESTAMP
@@ -216,14 +263,10 @@ export async function POST(request: NextRequest) {
         [nomorDokumen]
       );
     }
-    // Catatan: saat approvalCycleStarted === true, status dokumen SUDAH
-    // di-set ke 'Menunggu ACC Prepared' di dalam startApprovalCycle().
-    // document_reviews TIDAK disentuh di sini — hanya disinkronkan saat
-    // dokumen final mencapai status 'Relevan'/'Revisi'/'Obsolete'.
 
     // Batalkan jadwal email review yang masih aktif (pending/sent) untuk
     // dokumen ini — siklus review sebelumnya sudah tidak relevan lagi
-    // setelah dokumen diupdate. Ini tidak terkait alur approval baru.
+    // setelah dokumen diupdate.
     await client.query(
       `UPDATE email_schedules
        SET email_status = 'cancelled', updated_at = CURRENT_TIMESTAMP
@@ -251,11 +294,19 @@ export async function POST(request: NextRequest) {
         targetType: 'procedure',
         targetId: nomorDokumen,
       });
+    } else if (isRevisiOrRejected || isWaitingApprover) {
+      await logActivity({
+        username: uploadedBy || 'admin',
+        activityType: 'update',
+        activityDescription: `Dokumen revisi ${namaDokumen} diupload ulang dan dimasukkan ke daftar Perlu Approval`,
+        targetType: 'procedure',
+        targetId: nomorDokumen,
+      });
     } else if (previousStatus !== 'Relevan') {
       await logActivity({
         username: uploadedBy || 'admin',
         activityType: 'update',
-        activityDescription: `Status ${namaDokumen} otomatis diubah menjadi Relevan setelah upload revisi (sebelumnya: ${previousStatus})`,
+        activityDescription: `Status ${namaDokumen} otomatis diubah menjadi Relevan setelah upload (sebelumnya: ${previousStatus})`,
         targetType: 'procedure',
         targetId: nomorDokumen,
       });
@@ -315,7 +366,11 @@ export async function POST(request: NextRequest) {
         uploadedAt: result.rows[0].uploaded_at,
       },
       // ✅ status terbaru dokumen setelah upload, untuk update UI tanpa reload penuh
-      status: approvalCycleStarted ? STAGE_STATUS_LABEL.prepared : 'Relevan',
+      status: approvalCycleStarted
+        ? STAGE_STATUS_LABEL.prepared
+        : (isRevisiOrRejected || isWaitingApprover)
+        ? 'Menunggu Setting Approver'
+        : 'Relevan',
       approvalCycleStarted,
       emailWarning,
     }, { status: 201 });

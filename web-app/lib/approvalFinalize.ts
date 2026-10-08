@@ -217,6 +217,7 @@ export async function finalizeApprovalCycle(
     const appUrl = smtpSettings?.appUrl || '';
 
     // 1. Generate halaman 1 baru
+    // 1. Generate halaman 1 baru (Cover approval Prepared/Checked/Approved)
     const newFirstPageBytes = await generateFirstPage({
       nomorDokumen,
       namaDokumen,
@@ -227,16 +228,8 @@ export async function finalizeApprovalCycle(
       appUrl,
     });
 
-    // 2. 🆕 Ambil riwayat Catatan Perubahan & generate halaman terakhir baru
-    const revisionEntries = await fetchRevisionEntries(client, nomorDokumen);
-    const newLastPageBytes = await generateLastPage({
-      nomorDokumen,
-      namaDokumen,
-      blockActivity,
-      entries: revisionEntries,
-    });
-
-    // 3. Baca file aktif saat ini dari disk, gabungkan (halaman 1 + tengah + terakhir)
+    // 2. Baca file aktif saat ini dari disk, ganti HANYA halaman pertama secara in-place.
+    // Sesuai permintaan update: halaman terakhir TIDAK perlu penambahan template halaman.
     const relativePath = activeFile.file_path.startsWith('/')
       ? activeFile.file_path.slice(1)
       : activeFile.file_path;
@@ -246,7 +239,6 @@ export async function finalizeApprovalCycle(
     const mergedBytes = await assembleFinalDocument(
       originalBytes,
       newFirstPageBytes,
-      newLastPageBytes,
       hadLastPageTemplate
     );
 
@@ -300,11 +292,9 @@ export async function finalizeApprovalCycle(
       [nomorDokumen, cycleId]
     );
 
-    // 🆕 Tandai dokumen ini sudah memakai template halaman terakhir, supaya
-    // proses berikutnya (revisi selanjutnya) MENGGANTI halaman terakhir,
-    // bukan menambah halaman baru lagi.
+    // Sesuai update: template halaman terakhir tidak dipakai lagi (hanya halaman 1)
     await client.query(
-      `UPDATE procedure_documents SET uses_last_page_template = TRUE WHERE nomor_dokumen = $1`,
+      `UPDATE procedure_documents SET uses_last_page_template = FALSE WHERE nomor_dokumen = $1`,
       [nomorDokumen]
     );
 
@@ -313,7 +303,7 @@ export async function finalizeApprovalCycle(
     await logActivity({
       username: 'system',
       activityType: 'upload',
-      activityDescription: `Halaman 1 & halaman terakhir dokumen ${namaDokumen} otomatis diperbarui dengan hasil approval (Prepared/Checked/Approved) dan Catatan Perubahan — versi ${nextVersion}`,
+      activityDescription: `Halaman 1 (cover approval) dokumen ${namaDokumen} otomatis diperbarui dengan hasil approval (Prepared/Checked/Approved) — versi ${nextVersion}`,
       targetType: 'file',
       targetId: nomorDokumen,
     });

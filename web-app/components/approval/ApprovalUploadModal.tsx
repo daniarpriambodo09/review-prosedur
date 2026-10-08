@@ -17,12 +17,13 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { ApprovalDocumentItem } from './ApprovalTable';
+import ApprovalStartConfirmModal from './ApprovalStartConfirmModal';
 
 interface ApprovalUploadModalProps {
   isOpen: boolean;
   onClose: () => void;
   document: ApprovalDocumentItem | null;
-  onUploaded: () => void;
+  onUploaded: (targetTab?: 'setting_approver' | 'in_progress') => void;
 }
 
 interface ProcedureOption {
@@ -68,6 +69,9 @@ export default function ApprovalUploadModal({
   const [uploading, setUploading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Pop-up Card Konfirmasi Alur Approval Dokumen Revisi
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   // Inisialisasi modal saat terbuka
   useEffect(() => {
@@ -197,6 +201,80 @@ export default function ApprovalUploadModal({
     if (file) handleFileChange(file);
   };
 
+  const isRevisiDoc =
+    selectedDoc?.status === 'Revisi' ||
+    selectedDoc?.status === 'Ditolak' ||
+    (typeof selectedDoc?.status === 'string' && selectedDoc.status.startsWith('Menunggu ACC'));
+
+  // Eksekusi upload file dengan pilihan mulai approval sekarang vs nanti
+  const executeUpload = async (startNow: boolean) => {
+    if (!selectedDoc) {
+      setErrorMsg('Silakan pilih dokumen terlebih dahulu.');
+      return;
+    }
+
+    if (!selectedFile) {
+      setErrorMsg('Silakan pilih file PDF yang akan diunggah.');
+      return;
+    }
+
+    if (startNow) {
+      const preparedCount = approvers?.prepared?.length || 0;
+      if (preparedCount === 0) {
+        setErrorMsg(
+          'Dokumen ini belum memiliki approver Prepared terdaftar. Silakan atur approver dokumen terlebih dahulu atau pilih opsi "Nanti Saja" agar dokumen masuk ke daftar "Perlu Approval".'
+        );
+        setShowConfirmModal(false);
+        return;
+      }
+    }
+
+    try {
+      setUploading(true);
+      setErrorMsg(null);
+
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      formData.append('nomorDokumen', selectedDoc.nomor_dokumen);
+      formData.append('uploadedBy', user?.username || 'admin');
+      formData.append('startApproval', startNow ? 'true' : 'false');
+
+      const response = await fetch('/review-prosedur/api/files/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Gagal mengupload dokumen.');
+      }
+
+      setShowConfirmModal(false);
+
+      if (startNow) {
+        setSuccessMsg(
+          'Dokumen berhasil diunggah! Alur approval tahap Prepared telah resmi dimulai dan notifikasi email telah dikirimkan ke Approver.'
+        );
+      } else {
+        setSuccessMsg(
+          'Dokumen revisi berhasil diunggah dan disimpan ke daftar "Perlu Approval". Anda dapat mengatur approver dan memulai alur persetujuan kapan saja.'
+        );
+      }
+
+      // Notifikasi ke parent dengan target tab & tutup setelah 1.5 detik
+      setTimeout(() => {
+        onUploaded(startNow ? 'in_progress' : 'setting_approver');
+        onClose();
+      }, 1500);
+    } catch (err: any) {
+      console.error('Error saat upload dokumen approval:', err);
+      setErrorMsg(err.message || 'Terjadi kesalahan saat mengunggah dokumen.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   // Submit Upload & Mulai Alur Approval
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -210,6 +288,14 @@ export default function ApprovalUploadModal({
       return;
     }
 
+    // Jika dokumen berstatus revisi atau ditolak, tampilkan pop-up card konfirmasi
+    if (isRevisiDoc) {
+      setErrorMsg(null);
+      setShowConfirmModal(true);
+      return;
+    }
+
+    // Untuk dokumen selain revisi (normal), cek ketersediaan approver prepared
     const preparedCount = approvers?.prepared?.length || 0;
     if (preparedCount === 0) {
       setErrorMsg(
@@ -218,42 +304,7 @@ export default function ApprovalUploadModal({
       return;
     }
 
-    try {
-      setUploading(true);
-      setErrorMsg(null);
-
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-      formData.append('nomorDokumen', selectedDoc.nomor_dokumen);
-      formData.append('uploadedBy', user?.username || 'admin');
-      formData.append('startApproval', 'true');
-
-      const response = await fetch('/review-prosedur/api/files/upload', {
-        method: 'POST',
-        body: formData,
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Gagal mengupload dokumen approval.');
-      }
-
-      setSuccessMsg(
-        'Dokumen berhasil diunggah! Alur approval tahap Prepared telah resmi dimulai dan notifikasi email telah dikirimkan ke Approver.'
-      );
-
-      // Notifikasi ke parent & tutup setelah 1.5 detik
-      setTimeout(() => {
-        onUploaded();
-        onClose();
-      }, 1500);
-    } catch (err: any) {
-      console.error('Error saat upload dokumen approval:', err);
-      setErrorMsg(err.message || 'Terjadi kesalahan saat mengunggah dokumen.');
-    } finally {
-      setUploading(false);
-    }
+    await executeUpload(true);
   };
 
   if (!isOpen) return null;
@@ -565,12 +616,20 @@ export default function ApprovalUploadModal({
           </div>
 
           {/* Info Banner Alur */}
-          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 text-[11px] text-slate-500 flex items-start gap-2">
-            <ShieldCheck size={14} className="text-blue-600 mt-0.5 flex-shrink-0" />
-            <span>
-              Setelah dokumen diunggah, dokumen akan otomatis berstatus <strong>Menunggu ACC Prepared</strong>.
-              Sistem akan mengirimkan email notifikasi approval ke approver Prepared secara otomatis.
-            </span>
+          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 text-xs text-slate-600 flex items-start gap-2.5">
+            <ShieldCheck size={16} className="text-blue-600 mt-0.5 flex-shrink-0" />
+            <div className="flex-1 leading-relaxed">
+              {isRevisiDoc ? (
+                <span>
+                  Dokumen ini berstatus <strong>{selectedDoc?.status}</strong>. Saat mengklik tombol upload, Anda dapat memilih apakah ingin <strong>langsung memulai alur approval sekarang</strong> atau <strong>nanti saja</strong> (dokumen akan disimpan ke tab <strong>Perlu Approval</strong>).
+                </span>
+              ) : (
+                <span>
+                  Setelah dokumen diunggah, dokumen akan otomatis berstatus <strong>Menunggu ACC Prepared</strong>.
+                  Sistem akan mengirimkan email notifikasi approval ke approver Prepared secara otomatis.
+                </span>
+              )}
+            </div>
           </div>
         </form>
 
@@ -592,24 +651,41 @@ export default function ApprovalUploadModal({
               uploading ||
               !selectedDoc ||
               !selectedFile ||
-              (approvers?.prepared?.length || 0) === 0
+              (!isRevisiDoc && (approvers?.prepared?.length || 0) === 0)
             }
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-md shadow-blue-500/25 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {uploading ? (
               <>
                 <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                <span>Mengunggah & Memulai Approval...</span>
+                <span>Memproses Dokumen...</span>
               </>
             ) : (
               <>
                 <Upload size={14} />
-                <span>Upload & Mulai Approval</span>
+                <span>
+                  {isRevisiDoc ? 'Upload Dokumen Revisi' : 'Upload & Mulai Approval'}
+                </span>
               </>
             )}
           </button>
         </div>
       </div>
+
+      {/* Pop-up Card Konfirmasi Alur Approval Dokumen Revisi */}
+      {selectedDoc && (
+        <ApprovalStartConfirmModal
+          isOpen={showConfirmModal}
+          onClose={() => setShowConfirmModal(false)}
+          nomorDokumen={selectedDoc.nomor_dokumen}
+          namaDokumen={selectedDoc.nama_dokumen}
+          fileName={selectedFile?.name}
+          previousStatus={selectedDoc.status || 'Revisi'}
+          onConfirmNow={() => executeUpload(true)}
+          onConfirmLater={() => executeUpload(false)}
+          loading={uploading}
+        />
+      )}
     </div>
   );
 }

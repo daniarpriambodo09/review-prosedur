@@ -1,13 +1,19 @@
 // lib/pdfMerge.ts
 //
-// Gabungkan halaman 1 baru (hasil generateFirstPage) — dan sekarang juga
-// halaman TERAKHIR baru (hasil generateLastPage) — dengan halaman-halaman
-// lain dari file dokumen asli. Caller (approvalFinalize.ts) yang menyimpan
-// hasilnya ke disk sebagai versi baru.
+// Gabungkan halaman 1 baru (hasil generateFirstPage) dan halaman TERAKHIR baru
+// (hasil generateLastPage) dengan halaman-halaman asli dokumen secara in-place.
+//
+// PENTING: Jangan membuat dokumen baru kosong (PDFDocument.create()) lalu
+// memindahkan halaman asli dengan copyPages(), karena copyPages() pada pdf-lib
+// dapat memutus referensi inherited /Resources & font streams di dokumen asli
+// yang menyebabkan halaman-halaman tengah menjadi kosong/putih (blank white).
+// Sebagai gantinya, kita memodifikasi originalPdf secara in-place:
+// mengganti halaman pertama (indeks 0) dan menambah/mengganti halaman terakhir,
+// sehingga seluruh halaman tengah dan asetnya tetap 100% utuh tanpa risiko blank page.
 
 import { PDFDocument } from 'pdf-lib';
 
-/** Dipertahankan untuk kompatibilitas — hanya mengganti halaman 1. */
+/** Dipertahankan untuk kompatibilitas — mengganti halaman 1 secara in-place. */
 export async function replaceFirstPage(
   originalPdfBytes: Uint8Array,
   newFirstPageBytes: Uint8Array
@@ -15,70 +21,46 @@ export async function replaceFirstPage(
   const originalPdf     = await PDFDocument.load(originalPdfBytes, { ignoreEncryption: true });
   const newFirstPagePdf = await PDFDocument.load(newFirstPageBytes, { ignoreEncryption: true });
 
-  const mergedPdf = await PDFDocument.create();
+  const [copiedFirstPage] = await originalPdf.copyPages(newFirstPagePdf, [0]);
+  originalPdf.insertPage(0, copiedFirstPage);
+  originalPdf.removePage(1);
 
-  const [copiedFirstPage] = await mergedPdf.copyPages(newFirstPagePdf, [0]);
-  mergedPdf.addPage(copiedFirstPage);
-
-  const totalPages = originalPdf.getPageCount();
-  if (totalPages > 1) {
-    const remainingIndices = Array.from({ length: totalPages - 1 }, (_, i) => i + 1);
-    const copiedRest = await mergedPdf.copyPages(originalPdf, remainingIndices);
-    copiedRest.forEach(p => mergedPdf.addPage(p));
-  }
-
-  return mergedPdf.save();
+  return originalPdf.save();
 }
 
 /**
- * Gabungkan halaman 1 BARU + halaman-halaman tengah dari dokumen asli +
- * halaman TERAKHIR baru (Catatan Perubahan), dalam satu dokumen final.
+ * Gabungkan halaman 1 BARU (Cover Approval) ke dokumen asli secara in-place.
+ * Sesuai permintaan update: halaman terakhir TIDAK ditambah template halaman,
+ * hanya halaman pertama saja yang diganti.
  *
  * @param originalPdfBytes    Bytes file aktif saat ini (versi sebelum approval selesai).
  * @param newFirstPageBytes   Hasil generateFirstPage() — approval Prepared/Checked/Approved.
- * @param newLastPageBytes    Hasil generateLastPage() — Catatan Perubahan / block activity.
- * @param hadLastPageTemplate `true` kalau dokumen ini SEBELUMNYA sudah pernah memakai
- *                            template halaman terakhir (procedure_documents.uses_last_page_template).
- *                            Kalau true, halaman terakhir file asli (yang berarti halaman
- *                            template versi lama) DIBUANG dan diganti dengan yang baru.
- *                            Kalau false, halaman baru cukup DITAMBAHKAN di akhir — tidak
- *                            ada halaman lama yang perlu dibuang.
+ * @param hadLastPageTemplate `true` jika dokumen sebelumnya pernah memakai template
+ *                            halaman terakhir buatan sistem lama. Jika true, halaman
+ *                            template terakhir lama tersebut DIBUANG agar dokumen
+ *                            kembali ke halaman aslinya.
  */
 export async function assembleFinalDocument(
   originalPdfBytes: Uint8Array,
   newFirstPageBytes: Uint8Array,
-  newLastPageBytes: Uint8Array,
   hadLastPageTemplate: boolean
 ): Promise<Uint8Array> {
-  const originalPdf    = await PDFDocument.load(originalPdfBytes, { ignoreEncryption: true });
-  const newFirstPdf    = await PDFDocument.load(newFirstPageBytes, { ignoreEncryption: true });
-  const newLastPdf     = await PDFDocument.load(newLastPageBytes, { ignoreEncryption: true });
+  // Load dokumen asli sebagai basis dokumen utama (in-place modification)
+  const originalPdf = await PDFDocument.load(originalPdfBytes, { ignoreEncryption: true });
+  const newFirstPdf = await PDFDocument.load(newFirstPageBytes, { ignoreEncryption: true });
 
-  const mergedPdf = await PDFDocument.create();
+  // 1) Ganti halaman pertama dokumen asli dengan halaman cover approval baru:
+  // Sisipkan halaman baru di indeks 0, lalu buang halaman pertama lama (yang sekarang bergeser ke indeks 1)
+  const [copiedFirst] = await originalPdf.copyPages(newFirstPdf, [0]);
+  originalPdf.insertPage(0, copiedFirst);
+  originalPdf.removePage(1);
 
-  // 1) Halaman pertama baru
-  const [copiedFirst] = await mergedPdf.copyPages(newFirstPdf, [0]);
-  mergedPdf.addPage(copiedFirst);
-
-  // 2) Halaman "tengah" dari dokumen asli — semua kecuali halaman pertama
-  //    (selalu dibuang, diganti di atas), dan kecuali halaman terakhir KALAU
-  //    halaman terakhir itu adalah template lama yang harus diganti.
-  const totalPages = originalPdf.getPageCount();
-  const firstMiddleIndex = 1;
-  const lastMiddleIndex  = hadLastPageTemplate ? totalPages - 2 : totalPages - 1; // inklusif
-
-  if (lastMiddleIndex >= firstMiddleIndex) {
-    const middleIndices = Array.from(
-      { length: lastMiddleIndex - firstMiddleIndex + 1 },
-      (_, i) => firstMiddleIndex + i
-    );
-    const copiedMiddle = await mergedPdf.copyPages(originalPdf, middleIndices);
-    copiedMiddle.forEach(p => mergedPdf.addPage(p));
+  // 2) Sesuai permintaan: halaman terakhir TIDAK ditambah template halaman.
+  // Jika sebelumnya dokumen pernah memiliki template halaman terakhir buatan sistem lama,
+  // buang halaman template tersebut agar dokumen bersih.
+  if (hadLastPageTemplate && originalPdf.getPageCount() > 1) {
+    originalPdf.removePage(originalPdf.getPageCount() - 1);
   }
 
-  // 3) Halaman terakhir baru (Catatan Perubahan)
-  const [copiedLast] = await mergedPdf.copyPages(newLastPdf, [0]);
-  mergedPdf.addPage(copiedLast);
-
-  return mergedPdf.save();
+  return originalPdf.save();
 }

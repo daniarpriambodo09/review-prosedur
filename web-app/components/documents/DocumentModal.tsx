@@ -289,8 +289,7 @@ export default function DocumentModal({
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full flex flex-col overflow-hidden"
-        style={{ maxWidth: '960px', height: '90vh' }}
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-[92vh] max-h-[92vh] flex flex-col overflow-hidden"
       >
         {/* ── Header ── */}
         <div className="flex items-start justify-between px-6 py-4 bg-gradient-to-r from-blue-50 to-slate-50 border-b border-slate-200 flex-shrink-0">
@@ -346,7 +345,7 @@ export default function DocumentModal({
         )}
 
         {/* ── Body ── */}
-        <div className="flex-1 overflow-hidden bg-slate-100 relative">
+        <div className="flex-1 min-h-0 overflow-hidden bg-slate-100 relative flex flex-col">
           {loading && (
             <div className="absolute inset-0 flex items-center justify-center bg-slate-50">
               <div className="text-center">
@@ -388,6 +387,8 @@ export default function DocumentModal({
             <div className="absolute inset-0 overflow-y-auto bg-white p-6">
               <FileUploader
                 nomorDokumen={nomorDokumen}
+                namaDokumen={namaDokumen}
+                documentStatus={documentStatus || localStatusOverride || undefined}
                 onSuccess={handleUploadSuccess}
                 onCancel={() => setShowUploader(false)}
               />

@@ -409,7 +409,7 @@ export default function AnnotatablePDFViewer({
   ];
 
   return (
-    <div className="w-full h-full flex flex-col">
+    <div className="w-full h-full min-h-0 flex-1 flex flex-col overflow-hidden">
       {/* ── Toolbar ── */}
       <div className="flex items-center gap-2 px-3 py-2 bg-white border-b border-slate-200 flex-wrap flex-shrink-0">
         {canEdit && (
@@ -537,7 +537,7 @@ export default function AnnotatablePDFViewer({
 
       {/* ── Konten Dokumen PDF: Mode PDF Asli (Native Browser Viewer) ── */}
       <div
-        className="flex-1 w-full h-full min-h-0 relative bg-slate-100"
+        className="flex-1 w-full h-full min-h-0 relative bg-slate-100 overflow-hidden"
         style={{ display: useNativeViewer ? 'block' : 'none' }}
       >
         {useNativeViewer && (
@@ -547,7 +547,7 @@ export default function AnnotatablePDFViewer({
 
       {/* ── Konten Dokumen PDF: Mode Anotasi (Canvas + Overlay Interaktif) ── */}
       <div
-        className="flex-1 overflow-auto bg-slate-200 py-4 flex flex-col items-center gap-4"
+        className="flex-1 min-h-0 overflow-auto bg-slate-200 py-4 pb-28 flex flex-col items-center gap-4"
         style={{ display: useNativeViewer ? 'none' : 'flex' }}
       >
         {Array.from({ length: numPages }, (_, idx) => idx + 1).map(page => (

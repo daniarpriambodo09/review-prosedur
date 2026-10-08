@@ -55,6 +55,15 @@ export interface ProcedureDocument {
    * review PIC selama 2 bulan ke depan sejak tanggal request dibuat.
    */
   revisionRequestedAt?: string | null;
+
+  /** Timestamp jadwal kirim email */
+  scheduledEmailAt?: string | null;
+
+  /** Timestamp tanggal dokumen dibuat di database */
+  createdAt?: string | null;
+
+  /** Timestamp tanggal status atau data dokumen terakhir diubah */
+  updatedAt?: string | null;
 }
 
 // ─── Helper: cek apakah badge "Baru Direview" harus tampil ───────────────────
@@ -135,7 +144,7 @@ export async function saveDocumentReview(
 export async function getDocumentReview(
   nomorDokumen: string,
   month: number
-): Promise<{ status: StatusType; revisi: string } | null> {
+): Promise<{ status: StatusType; revisi: string; updatedAt?: string; createdAt?: string } | null> {
   try {
     const response = await fetch(
       `/review-prosedur/api/reviews?nomorDokumen=${encodeURIComponent(nomorDokumen)}&month=${month}`,
@@ -143,7 +152,12 @@ export async function getDocumentReview(
     );
     if (!response.ok) return null;
     const data = await response.json();
-    return data ? { status: data.status, revisi: data.revisi } : null;
+    return data ? {
+      status: data.status,
+      revisi: data.revisi,
+      updatedAt: data.updatedAt,
+      createdAt: data.createdAt,
+    } : null;
   } catch (error) {
     console.error('Error fetching review:', error);
     return null;

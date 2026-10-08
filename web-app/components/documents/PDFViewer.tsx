@@ -153,14 +153,14 @@ export default function PDFViewer({ filePath, fileName }: PDFViewerProps) {
   }
 
   return (
-    <div className="w-full h-full flex flex-col bg-slate-900" style={{ minHeight: '600px' }}>
+    <div className="w-full h-full min-h-0 flex-1 flex flex-col bg-slate-900 relative overflow-hidden">
       {/* ── Konten Dokumen PDF (<object>) ── */}
-      <div className="flex-1 w-full h-full min-h-[550px] relative bg-slate-900">
+      <div className="w-full h-full min-h-0 flex-1 relative bg-slate-900">
         <object
           data={`${blobUrl}#toolbar=1&navpanes=0`}
           type="application/pdf"
-          className="w-full h-full border-0 absolute inset-0"
-          style={{ width: '100%', height: '100%', display: 'block' }}
+          className="w-full h-full border-0 absolute inset-0 block"
+          style={{ width: '100%', height: '100%' }}
         >
           {/* Fallback jika browser tidak support <object> untuk PDF */}
           <div className="w-full flex flex-col items-center justify-center gap-3 py-16 text-white">

@@ -133,6 +133,8 @@ export async function GET(request: NextRequest) {
           pd.pic,
           pd.email,
           pd.status AS document_status,
+          pd.tanggal_selesai_approval,
+          COALESCE(pd.is_date_stamped, FALSE) AS is_date_stamped,
           af.file_name,
           af.file_path
         FROM procedure_documents pd
@@ -346,36 +348,41 @@ export async function GET(request: NextRequest) {
       const currentStage: string = row.current_stage;
       const currentOrder = stageOrder[currentStage] || 1;
 
-      // Cari rejection jika ada
+      // Cari rejection HANYA jika dokumen saat ini sedang berstatus Ditolak atau siklus aktifnya rejected
+      // Jika dokumen telah di-upload ulang oleh admin (siklus baru berjalan / in_progress), status penolakan lama tidak ditampilkan lagi
       let rejection = null;
-      for (const r of roles) {
-        const key = `${row.cycle_id}:${r}`;
-        const actions = actionsByCycleAndRole[key] || [];
-        const rejectedAction = actions.find(a => a.acc_status === 'rejected');
-        if (rejectedAction) {
-          rejection = {
-            role: rejectedAction.role,
-            roleLabel: STAGE_DISPLAY[rejectedAction.role as ApprovalRole],
-            nama: rejectedAction.nama,
-            email: rejectedAction.email,
-            reason: rejectedAction.reject_reason,
-            rejectedAt: rejectedAction.acc_at,
-          };
-          break;
-        }
-      }
+      const isCurrentlyRejected = row.document_status === 'Ditolak' || cycleStatus === 'rejected';
 
-      // Fallback: Jika rejection belum ditemukan tapi dokumen berstatus Ditolak atau ada data penolakan tercatat
-      if (!rejection && latestRejectionByDoc[row.nomor_dokumen]) {
-        const fallbackRej = latestRejectionByDoc[row.nomor_dokumen];
-        rejection = {
-          role: fallbackRej.role,
-          roleLabel: STAGE_DISPLAY[fallbackRej.role as ApprovalRole] || fallbackRej.role,
-          nama: fallbackRej.nama,
-          email: fallbackRej.email,
-          reason: fallbackRej.reject_reason,
-          rejectedAt: fallbackRej.acc_at,
-        };
+      if (isCurrentlyRejected) {
+        for (const r of roles) {
+          const key = `${row.cycle_id}:${r}`;
+          const actions = actionsByCycleAndRole[key] || [];
+          const rejectedAction = actions.find(a => a.acc_status === 'rejected');
+          if (rejectedAction) {
+            rejection = {
+              role: rejectedAction.role,
+              roleLabel: STAGE_DISPLAY[rejectedAction.role as ApprovalRole],
+              nama: rejectedAction.nama,
+              email: rejectedAction.email,
+              reason: rejectedAction.reject_reason,
+              rejectedAt: rejectedAction.acc_at,
+            };
+            break;
+          }
+        }
+
+        // Fallback: Jika rejection belum ditemukan tapi dokumen berstatus Ditolak, ambil riwayat penolakan dokumen
+        if (!rejection && latestRejectionByDoc[row.nomor_dokumen]) {
+          const fallbackRej = latestRejectionByDoc[row.nomor_dokumen];
+          rejection = {
+            role: fallbackRej.role,
+            roleLabel: STAGE_DISPLAY[fallbackRej.role as ApprovalRole] || fallbackRej.role,
+            nama: fallbackRej.nama,
+            email: fallbackRej.email,
+            reason: fallbackRej.reject_reason,
+            rejectedAt: fallbackRej.acc_at,
+          };
+        }
       }
 
       // Susun status 3 tahap (Prepared, Checked, Approved)
@@ -482,6 +489,8 @@ export async function GET(request: NextRequest) {
         currentStage: row.current_stage,
         startedAt: row.started_at,
         completedAt: row.completed_at,
+        tanggalSelesaiApproval: row.tanggal_selesai_approval || row.completed_at || null,
+        isDateStamped: Boolean(row.is_date_stamped),
         fileName: row.file_name,
         filePath: row.file_path,
         stages,

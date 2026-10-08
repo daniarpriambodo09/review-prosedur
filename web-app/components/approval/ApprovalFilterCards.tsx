@@ -2,9 +2,9 @@
 'use client';
 
 import React from 'react';
-import { FileEdit, FileSearch, ShieldCheck, RotateCcw, Sparkles, CheckCheck } from 'lucide-react';
+import { FileEdit, FileSearch, ShieldCheck, RotateCcw } from 'lucide-react';
 
-export type StageFilterType = 'setting_approver' | 'revisi' | 'prepared' | 'checked' | 'approved' | 'completed' | null;
+export type StageFilterType = 'revisi' | 'prepared' | 'checked' | 'approved' | null;
 
 interface ApprovalFilterCardsProps {
   stats: {
@@ -26,21 +26,6 @@ export default function ApprovalFilterCards({
   onSelectStage,
 }: ApprovalFilterCardsProps) {
   const cards = [
-    {
-      id: 'setting_approver' as const,
-      title: 'Dokumen Baru',
-      subtitle: 'Perlu Approval',
-      count: stats.settingApprover ?? 0,
-      icon: Sparkles,
-      color: {
-        active: 'bg-sky-50/60 border-sky-500 ring-2 ring-sky-500/25 shadow-sm',
-        inactive: 'bg-white hover:bg-slate-50/70 border-slate-200 hover:border-sky-300',
-        iconBg: 'bg-sky-50 text-sky-600 border border-sky-200/80',
-        countColor: 'text-slate-900 group-hover:text-sky-700',
-        accentBar: 'bg-sky-500',
-        activeBadge: 'bg-sky-600 text-white',
-      },
-    },
     {
       id: 'revisi' as const,
       title: 'Perlu Revisi',
@@ -101,25 +86,10 @@ export default function ApprovalFilterCards({
         activeBadge: 'bg-emerald-600 text-white',
       },
     },
-    {
-      id: 'completed' as const,
-      title: 'Selesai Approval',
-      subtitle: '7 Hari Terakhir',
-      count: stats.completedTotal ?? 0,
-      icon: CheckCheck,
-      color: {
-        active: 'bg-teal-50/70 border-teal-500 ring-2 ring-teal-500/25 shadow-sm',
-        inactive: 'bg-white hover:bg-slate-50/70 border-slate-200 hover:border-teal-300',
-        iconBg: 'bg-teal-50 text-teal-600 border border-teal-200/80',
-        countColor: 'text-slate-900 group-hover:text-teal-700',
-        accentBar: 'bg-teal-500',
-        activeBadge: 'bg-teal-600 text-white',
-      },
-    },
   ];
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
       {cards.map(card => {
         const Icon = card.icon;
         const isActive = activeStage === card.id;

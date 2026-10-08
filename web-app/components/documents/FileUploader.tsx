@@ -3,15 +3,16 @@
 'use client';
 import { useState, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import ApprovalStartConfirmModal from '@/components/approval/ApprovalStartConfirmModal';
 
 interface FileUploaderProps {
   nomorDokumen: string;
+  namaDokumen?: string;
+  documentStatus?: string;
   /**
    * 🆕 onSuccess sekarang membawa `status` terbaru dokumen hasil response
-   * upload API (mis. 'Relevan' atau 'Menunggu ACC Prepared'), supaya parent
-   * (DocumentModal) bisa langsung tahu status terbaru tanpa perlu tutup-buka
-   * modal lagi — dipakai untuk menentukan apakah fitur "Bandingkan Dokumen"
-   * harus tetap tampil setelah upload.
+   * upload API (mis. 'Relevan', 'Menunggu Setting Approver', atau 'Menunggu ACC Prepared'),
+   * supaya parent (DocumentModal) bisa langsung tahu status terbaru.
    */
   onSuccess: (status?: string) => void;
   onCancel: () => void;
@@ -19,12 +20,15 @@ interface FileUploaderProps {
 
 export default function FileUploader({
   nomorDokumen,
+  namaDokumen = '',
+  documentStatus,
   onSuccess,
   onCancel,
 }: FileUploaderProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { user } = useAuth();
 
@@ -47,7 +51,21 @@ export default function FileUploader({
     setSelectedFile(file);
   };
 
-  const handleUpload = async () => {
+  const isRevisi =
+    documentStatus === 'Revisi' ||
+    documentStatus === 'Ditolak' ||
+    (typeof documentStatus === 'string' && documentStatus.startsWith('Menunggu ACC'));
+
+  const handleUploadClick = () => {
+    if (!selectedFile) return;
+    if (isRevisi) {
+      setShowConfirmModal(true);
+      return;
+    }
+    executeUpload(false);
+  };
+
+  const executeUpload = async (startApprovalNow: boolean) => {
     if (!selectedFile) return;
 
     try {
@@ -58,6 +76,7 @@ export default function FileUploader({
       formData.append('file', selectedFile);
       formData.append('nomorDokumen', nomorDokumen);
       formData.append('uploadedBy', user?.username || 'admin');
+      formData.append('startApproval', startApprovalNow ? 'true' : 'false');
 
       const response = await fetch('/review-prosedur/api/files/upload', {
         method: 'POST',
@@ -69,6 +88,8 @@ export default function FileUploader({
       if (!response.ok) {
         throw new Error(data.error || 'Upload gagal');
       }
+
+      setShowConfirmModal(false);
 
       // 🆕 Teruskan status terbaru dari response ke parent
       onSuccess(data.status);
@@ -134,7 +155,7 @@ export default function FileUploader({
             </div>
           </div>
           <button
-            onClick={handleUpload}
+            onClick={handleUploadClick}
             disabled={uploading}
             className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
@@ -158,6 +179,19 @@ export default function FileUploader({
       {error && (
         <p className="text-red-600 text-sm mt-2">{error}</p>
       )}
+
+      {/* Pop-up Card Konfirmasi Alur Approval Dokumen Revisi */}
+      <ApprovalStartConfirmModal
+        isOpen={showConfirmModal}
+        onClose={() => setShowConfirmModal(false)}
+        nomorDokumen={nomorDokumen}
+        namaDokumen={namaDokumen || nomorDokumen}
+        fileName={selectedFile?.name}
+        previousStatus={documentStatus || 'Revisi'}
+        onConfirmNow={() => executeUpload(true)}
+        onConfirmLater={() => executeUpload(false)}
+        loading={uploading}
+      />
     </div>
   );
 }

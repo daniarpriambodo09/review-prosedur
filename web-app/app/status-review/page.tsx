@@ -116,29 +116,116 @@ function formatSentDateTime(dateStr?: string | null): string | null {
   return `${dateFormatted}, ${timeFormatted} WIB`;
 }
 
+interface StatusTimeInfo {
+  formatted: string;
+  tooltip: string;
+}
+
+function getStatusTimeInfo(
+  status: StatusType,
+  doc?: {
+    lastSentAt?: string | null;
+    lastReviewedAt?: string | null;
+    revisionRequestedAt?: string | null;
+    scheduledEmailAt?: string | null;
+    updatedAt?: string | null;
+    createdAt?: string | null;
+  } | null,
+  overrideLastSentAt?: string | null
+): StatusTimeInfo | null {
+  if (!doc && !overrideLastSentAt) return null;
+
+  let targetDateStr: string | null | undefined = null;
+  let labelPrefix = 'Diperbarui pada';
+
+  switch (status) {
+    case 'Telah terkirim':
+      targetDateStr = overrideLastSentAt || doc?.lastSentAt || doc?.updatedAt;
+      labelPrefix = 'Email terkirim pada';
+      break;
+
+    case 'Relevan':
+      targetDateStr = doc?.lastReviewedAt || doc?.updatedAt || doc?.createdAt;
+      labelPrefix = doc?.lastReviewedAt ? 'Direview relevan pada' : 'Status relevan sejak';
+      break;
+
+    case 'Revisi':
+      targetDateStr = doc?.revisionRequestedAt || doc?.lastReviewedAt || doc?.updatedAt;
+      labelPrefix = 'Permintaan revisi pada';
+      break;
+
+    case 'Obsolete':
+      targetDateStr = doc?.lastReviewedAt || doc?.updatedAt;
+      labelPrefix = 'Ditandai obsolete pada';
+      break;
+
+    case 'Telah dibaca':
+      targetDateStr = doc?.updatedAt;
+      labelPrefix = 'Dibaca PIC pada';
+      break;
+
+    case 'Menunggu':
+      targetDateStr = doc?.scheduledEmailAt || doc?.updatedAt || doc?.createdAt;
+      labelPrefix = 'Menunggu review sejak';
+      break;
+
+    case 'Belum dikirim':
+      targetDateStr = doc?.scheduledEmailAt || doc?.updatedAt || doc?.createdAt;
+      labelPrefix = doc?.scheduledEmailAt ? 'Jadwal kirim email' : 'Status belum dikirim sejak';
+      break;
+
+    case 'Menunggu ACC Prepared':
+    case 'Menunggu ACC Checked':
+    case 'Menunggu ACC Approved':
+      targetDateStr = doc?.updatedAt || doc?.createdAt;
+      labelPrefix = 'Masuk alur approval pada';
+      break;
+
+    case 'Ditolak':
+      targetDateStr = doc?.updatedAt;
+      labelPrefix = 'Ditolak pada';
+      break;
+
+    default:
+      targetDateStr = doc?.updatedAt || doc?.createdAt;
+      labelPrefix = 'Diperbarui pada';
+      break;
+  }
+
+  const formatted = formatSentDateTime(targetDateStr);
+  if (!formatted) return null;
+
+  return {
+    formatted,
+    tooltip: `${labelPrefix} ${formatted}`,
+  };
+}
+
 function StatusBadge({
   status,
+  doc,
   lastSentAt,
 }: {
   status: StatusType;
+  doc?: ProcedureDocument | null;
   lastSentAt?: string | null;
 }) {
-  const styles: Record<string, { bg: string; text: string; dot: string }> = {
-    Revisi:           { bg: 'bg-amber-50',   text: 'text-amber-700',   dot: 'bg-amber-500'   },
-    Relevan:          { bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-500' },
-    Obsolete:         { bg: 'bg-red-50',     text: 'text-red-700',     dot: 'bg-red-500'     },
-    Menunggu:         { bg: 'bg-blue-50',    text: 'text-blue-700',    dot: 'bg-blue-500'    },
-    'Belum dikirim':  { bg: 'bg-orange-50',  text: 'text-orange-700',  dot: 'bg-orange-500'  },
-    'Telah terkirim': { bg: 'bg-cyan-50',    text: 'text-cyan-700',    dot: 'bg-cyan-500'    },
-    'Telah dibaca':   { bg: 'bg-purple-50',  text: 'text-purple-700',  dot: 'bg-purple-500'  },
-    'Menunggu ACC Prepared': { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500' },
-    'Menunggu ACC Checked':  { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500' },
-    'Menunggu ACC Approved': { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500' },
-    'Ditolak':        { bg: 'bg-rose-50',     text: 'text-rose-700',    dot: 'bg-rose-500'    },
-    '-':              { bg: 'bg-slate-50',   text: 'text-slate-500',   dot: 'bg-slate-400'   },
+  const styles: Record<string, { bg: string; text: string; dot: string; clock: string }> = {
+    Revisi:           { bg: 'bg-amber-50',   text: 'text-amber-700',   dot: 'bg-amber-500',   clock: 'text-amber-600'   },
+    Relevan:          { bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-500', clock: 'text-emerald-600' },
+    Obsolete:         { bg: 'bg-red-50',     text: 'text-red-700',     dot: 'bg-red-500',     clock: 'text-red-600'     },
+    Menunggu:         { bg: 'bg-blue-50',    text: 'text-blue-700',    dot: 'bg-blue-500',    clock: 'text-blue-600'    },
+    'Belum dikirim':  { bg: 'bg-orange-50',  text: 'text-orange-700',  dot: 'bg-orange-500',  clock: 'text-orange-600'  },
+    'Telah terkirim': { bg: 'bg-cyan-50',    text: 'text-cyan-700',    dot: 'bg-cyan-500',    clock: 'text-cyan-600'    },
+    'Telah dibaca':   { bg: 'bg-purple-50',  text: 'text-purple-700',  dot: 'bg-purple-500',  clock: 'text-purple-600'  },
+    'Menunggu ACC Prepared': { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500', clock: 'text-violet-600' },
+    'Menunggu ACC Checked':  { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500', clock: 'text-violet-600' },
+    'Menunggu ACC Approved': { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500', clock: 'text-violet-600' },
+    'Ditolak':        { bg: 'bg-rose-50',     text: 'text-rose-700',    dot: 'bg-rose-500',    clock: 'text-rose-600'    },
+    '-':              { bg: 'bg-slate-50',   text: 'text-slate-500',   dot: 'bg-slate-400',   clock: 'text-slate-400'   },
   };
   const s = styles[status] ?? styles['-'];
-  const sentFormatted = status === 'Telah terkirim' ? formatSentDateTime(lastSentAt) : null;
+  const timeInfo = getStatusTimeInfo(status, doc, lastSentAt);
 
   return (
     <div className="inline-flex flex-col items-start gap-1">
@@ -146,13 +233,13 @@ function StatusBadge({
         <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${s.dot}`} />
         {status}
       </span>
-      {sentFormatted && (
+      {timeInfo && (
         <span
           className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 whitespace-nowrap pl-0.5"
-          title={`Email terkirim pada ${sentFormatted}`}
+          title={timeInfo.tooltip}
         >
-          <Clock size={11} className="text-cyan-600 flex-shrink-0" />
-          <span>{sentFormatted}</span>
+          <Clock size={11} className={`${s.clock} flex-shrink-0`} />
+          <span>{timeInfo.formatted}</span>
         </span>
       )}
     </div>
@@ -924,7 +1011,13 @@ export default function StatusReviewPage() {
           const approvalMonth = isNaN(docDate.getTime()) ? new Date().getMonth() : docDate.getMonth();
           const review        = await getDocumentReview(doc.nomorDokumen, approvalMonth);
           if (review && ['Relevan', 'Revisi', 'Obsolete'].includes(review.status)) {
-            return { ...doc, status: review.status as StatusType, revisi: review.revisi };
+            return {
+              ...doc,
+              status: review.status as StatusType,
+              revisi: review.revisi,
+              lastReviewedAt: review.updatedAt || review.createdAt || doc.lastReviewedAt,
+              updatedAt: review.updatedAt || doc.updatedAt,
+            };
           }
           return doc;
         })
@@ -1493,6 +1586,7 @@ export default function StatusReviewPage() {
                               <div className="flex items-start gap-1.5">
                                 <StatusBadge
                                   status={row.status}
+                                  doc={row}
                                   lastSentAt={schedule?.lastSentAt || row.lastSentAt}
                                 />
                                 {schedule && schedule.emailStatus !== 'cancelled' && !isScheduleExpired(schedule) && (

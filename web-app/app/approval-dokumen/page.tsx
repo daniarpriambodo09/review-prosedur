@@ -10,6 +10,8 @@ import ApprovalDetailModal from '@/components/approval/ApprovalDetailModal';
 import ApprovalEditModal from '@/components/approval/ApprovalEditModal';
 import ApprovalUploadModal from '@/components/approval/ApprovalUploadModal';
 import RejectionDetailModal from '@/components/approval/RejectionDetailModal';
+import ApprovalStartCycleConfirmModal from '@/components/approval/ApprovalStartCycleConfirmModal';
+import ApprovalDateStamperModal from '@/components/approval/ApprovalDateStamperModal';
 import {
   RotateCw,
   Search,
@@ -60,6 +62,8 @@ export default function ApprovalDokumenPage() {
   const [editDoc, setEditDoc] = useState<ApprovalDocumentItem | null>(null);
   const [uploadDoc, setUploadDoc] = useState<ApprovalDocumentItem | null>(null);
   const [rejectionDoc, setRejectionDoc] = useState<ApprovalDocumentItem | null>(null);
+  const [startApprovalDoc, setStartApprovalDoc] = useState<ApprovalDocumentItem | null>(null);
+  const [stampDateDoc, setStampDateDoc] = useState<ApprovalDocumentItem | null>(null);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
   // Load data approval dokumen dari API
@@ -183,7 +187,7 @@ export default function ApprovalDokumenPage() {
             </div>
           </div>
 
-          {/* ── 6 Card Approval (Dokumen Baru, Perlu Revisi, Prepared, Checked, Approved, Selesai Approval) ── */}
+          {/* ── 4 Card Tahapan Approval (Perlu Revisi, Prepared, Checked, Approved) ── */}
           <div>
             <ApprovalFilterCards
               stats={{
@@ -323,6 +327,8 @@ export default function ApprovalDokumenPage() {
                 setIsUploadModalOpen(true);
               }}
               onOpenRejection={doc => setRejectionDoc(doc)}
+              onOpenStartApproval={doc => setStartApprovalDoc(doc)}
+              onOpenStampDate={doc => setStampDateDoc(doc)}
             />
           </div>
 
@@ -358,7 +364,27 @@ export default function ApprovalDokumenPage() {
             setUploadDoc(null);
           }}
           document={uploadDoc}
-          onUploaded={() => fetchData(true)}
+          onUploaded={(targetTab?: 'setting_approver' | 'in_progress') => {
+            if (targetTab) {
+              setStatusTab(targetTab);
+              setStageFilter(null);
+            }
+            fetchData(true);
+          }}
+        />
+
+        <ApprovalStartCycleConfirmModal
+          isOpen={!!startApprovalDoc}
+          onClose={() => setStartApprovalDoc(null)}
+          document={startApprovalDoc}
+          onConfirmSuccess={() => {
+            fetchData(true);
+            setStatusTab('in_progress');
+            setStageFilter(null);
+          }}
+          onOpenEdit={doc => {
+            setEditDoc(doc);
+          }}
         />
 
         <RejectionDetailModal
@@ -369,6 +395,13 @@ export default function ApprovalDokumenPage() {
             setUploadDoc(doc);
             setIsUploadModalOpen(true);
           }}
+        />
+
+        <ApprovalDateStamperModal
+          isOpen={!!stampDateDoc}
+          onClose={() => setStampDateDoc(null)}
+          document={stampDateDoc}
+          onSuccess={() => fetchData(true)}
         />
       </AdminLayout>
     </ProtectedRoute>
