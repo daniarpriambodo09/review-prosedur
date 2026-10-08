@@ -44,6 +44,8 @@ async function syncRelevanStatus(
     `UPDATE procedure_documents
      SET status = 'Relevan',
          tanggal_selesai_approval = COALESCE(tanggal_selesai_approval, CURRENT_DATE),
+         last_reviewed_at = NOW(),
+         review_seen_at = NOW(),
          updated_at = CURRENT_TIMESTAMP
      WHERE nomor_dokumen = $1`,
     [nomorDokumen]

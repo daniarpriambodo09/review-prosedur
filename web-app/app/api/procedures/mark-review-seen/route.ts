@@ -27,14 +27,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Hanya update jika review_seen_at masih NULL
-    // (admin belum pernah lihat review terbaru ini)
+    // Tandai bahwa review sudah dilihat oleh admin
     await client.query(
       `UPDATE procedure_documents
-       SET review_seen_at = NOW()
-       WHERE nomor_dokumen = $1
-         AND last_reviewed_at IS NOT NULL
-         AND review_seen_at IS NULL`,
+       SET review_seen_at = NOW(),
+           last_reviewed_at = COALESCE(last_reviewed_at, NOW())
+       WHERE nomor_dokumen = $1`,
       [nomorDokumen]
     );
 
