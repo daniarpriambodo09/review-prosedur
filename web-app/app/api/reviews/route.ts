@@ -21,6 +21,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { logActivity, type ActivityType } from '@/lib/activityLogger';
+import { incrementRevision } from '@/lib/revisionHelper';
 
 // Map status hasil review ke activityType yang lebih spesifik.
 function reviewActivityType(status: string): ActivityType {
@@ -106,12 +107,21 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { nomorDokumen, status, revisi, lastReviewedMonth } = body;
 
-    // Ambil nama dokumen untuk log activity
+    // Ambil nama dokumen, status lama, dan revisi lama
     const docResult = await client.query(
-      'SELECT nama_dokumen FROM procedure_documents WHERE nomor_dokumen = $1',
+      'SELECT nama_dokumen, status, revisi FROM procedure_documents WHERE nomor_dokumen = $1',
       [nomorDokumen]
     );
     const namaDokumen = docResult.rows[0]?.nama_dokumen || nomorDokumen;
+    const prevStatus = docResult.rows[0]?.status;
+    const currentDocRevisi = docResult.rows[0]?.revisi || '0';
+
+    // 🚀 Jika status dokumen awalnya 'Revisi' dan sekarang diubah menjadi 'Relevan',
+    // nomor revisi otomatis bertambah 1
+    let finalRevisi = revisi || currentDocRevisi;
+    if (prevStatus === 'Revisi' && status === 'Relevan') {
+      finalRevisi = incrementRevision(currentDocRevisi);
+    }
 
     await client.query('BEGIN');
 
@@ -125,7 +135,7 @@ export async function POST(request: NextRequest) {
          revisi     = EXCLUDED.revisi,
          updated_at = CURRENT_TIMESTAMP
        RETURNING *`,
-      [nomorDokumen, status, revisi, lastReviewedMonth]
+      [nomorDokumen, status, finalRevisi, lastReviewedMonth]
     );
 
     // Update procedure_documents:
@@ -139,7 +149,7 @@ export async function POST(request: NextRequest) {
            review_seen_at   = NULL,
            updated_at       = CURRENT_TIMESTAMP
        WHERE nomor_dokumen  = $3`,
-      [status, revisi, nomorDokumen]
+      [status, finalRevisi, nomorDokumen]
     );
 
     // 🆕 Reset tanggal_selesai_approval kalau dokumen ini direview di bawah
@@ -194,12 +204,21 @@ export async function PATCH(request: NextRequest) {
     await client.query('BEGIN');
 
     for (const review of reviews) {
-      // Ambil nama dokumen untuk log activity
+      // Ambil nama dokumen, status lama, dan revisi lama
       const docResult = await client.query(
-        'SELECT nama_dokumen FROM procedure_documents WHERE nomor_dokumen = $1',
+        'SELECT nama_dokumen, status, revisi FROM procedure_documents WHERE nomor_dokumen = $1',
         [review.nomorDokumen]
       );
       const namaDokumen = docResult.rows[0]?.nama_dokumen || review.nomorDokumen;
+      const prevStatus = docResult.rows[0]?.status;
+      const currentDocRevisi = docResult.rows[0]?.revisi || '0';
+
+      // 🚀 Jika status dokumen awalnya 'Revisi' dan sekarang diubah menjadi 'Relevan',
+      // nomor revisi otomatis bertambah 1
+      let finalRevisi = review.revisi || currentDocRevisi;
+      if (prevStatus === 'Revisi' && review.status === 'Relevan') {
+        finalRevisi = incrementRevision(currentDocRevisi);
+      }
 
       await client.query(
         `INSERT INTO document_reviews (nomor_dokumen, status, revisi, last_reviewed_month)
@@ -209,7 +228,7 @@ export async function PATCH(request: NextRequest) {
            status     = EXCLUDED.status,
            revisi     = EXCLUDED.revisi,
            updated_at = CURRENT_TIMESTAMP`,
-        [review.nomorDokumen, review.status, review.revisi, review.lastReviewedMonth]
+        [review.nomorDokumen, review.status, finalRevisi, review.lastReviewedMonth]
       );
 
       // Update procedure_documents:
@@ -223,7 +242,7 @@ export async function PATCH(request: NextRequest) {
              review_seen_at   = NULL,
              updated_at       = CURRENT_TIMESTAMP
          WHERE nomor_dokumen  = $3`,
-        [review.status, review.revisi, review.nomorDokumen]
+        [review.status, finalRevisi, review.nomorDokumen]
       );
 
       // 🆕 Sama seperti di POST — reset tanggal_selesai_approval kalau

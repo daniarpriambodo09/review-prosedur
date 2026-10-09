@@ -107,6 +107,7 @@ interface ApprovalTableProps {
   onOpenRejection: (doc: ApprovalDocumentItem) => void;
   onOpenStartApproval: (doc: ApprovalDocumentItem) => void;
   onOpenStampDate?: (doc: ApprovalDocumentItem) => void;
+  onOpenCancelApproval?: (doc: ApprovalDocumentItem) => void;
 }
 
 export default function ApprovalTable({
@@ -118,6 +119,7 @@ export default function ApprovalTable({
   onOpenRejection,
   onOpenStartApproval,
   onOpenStampDate,
+  onOpenCancelApproval,
 }: ApprovalTableProps) {
   if (loading) {
     return (
@@ -437,6 +439,20 @@ export default function ApprovalTable({
                                 <Eye size={13} />
                                 <span>Detail</span>
                               </button>
+
+                              {/* Tombol Batalkan (Kembalikan ke Relevan tanpa menambah revisi) */}
+                              {onOpenCancelApproval && (
+                                <button
+                                  onClick={() => onOpenCancelApproval(doc)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold
+                                             bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 hover:text-rose-800
+                                             transition-all active:scale-95 shadow-2xs"
+                                  title="Batalkan tahap approval dokumen ini dan kembalikan status menjadi Relevan (tanpa menambah revisi)"
+                                >
+                                  <XCircle size={13} className="text-rose-600" />
+                                  <span>Batalkan</span>
+                                </button>
+                              )}
                             </>
                           );
                         })()
@@ -470,20 +486,6 @@ export default function ApprovalTable({
                         </>
                       ) : (
                         <>
-                          {/* Tombol Upload Ulang */}
-                          <button
-                            onClick={() => onOpenUpload(doc)}
-                            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all active:scale-95 shadow-2xs ${
-                              doc.documentStatus === 'Revisi' || doc.documentStatus === 'Ditolak'
-                                ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-500/25 ring-2 ring-blue-500/20'
-                                : 'bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 hover:text-indigo-800'
-                            }`}
-                            title="Upload ulang dokumen untuk memulai / mengulang alur approval"
-                          >
-                            <Upload size={13} />
-                            <span>Upload</span>
-                          </button>
-
                           {/* Tombol Detail */}
                           <button
                             onClick={() => onOpenDetail(doc)}
@@ -507,6 +509,34 @@ export default function ApprovalTable({
                             <Pencil size={13} />
                             <span>Edit</span>
                           </button>
+
+                          {/* Tombol Upload Ulang (jika status dokumen adalah revisi atau ditolak) */}
+                          {(doc.documentStatus === 'Revisi' || doc.documentStatus === 'Ditolak') && (
+                            <button
+                              onClick={() => onOpenUpload(doc)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold
+                                         bg-blue-600 hover:bg-blue-700 text-white shadow-sm shadow-blue-500/25 ring-2 ring-blue-500/20
+                                         transition-all active:scale-95 shadow-2xs"
+                              title="Upload ulang dokumen untuk memulai / mengulang alur approval"
+                            >
+                              <Upload size={13} />
+                              <span>Upload</span>
+                            </button>
+                          )}
+
+                          {/* Tombol Batalkan Approval (khusus tahap yang sedang berjalan) */}
+                          {onOpenCancelApproval && (doc.cycleStatus === 'in_progress' || doc.documentStatus.startsWith('Menunggu ACC')) && (
+                            <button
+                              onClick={() => onOpenCancelApproval(doc)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold
+                                         bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 hover:text-rose-800
+                                         transition-all active:scale-95 shadow-2xs"
+                              title="Batalkan tahap approval dokumen ini dan kembalikan status menjadi Relevan (tanpa menambah revisi)"
+                            >
+                              <XCircle size={13} className="text-rose-600" />
+                              <span>Batalkan</span>
+                            </button>
+                          )}
                         </>
                       )}
                     </div>

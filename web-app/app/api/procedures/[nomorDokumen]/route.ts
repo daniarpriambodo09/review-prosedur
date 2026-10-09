@@ -110,6 +110,12 @@ export async function PATCH(
       );
     }
 
+    // Sinkronkan revisi terbaru ke document_reviews
+    await client.query(
+      `UPDATE document_reviews SET revisi = $1, updated_at = CURRENT_TIMESTAMP WHERE nomor_dokumen = $2`,
+      [revisi || '0', finalNomor]
+    );
+
     await client.query('COMMIT');
 
     const row = result.rows[0];

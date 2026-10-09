@@ -28,6 +28,7 @@ import { startApprovalCycle, STAGE_STATUS_LABEL, type PendingAction } from '@/li
 import { getActiveSmtpSettings, sendMail } from '@/lib/mailer';
 import { buildAccEmailHtml, buildAccEmailText } from '@/lib/approvalEmailTemplate';
 import { ensureDecryptedPdf } from '@/lib/pdfDecrypt';
+import { incrementRevision } from '@/lib/revisionHelper';
 
 const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads', 'documents');
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -250,18 +251,22 @@ export async function POST(request: NextRequest) {
       );
     } else if (!isWaitingApprover) {
       // ─── Perilaku LAMA: auto-update status → 'Relevan' ───────────────────
+      const finalRevisi = previousStatus === 'Revisi'
+        ? incrementRevision(currentRevisi)
+        : (currentRevisi || '0');
+
       await client.query(
         `UPDATE procedure_documents
-         SET status = 'Relevan', updated_at = CURRENT_TIMESTAMP
-         WHERE nomor_dokumen = $1`,
-        [nomorDokumen]
+         SET status = 'Relevan', revisi = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE nomor_dokumen = $2`,
+        [finalRevisi, nomorDokumen]
       );
 
       const docDate = new Date(tanggalSelesaiApproval);
       const approvalMonth = isNaN(docDate.getTime())
         ? new Date().getMonth()
         : docDate.getMonth();
-      const revisiValue = currentRevisi || '0';
+      const revisiValue = finalRevisi;
 
       await client.query(
         `INSERT INTO document_reviews

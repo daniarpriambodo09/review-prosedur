@@ -12,6 +12,7 @@ import ApprovalUploadModal from '@/components/approval/ApprovalUploadModal';
 import RejectionDetailModal from '@/components/approval/RejectionDetailModal';
 import ApprovalStartCycleConfirmModal from '@/components/approval/ApprovalStartCycleConfirmModal';
 import ApprovalDateStamperModal from '@/components/approval/ApprovalDateStamperModal';
+import ApprovalCancelModal from '@/components/approval/ApprovalCancelModal';
 import {
   RotateCw,
   Search,
@@ -64,6 +65,7 @@ export default function ApprovalDokumenPage() {
   const [rejectionDoc, setRejectionDoc] = useState<ApprovalDocumentItem | null>(null);
   const [startApprovalDoc, setStartApprovalDoc] = useState<ApprovalDocumentItem | null>(null);
   const [stampDateDoc, setStampDateDoc] = useState<ApprovalDocumentItem | null>(null);
+  const [cancelDoc, setCancelDoc] = useState<ApprovalDocumentItem | null>(null);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
   // Load data approval dokumen dari API
@@ -329,6 +331,7 @@ export default function ApprovalDokumenPage() {
               onOpenRejection={doc => setRejectionDoc(doc)}
               onOpenStartApproval={doc => setStartApprovalDoc(doc)}
               onOpenStampDate={doc => setStampDateDoc(doc)}
+              onOpenCancelApproval={doc => setCancelDoc(doc)}
             />
           </div>
 
@@ -401,6 +404,13 @@ export default function ApprovalDokumenPage() {
           isOpen={!!stampDateDoc}
           onClose={() => setStampDateDoc(null)}
           document={stampDateDoc}
+          onSuccess={() => fetchData(true)}
+        />
+
+        <ApprovalCancelModal
+          isOpen={!!cancelDoc}
+          onClose={() => setCancelDoc(null)}
+          document={cancelDoc}
           onSuccess={() => fetchData(true)}
         />
       </AdminLayout>

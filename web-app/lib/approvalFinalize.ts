@@ -30,6 +30,7 @@ import { getActiveSmtpSettings } from './mailer';
 import { generateFirstPage, type ApprovalPerson } from './pdfFirstPage';
 import { generateLastPage, type RevisionEntry } from './pdfLastPage';
 import { assembleFinalDocument } from './pdfMerge';
+import { incrementRevision } from './revisionHelper';
 
 const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads', 'documents');
 
@@ -37,18 +38,20 @@ async function syncRelevanStatus(
   client: PoolClient,
   nomorDokumen: string,
   tanggalSelesaiApproval: string | null,
-  currentRevisi: string | null
+  nextRevisi: string
 ): Promise<void> {
   // Tanggal Selesai Approval otomatis terisi tanggal hari ini saat semua tahap approval selesai
+  // dan nomor revisi otomatis bertambah 1
   await client.query(
     `UPDATE procedure_documents
      SET status = 'Relevan',
+         revisi = $1,
          tanggal_selesai_approval = COALESCE(tanggal_selesai_approval, CURRENT_DATE),
          last_reviewed_at = NOW(),
          review_seen_at = NOW(),
          updated_at = CURRENT_TIMESTAMP
-     WHERE nomor_dokumen = $1`,
-    [nomorDokumen]
+     WHERE nomor_dokumen = $2`,
+    [nextRevisi, nomorDokumen]
   );
 
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -58,7 +61,7 @@ async function syncRelevanStatus(
 
   const docDate = new Date(effectiveTanggal);
   const approvalMonth = isNaN(docDate.getTime()) ? new Date().getMonth() : docDate.getMonth();
-  const revisiValue = currentRevisi || '0';
+  const revisiValue = nextRevisi || '0';
 
   await client.query(
     `INSERT INTO document_reviews
@@ -69,11 +72,18 @@ async function syncRelevanStatus(
     [nomorDokumen, revisiValue, approvalMonth]
   );
 
+  await client.query(
+    `UPDATE document_reviews
+     SET status = 'Relevan', revisi = $1, updated_at = CURRENT_TIMESTAMP
+     WHERE nomor_dokumen = $2`,
+    [revisiValue, nomorDokumen]
+  );
+
   // Update tanggal_selesai_approval pada catatan revisi jika belum ada
   await client.query(
     `UPDATE procedure_revision_notes
      SET tanggal_selesai_approval = COALESCE(tanggal_selesai_approval, CURRENT_DATE)
-     WHERE nomor_dokumen = $1 AND rev_no = $2 AND tanggal_selesai_approval IS NULL`,
+     WHERE nomor_dokumen = $1 AND (rev_no = $2 OR rev_no = '0') AND tanggal_selesai_approval IS NULL`,
     [nomorDokumen, revisiValue]
   );
 
@@ -119,6 +129,7 @@ export async function finalizeApprovalCycle(
   const namaDokumen             = docResult.rows[0].nama_dokumen;
   const levelDokumen            = docResult.rows[0].level_dokumen;
   const currentRevisi           = docResult.rows[0].revisi;
+  const nextRevisi              = incrementRevision(currentRevisi);
   const blockActivity           = docResult.rows[0].block_activity;
   const hadLastPageTemplate     = docResult.rows[0].uses_last_page_template === true;
 
@@ -201,7 +212,7 @@ export async function finalizeApprovalCycle(
   if (activeFileResult.rows.length === 0) {
     // Tidak ada file aktif sama sekali — tidak ada yang bisa digabung.
     // Tetap set Relevan supaya dokumen tidak macet, tapi catat peringatan.
-    await syncRelevanStatus(client, nomorDokumen, tanggalSelesaiApproval, currentRevisi);
+    await syncRelevanStatus(client, nomorDokumen, tanggalSelesaiApproval, nextRevisi);
     await logActivity({
       username: 'system',
       activityType: 'update',
@@ -300,7 +311,7 @@ export async function finalizeApprovalCycle(
       [nomorDokumen]
     );
 
-    await syncRelevanStatus(client, nomorDokumen, tanggalSelesaiApproval, currentRevisi);
+    await syncRelevanStatus(client, nomorDokumen, tanggalSelesaiApproval, nextRevisi);
 
     await logActivity({
       username: 'system',
@@ -313,7 +324,7 @@ export async function finalizeApprovalCycle(
     // Generate/gabung PDF gagal — jangan biarkan dokumen macet, tapi JANGAN
     // ganti file aktif. Tetap set Relevan pakai file yang sudah ada.
     console.error('Gagal generate/gabung PDF final untuk', nomorDokumen, err);
-    await syncRelevanStatus(client, nomorDokumen, tanggalSelesaiApproval, currentRevisi);
+    await syncRelevanStatus(client, nomorDokumen, tanggalSelesaiApproval, nextRevisi);
     await logActivity({
       username: 'system',
       activityType: 'update',

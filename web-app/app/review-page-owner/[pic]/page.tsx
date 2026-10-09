@@ -24,6 +24,7 @@ import {
 } from '@/data/procedures/all-procedures';
 import DocumentModal from '@/components/documents/DocumentModal';
 import { useDialog } from '@/contexts/DialogContext';
+import { incrementRevision } from '@/lib/revisionHelper';
 
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -509,8 +510,8 @@ export default function PicReviewPage() {
       .map(([nomorDokumen, pendingStatus]) => {
         const doc     = documents.find(d => d.nomorDokumen === nomorDokumen);
         let newRevisi = doc?.revisi || '0';
-        if (pendingStatus === 'Revisi') {
-          newRevisi = String((parseInt(newRevisi, 10) || 0) + 1);
+        if (doc?.status === 'Revisi' && pendingStatus === 'Relevan') {
+          newRevisi = incrementRevision(doc?.revisi || '0');
         }
         const docDate           = new Date(doc?.tanggalSelesaiApproval || '');
         const lastReviewedMonth = isNaN(docDate.getTime()) ? new Date().getMonth() : docDate.getMonth();

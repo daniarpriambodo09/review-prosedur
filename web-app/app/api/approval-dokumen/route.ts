@@ -1055,46 +1055,83 @@ export async function DELETE(request: NextRequest) {
   const client = await pool.connect();
   try {
     const { searchParams } = new URL(request.url);
-    const cycleId = searchParams.get('cycleId');
+    let cycleId = searchParams.get('cycleId');
+    let nomorDokumen = searchParams.get('nomorDokumen');
 
-    if (!cycleId) {
-      return NextResponse.json({ error: 'Cycle ID wajib diberikan.' }, { status: 400 });
+    // Jika parameter dikirim lewat JSON body
+    if (!cycleId && !nomorDokumen) {
+      try {
+        const body = await request.json();
+        if (body.cycleId) cycleId = String(body.cycleId);
+        if (body.nomorDokumen) nomorDokumen = String(body.nomorDokumen);
+      } catch {
+        // Abaikan jika tidak ada JSON body
+      }
+    }
+
+    if (!cycleId && !nomorDokumen) {
+      return NextResponse.json({ error: 'Cycle ID atau Nomor Dokumen wajib diberikan.' }, { status: 400 });
     }
 
     await client.query('BEGIN');
 
-    const cycleRes = await client.query(
-      `SELECT c.id, c.nomor_dokumen, pd.nama_dokumen
-       FROM procedure_approval_cycles c
-       JOIN procedure_documents pd ON pd.nomor_dokumen = c.nomor_dokumen
-       WHERE c.id = $1 AND c.status = 'in_progress'`,
-      [cycleId]
-    );
+    let targetNomor = nomorDokumen;
+    if (!targetNomor && cycleId) {
+      const cRes = await client.query(
+        `SELECT nomor_dokumen FROM procedure_approval_cycles WHERE id = $1`,
+        [cycleId]
+      );
+      targetNomor = cRes.rows[0]?.nomor_dokumen;
+    }
 
-    if (cycleRes.rows.length === 0) {
+    if (!targetNomor) {
       await client.query('ROLLBACK');
       return NextResponse.json(
-        { error: 'Siklus approval tidak ditemukan atau sudah tidak berjalan.' },
+        { error: 'Nomor dokumen tidak valid atau tidak ditemukan.' },
+        { status: 400 }
+      );
+    }
+
+    const docRes = await client.query(
+      `SELECT nomor_dokumen, nama_dokumen, revisi, status
+       FROM procedure_documents WHERE nomor_dokumen = $1`,
+      [targetNomor]
+    );
+
+    if (docRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return NextResponse.json(
+        { error: 'Dokumen tidak ditemukan di database.' },
         { status: 404 }
       );
     }
 
-    const { nomor_dokumen, nama_dokumen } = cycleRes.rows[0];
+    const docNomor = docRes.rows[0].nomor_dokumen;
+    const docNama = docRes.rows[0].nama_dokumen || docNomor;
+    const docRevisi = docRes.rows[0].revisi || '0';
 
-    // Update status siklus menjadi 'cancelled'
+    // 1. Batalkan seluruh siklus approval yang masih in_progress untuk dokumen ini jika ada
     await client.query(
       `UPDATE procedure_approval_cycles
        SET status = 'cancelled'
-       WHERE id = $1`,
-      [cycleId]
+       WHERE nomor_dokumen = $1 AND status = 'in_progress'`,
+      [docNomor]
     );
 
-    // Kembalikan status dokumen ke 'Relevan'
+    // 2. Kembalikan status dokumen ke 'Relevan' (revisi tetap sama, TIDAK BERTAMBAH)
     await client.query(
       `UPDATE procedure_documents
        SET status = 'Relevan', updated_at = CURRENT_TIMESTAMP
        WHERE nomor_dokumen = $1`,
-      [nomor_dokumen]
+      [docNomor]
+    );
+
+    // 4. Sinkronkan ke tabel document_reviews agar halaman status-review langsung konsisten 'Relevan'
+    await client.query(
+      `UPDATE document_reviews
+       SET status = 'Relevan', updated_at = CURRENT_TIMESTAMP
+       WHERE nomor_dokumen = $1`,
+      [docNomor]
     );
 
     await client.query('COMMIT');
@@ -1102,14 +1139,14 @@ export async function DELETE(request: NextRequest) {
     await logActivity({
       username: 'admin',
       activityType: 'update',
-      activityDescription: `Membatalkan proses approval untuk dokumen ${nomor_dokumen} (${nama_dokumen})`,
+      activityDescription: `Membatalkan alur approval untuk dokumen ${docNomor} (${docNama}). Status dikembalikan ke Relevan tanpa perubahan nomor revisi (tetap Rev. ${docRevisi}).`,
       targetType: 'procedure',
-      targetId: nomor_dokumen,
+      targetId: docNomor,
     });
 
     return NextResponse.json({
       success: true,
-      message: `Proses approval untuk dokumen ${nomor_dokumen} berhasil dibatalkan.`,
+      message: `Tahap approval untuk dokumen ${docNomor} berhasil dibatalkan. Status dokumen telah kembali menjadi Relevan tanpa penambahan revisi.`,
     });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
