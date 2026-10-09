@@ -467,18 +467,6 @@ export default function ApprovalTable({
                             <Eye size={13} />
                             <span>Detail</span>
                           </button>
-
-                          {/* Tombol Upload Ulang (jika ada update/revisi baru) */}
-                          <button
-                            onClick={() => onOpenUpload(doc)}
-                            className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold
-                                       bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-100
-                                       transition-all active:scale-95 shadow-2xs"
-                            title="Upload revisi baru untuk dokumen ini"
-                          >
-                            <Upload size={12} />
-                            <span>Upload</span>
-                          </button>
                         </>
                       ) : (
                         <>

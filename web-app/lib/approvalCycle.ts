@@ -146,7 +146,7 @@ export async function startApprovalCycle(
 
   await client.query(
     `UPDATE procedure_documents
-     SET status = $1, updated_at = CURRENT_TIMESTAMP
+     SET status = $1, is_date_stamped = FALSE, updated_at = CURRENT_TIMESTAMP
      WHERE nomor_dokumen = $2`,
     [STAGE_STATUS_LABEL.prepared, nomorDokumen]
   );

@@ -12,14 +12,16 @@
 // sehingga seluruh halaman tengah dan asetnya tetap 100% utuh tanpa risiko blank page.
 
 import { PDFDocument } from 'pdf-lib';
+import { ensureDecryptedPdf } from './pdfDecrypt';
 
 /** Dipertahankan untuk kompatibilitas — mengganti halaman 1 secara in-place. */
 export async function replaceFirstPage(
   originalPdfBytes: Uint8Array,
   newFirstPageBytes: Uint8Array
 ): Promise<Uint8Array> {
-  const originalPdf     = await PDFDocument.load(originalPdfBytes, { ignoreEncryption: true });
-  const newFirstPagePdf = await PDFDocument.load(newFirstPageBytes, { ignoreEncryption: true });
+  const cleanOriginalBytes = await ensureDecryptedPdf(originalPdfBytes);
+  const originalPdf        = await PDFDocument.load(cleanOriginalBytes);
+  const newFirstPagePdf    = await PDFDocument.load(newFirstPageBytes);
 
   const [copiedFirstPage] = await originalPdf.copyPages(newFirstPagePdf, [0]);
   originalPdf.insertPage(0, copiedFirstPage);
@@ -45,9 +47,10 @@ export async function assembleFinalDocument(
   newFirstPageBytes: Uint8Array,
   hadLastPageTemplate: boolean
 ): Promise<Uint8Array> {
-  // Load dokumen asli sebagai basis dokumen utama (in-place modification)
-  const originalPdf = await PDFDocument.load(originalPdfBytes, { ignoreEncryption: true });
-  const newFirstPdf = await PDFDocument.load(newFirstPageBytes, { ignoreEncryption: true });
+  // Pastikan dokumen asli bebas enkripsi (permissions-only di-decrypt dengan empty password)
+  const cleanOriginalBytes = await ensureDecryptedPdf(originalPdfBytes);
+  const originalPdf = await PDFDocument.load(cleanOriginalBytes);
+  const newFirstPdf = await PDFDocument.load(newFirstPageBytes);
 
   // 1) Ganti halaman pertama dokumen asli dengan halaman cover approval baru:
   // Sisipkan halaman baru di indeks 0, lalu buang halaman pertama lama (yang sekarang bergeser ke indeks 1)

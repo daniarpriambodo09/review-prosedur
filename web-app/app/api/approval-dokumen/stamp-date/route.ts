@@ -13,6 +13,7 @@ import pool from '@/lib/db';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import { logActivity } from '@/lib/activityLogger';
+import { ensureDecryptedPdf } from '@/lib/pdfDecrypt';
 
 export const dynamic = 'force-dynamic';
 
@@ -75,7 +76,8 @@ export async function POST(request: NextRequest) {
 
     // 2. Baca PDF bytes dan load ke pdf-lib
     const originalBytes = await readFile(absolutePath);
-    const pdfDoc = await PDFDocument.load(originalBytes, { ignoreEncryption: true });
+    const cleanBytes = await ensureDecryptedPdf(originalBytes);
+    const pdfDoc = await PDFDocument.load(cleanBytes);
 
     const totalPages = pdfDoc.getPageCount();
     if (pageNumber > totalPages) {

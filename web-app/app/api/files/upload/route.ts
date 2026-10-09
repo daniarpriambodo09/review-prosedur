@@ -22,10 +22,12 @@ import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import pool from '@/lib/db';
+import { PDFDocument } from 'pdf-lib';
 import { logActivity } from '@/lib/activityLogger';
 import { startApprovalCycle, STAGE_STATUS_LABEL, type PendingAction } from '@/lib/approvalCycle';
 import { getActiveSmtpSettings, sendMail } from '@/lib/mailer';
 import { buildAccEmailHtml, buildAccEmailText } from '@/lib/approvalEmailTemplate';
+import { ensureDecryptedPdf } from '@/lib/pdfDecrypt';
 
 const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads', 'documents');
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -116,11 +118,29 @@ export async function POST(request: NextRequest) {
     // Save file dengan nama versioned di disk
     const filePath = path.join(docDir, diskFileName);
     const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
+    let buffer = Buffer.from(bytes);
+
+    // 🔒 PENTING: Jika file PDF yang diunggah memiliki enkripsi permissions (misal ReportLab/Adobe locked permissions),
+    // buka enkripsinya agar bersih dan bisa dibuka tanpa halaman putih/kosong di browser & pdfjs
+    try {
+      const decryptedBytes = await ensureDecryptedPdf(buffer);
+      buffer = Buffer.from(decryptedBytes);
+    } catch (unencryptErr) {
+      console.warn('Gagal membersihkan enkripsi PDF saat upload:', unencryptErr);
+    }
+
     await writeFile(filePath, buffer);
 
     // ✅ Path di database pointing ke file versioned
     const dbPath = `/uploads/documents/${nomorDokumen}/${diskFileName}`;
+
+    // Reset flag is_date_stamped menjadi FALSE agar dokumen baru ini memiliki tombol "Isi Tanggal" di alur approval
+    await client.query(
+      `UPDATE procedure_documents
+       SET is_date_stamped = FALSE
+       WHERE nomor_dokumen = $1`,
+      [nomorDokumen]
+    );
 
     let namaDokumen = nomorDokumen; // Fallback ke nomor jika tidak ditemukan
     if (checkResult.rows.length > 0) {
@@ -139,7 +159,7 @@ export async function POST(request: NextRequest) {
       nomorDokumen,
       originalFileName, // ✅ NAMA ASLI untuk display
       dbPath,           // ✅ PATH ke file versioned di disk
-      file.size,
+      buffer.length,    // ✅ Ukuran buffer yang sudah dibersihkan
       file.type,
       nextVersion,
       uploadedBy || 'admin'
