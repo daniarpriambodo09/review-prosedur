@@ -82,13 +82,14 @@ export async function GET(request: NextRequest) {
     `);
     const settingApproverCount = settingApproverQuery.rows[0]?.count || 0;
 
-    // Total dokumen unik yang memiliki siklus approval (completed dibatasi 7 hari terakhir)
+    // Total dokumen unik yang memiliki siklus approval (completed dibatasi 7 hari terakhir dan berstatus Relevan)
     const totalsQuery = await client.query(`
       SELECT
-        COUNT(DISTINCT nomor_dokumen) FILTER (
-          WHERE status = 'completed' AND completed_at >= NOW() - INTERVAL '7 days'
+        COUNT(DISTINCT c.nomor_dokumen) FILTER (
+          WHERE c.status = 'completed' AND c.completed_at >= NOW() - INTERVAL '7 days' AND pd.status = 'Relevan'
         )::int AS completed_total
-      FROM procedure_approval_cycles
+      FROM procedure_approval_cycles c
+      JOIN procedure_documents pd ON pd.nomor_dokumen = c.nomor_dokumen
     `);
     const totalsRow = totalsQuery.rows[0] || { completed_total: 0 };
 
@@ -107,25 +108,41 @@ export async function GET(request: NextRequest) {
       ),
       CombinedDocs AS (
         SELECT
-          COALESCE(lc.cycle_id, 0) AS cycle_id,
+          CASE
+            -- Jika siklus terakhir berstatus 'completed', tetapi dokumen sekarang masuk tahap approval lagi
+            -- (misal: berstatus Revisi, Ditolak, Menunggu Setting Approver, Menunggu Approval, dsb):
+            -- Maka siklus completed lama itu adalah masa lalu, jangan gunakan cycle_id lama tersebut!
+            WHEN lc.cycle_status = 'completed' AND pd.status != 'Relevan' THEN 0
+            ELSE COALESCE(lc.cycle_id, 0)
+          END AS cycle_id,
           pd.nomor_dokumen,
           CASE
             WHEN pd.status = 'Menunggu Setting Approver' OR pd.status = 'Menunggu Approval' THEN 'setting_approver'
             WHEN pd.status = 'Revisi' THEN 'revisi'
             WHEN pd.status = 'Ditolak' THEN 'rejected'
-            WHEN lc.current_stage IS NOT NULL THEN lc.current_stage
-            WHEN lc.cycle_status = 'completed' THEN 'completed'
+            WHEN pd.status = 'Menunggu ACC Prepared' THEN 'prepared'
+            WHEN pd.status = 'Menunggu ACC Checked' THEN 'checked'
+            WHEN pd.status = 'Menunggu ACC Approved' THEN 'approved'
+            WHEN lc.current_stage IS NOT NULL AND (lc.cycle_status != 'completed' OR pd.status = 'Relevan') THEN lc.current_stage
+            WHEN lc.cycle_status = 'completed' AND pd.status = 'Relevan' THEN 'completed'
             ELSE 'setting_approver'
           END AS current_stage,
           CASE
             WHEN pd.status = 'Menunggu Setting Approver' OR pd.status = 'Menunggu Approval' THEN 'setting_approver'
             WHEN pd.status = 'Revisi' THEN 'revisi'
             WHEN pd.status = 'Ditolak' THEN 'rejected'
-            WHEN lc.cycle_status IS NOT NULL THEN lc.cycle_status
+            WHEN pd.status LIKE 'Menunggu ACC%' THEN 'in_progress'
+            WHEN lc.cycle_status IS NOT NULL AND (lc.cycle_status != 'completed' OR pd.status = 'Relevan') THEN lc.cycle_status
             ELSE 'setting_approver'
           END AS cycle_status,
-          COALESCE(lc.started_at, pd.updated_at, pd.created_at) AS started_at,
-          lc.completed_at,
+          CASE
+            WHEN lc.cycle_status = 'completed' AND pd.status != 'Relevan' THEN COALESCE(pd.updated_at, pd.created_at)
+            ELSE COALESCE(lc.started_at, pd.updated_at, pd.created_at)
+          END AS started_at,
+          CASE
+            WHEN lc.cycle_status = 'completed' AND pd.status != 'Relevan' THEN NULL
+            ELSE lc.completed_at
+          END AS completed_at,
           pd.nama_dokumen,
           pd.level_dokumen,
           pd.revisi,
@@ -133,15 +150,22 @@ export async function GET(request: NextRequest) {
           pd.pic,
           pd.email,
           pd.status AS document_status,
-          pd.tanggal_selesai_approval,
-          COALESCE(pd.is_date_stamped, FALSE) AS is_date_stamped,
+          CASE
+            WHEN lc.cycle_status = 'completed' AND pd.status != 'Relevan' THEN NULL
+            ELSE pd.tanggal_selesai_approval
+          END AS tanggal_selesai_approval,
+          CASE
+            WHEN lc.cycle_status = 'completed' AND pd.status != 'Relevan' THEN FALSE
+            ELSE COALESCE(pd.is_date_stamped, FALSE)
+          END AS is_date_stamped,
           af.file_name,
           af.file_path
         FROM procedure_documents pd
         LEFT JOIN LatestCycles lc ON lc.nomor_dokumen = pd.nomor_dokumen
         LEFT JOIN active_procedure_files af ON af.nomor_dokumen = pd.nomor_dokumen
         WHERE
-          (lc.cycle_id IS NOT NULL AND (lc.cycle_status != 'completed' OR lc.completed_at >= NOW() - INTERVAL '7 days'))
+          (lc.cycle_id IS NOT NULL AND lc.cycle_status != 'completed')
+          OR (lc.cycle_id IS NOT NULL AND lc.cycle_status = 'completed' AND lc.completed_at >= NOW() - INTERVAL '7 days' AND pd.status = 'Relevan')
           OR pd.status = 'Revisi'
           OR pd.status = 'Ditolak'
           OR pd.status LIKE 'Menunggu ACC%'
@@ -192,6 +216,7 @@ export async function GET(request: NextRequest) {
             role,
             nama,
             email,
+            token,
             acc_status,
             acc_at,
             email_sent_at,
@@ -291,7 +316,7 @@ export async function GET(request: NextRequest) {
             `INSERT INTO procedure_approval_actions
                (cycle_id, approver_id, role, nama, email, token, verification_code, acc_status)
              VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
-             RETURNING id, cycle_id, approver_id, role, nama, email, acc_status, acc_at, email_sent_at, reject_reason`,
+             RETURNING id, cycle_id, approver_id, role, nama, email, token, acc_status, acc_at, email_sent_at, reject_reason`,
             [item.cycleId, item.approverId, item.role, item.nama, item.email, token, verificationCode]
           );
           const newAct = insRes.rows[0];
@@ -396,7 +421,7 @@ export async function GET(request: NextRequest) {
 
         let stageStatus: 'completed' | 'in_progress' | 'pending' | 'rejected' = 'pending';
 
-        if (cycleStatus === 'completed') {
+        if (cycleStatus === 'completed' && row.document_status === 'Relevan') {
           stageStatus = 'completed';
         } else if (cycleStatus === 'rejected') {
           const hasReject = existingActions.some(a => a.acc_status === 'rejected');
@@ -415,16 +440,27 @@ export async function GET(request: NextRequest) {
           } else {
             stageStatus = 'pending';
           }
+        } else {
+          stageStatus = 'pending';
         }
 
         // Susun daftar approver di tahap ini
         let approverList: any[] = [];
-        if (existingActions.length > 0) {
+        const isRestartingOrWaiting =
+          row.document_status === 'Revisi' ||
+          row.document_status === 'Ditolak' ||
+          row.document_status === 'Menunggu Setting Approver' ||
+          row.document_status === 'Menunggu Approval' ||
+          cycleStatus === 'revisi' ||
+          cycleStatus === 'setting_approver';
+
+        if (existingActions.length > 0 && !isRestartingOrWaiting) {
           approverList = existingActions.map(a => ({
             id: a.id,
             approverId: a.approver_id,
             nama: a.nama,
             email: a.email,
+            token: a.token,
             accStatus: a.acc_status, // 'acc' | 'pending' | 'rejected'
             accAt: a.acc_at,
             emailSentAt: a.email_sent_at,
@@ -532,6 +568,33 @@ export async function GET(request: NextRequest) {
         const timeA = a.completedAt ? new Date(a.completedAt).getTime() : 0;
         const timeB = b.completedAt ? new Date(b.completedAt).getTime() : 0;
         return timeB - timeA;
+      });
+    } else if (filter === 'pic') {
+      filteredDocs = filteredDocs.filter(d => {
+        // Dokumen yang belum siap / perlu upload revisi oleh admin / ditolak / belum disetting approver:
+        const isNotStarted =
+          d.documentStatus === 'Revisi' ||
+          d.cycleStatus === 'revisi' ||
+          d.currentStage === 'revisi' ||
+          d.documentStatus === 'Ditolak' ||
+          d.cycleStatus === 'rejected' ||
+          d.currentStage === 'rejected' ||
+          d.documentStatus === 'Menunggu Setting Approver' ||
+          d.documentStatus === 'Menunggu Approval' ||
+          d.cycleStatus === 'setting_approver' ||
+          d.currentStage === 'setting_approver';
+
+        if (isNotStarted) return false;
+
+        const isInProgress =
+          d.cycleStatus === 'in_progress' &&
+          ['prepared', 'checked', 'approved'].includes(d.currentStage);
+
+        const isCompleted =
+          d.documentStatus === 'Relevan' &&
+          (d.cycleStatus === 'completed' || d.currentStage === 'completed');
+
+        return isInProgress || isCompleted;
       });
     }
 
@@ -1110,11 +1173,11 @@ export async function DELETE(request: NextRequest) {
     const docNama = docRes.rows[0].nama_dokumen || docNomor;
     const docRevisi = docRes.rows[0].revisi || '0';
 
-    // 1. Batalkan seluruh siklus approval yang masih in_progress untuk dokumen ini jika ada
+    // 1. Batalkan seluruh siklus approval yang belum completed untuk dokumen ini jika ada
     await client.query(
       `UPDATE procedure_approval_cycles
        SET status = 'cancelled'
-       WHERE nomor_dokumen = $1 AND status = 'in_progress'`,
+       WHERE nomor_dokumen = $1 AND status != 'completed'`,
       [docNomor]
     );
 

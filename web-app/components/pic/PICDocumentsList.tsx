@@ -10,6 +10,8 @@ interface Document {
   title: string;
   status: string;
   createdAt: string;
+  owner?: string;
+  pic?: string;
 }
 
 // StatusFilter harus sama persis dengan type di page.tsx
@@ -145,13 +147,23 @@ function DocumentRow({
 
       {/* Content */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-0.5">
+        <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
           <span className={`
             text-xs font-bold tracking-tight truncate
             ${isActive ? 'text-emerald-700' : 'text-slate-800 group-hover:text-slate-900'}
           `}>
             {doc.documentNumber}
           </span>
+          {doc.owner && (
+            <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+              {doc.owner}
+            </span>
+          )}
+          {doc.pic && (
+            <span className="text-[10px] text-slate-400">
+              PIC: <strong className="text-slate-600 font-medium">{doc.pic}</strong>
+            </span>
+          )}
         </div>
         {/* CHANGED: text-xs tetap */}
         <p className="text-xs text-slate-500 truncate">{doc.title}</p>
@@ -235,7 +247,9 @@ export default function PICDocumentsList({
         const q = searchQuery.toLowerCase();
         const matchSearch =
           doc.title.toLowerCase().includes(q) ||
-          doc.documentNumber.toLowerCase().includes(q);
+          doc.documentNumber.toLowerCase().includes(q) ||
+          (doc.owner || '').toLowerCase().includes(q) ||
+          (doc.pic || '').toLowerCase().includes(q);
         if (!matchSearch) return false;
       }
       if (monthFilter !== '') {

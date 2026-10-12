@@ -8,13 +8,13 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
+import { resolveManagerDepartments } from '@/lib/managerDepartment';
 
 // Status yang valid diterima dari query param
 const VALID_STATUSES = ['all', 'pending', 'approved', 'revision', 'rejected'] as const;
 type ValidStatus = (typeof VALID_STATUSES)[number];
 
 // Pemetaan status filter (dari chip UI) → nilai status di database
-// Sesuaikan value-nya jika kolom `status` di DB menggunakan label berbeda
 const STATUS_MAP: Record<Exclude<ValidStatus, 'all'>, string[]> = {
   pending:  ['Menunggu', 'Belum dikirim', 'Telah terkirim', 'Telah dibaca', '-'],
   approved: ['Relevan'],
@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
       : 'all';
 
     // Ambil info PIC dari pic_users
-    const picQuery = 'SELECT id, full_name, email FROM pic_users WHERE id = $1';
+    const picQuery = 'SELECT id, full_name, email, department FROM pic_users WHERE id = $1';
     const picResult = await client.query(picQuery, [picId]);
 
     if (picResult.rows.length === 0) {
@@ -54,87 +54,168 @@ export async function GET(request: NextRequest) {
     const picUser = picResult.rows[0];
 
     // ── Ekstrak picCode dari email ────────────────────────────────────────────
-    // Email format: "dp@jai.co.id" → picCode: "DP"
-    // Email format: "vra, asw@jai.co.id" → picCode: "VRA, ASW" (multi-PIC)
     const emailLocalPart = picEmail.split('@')[0].trim().toUpperCase();
     const picCodes = emailLocalPart
       .split(',')
       .map((c: string) => c.trim())
       .filter((c: string) => c.length > 0);
 
-    const picCode = picCodes[0];
+    const picCode = picCodes[0] || 'PIC';
 
-    // ── Bangun WHERE clause untuk PIC ─────────────────────────────────────────
-    // picParams dan picWhereClause dipakai oleh DUA query berbeda:
-    //   1. docsQuery  — dengan status filter opsional
-    //   2. statsQuery — SELALU tanpa status filter
-    // Keduanya TIDAK boleh berbagi array params yang sama agar tidak terjadi
-    // mismatch "bind message supplies X parameters, but prepared statement requires Y".
-    const picConditions: string[] = [];
-    const picParams: string[] = [];   // params khusus untuk WHERE pic/email — tidak pernah diubah
-    let   picParamIndex = 1;
+    // ── Resolve Relasi Staff & Jabatan Manager dari kelola-departemen ─────────
+    const managerInfo = await resolveManagerDepartments(
+      client,
+      picEmail,
+      picUser.full_name,
+      picCodes
+    );
 
-    for (const code of picCodes) {
-      picConditions.push(`pd.pic ILIKE $${picParamIndex}`);
-      picParams.push(`%${code}%`);
+    const isManager = managerInfo.isManager && managerInfo.departments.length > 0;
+    const deptIds = managerInfo.departments.map(d => d.id);
+    const deptNames = managerInfo.departments.map(d => d.nama).join(', ');
+
+    let docsQuery = '';
+    let docsParams: any[] = [];
+    let statsQuery = '';
+    let statsParams: any[] = [];
+
+    if (isManager) {
+      // ── Query khusus MANAGER: Tampilkan SELURUH DOKUMEN berdasarkan departemen ─
+      // Mengambil dokumen yang:
+      // 1. Owner dokumen sesuai dengan nama departemen
+      // 2. Owner dokumen adalah section di bawah naungan departemen ini
+      // 3. PIC dokumen adalah staf di bawah naungan departemen ini
+      // 4. PIC dokumen atau email persis mencakup email/kode manager sendiri
+      let statusClause = '';
+      docsParams = [deptIds, `%${picCode}%`, `%${picEmail}%`];
+      statsParams = [deptIds, `%${picCode}%`, `%${picEmail}%`];
+
+      if (statusFilter !== 'all') {
+        const dbStatuses = STATUS_MAP[statusFilter];
+        statusClause = ` AND pd.status = ANY($4)`;
+        docsParams.push(dbStatuses);
+      }
+
+      const managerCte = `
+        WITH target_depts AS (
+          SELECT id, nama FROM departments WHERE id = ANY($1)
+        ),
+        target_sections AS (
+          SELECT id, nama FROM sections WHERE department_id = ANY($1)
+        ),
+        target_staff AS (
+          SELECT DISTINCT s.kode, s.email
+          FROM staff_directory s
+          LEFT JOIN staff_sections ss ON ss.staff_kode = s.kode
+          LEFT JOIN sections sc ON sc.id = ss.section_id
+          WHERE (s.unit_type = 'department' AND s.unit_id = ANY($1))
+             OR sc.department_id = ANY($1)
+        )
+      `;
+
+      const managerWhere = `
+        WHERE (
+          EXISTS (SELECT 1 FROM target_depts td WHERE pd.owner ILIKE '%' || td.nama || '%')
+          OR EXISTS (SELECT 1 FROM target_sections ts WHERE pd.owner ILIKE '%' || ts.nama || '%')
+          OR EXISTS (SELECT 1 FROM target_staff tst WHERE pd.pic ILIKE '%' || tst.kode || '%' OR pd.email ILIKE '%' || tst.email || '%')
+          OR pd.pic ILIKE $2
+          OR pd.email ILIKE $3
+        )
+      `;
+
+      docsQuery = `
+        ${managerCte}
+        SELECT
+          pd.id,
+          pd.nomor_dokumen,
+          pd.nama_dokumen,
+          pd.level_dokumen,
+          pd.tanggal_selesai_approval,
+          pd.revisi,
+          pd.owner,
+          pd.pic,
+          pd.email,
+          pd.status,
+          pd.updated_at AS created_at
+        FROM procedure_documents pd
+        ${managerWhere}
+        ${statusClause}
+        ORDER BY pd.tanggal_selesai_approval DESC
+      `;
+
+      statsQuery = `
+        ${managerCte}
+        SELECT pd.status
+        FROM procedure_documents pd
+        ${managerWhere}
+      `;
+
+    } else {
+      // ── Query PIC reguler: HANYA dokumen pribadi user ─────────────────────
+      const picConditions: string[] = [];
+      const picParams: string[] = [];
+      let picParamIndex = 1;
+
+      for (const code of picCodes) {
+        picConditions.push(`pd.pic ILIKE $${picParamIndex}`);
+        picParams.push(`%${code}%`);
+        picParamIndex++;
+      }
+
+      picConditions.push(`pd.email ILIKE $${picParamIndex}`);
+      picParams.push(`%${picEmail}%`);
       picParamIndex++;
+
+      const picWhereClause = picConditions.join(' OR ');
+
+      docsParams = [...picParams];
+      statsParams = [...picParams];
+      let statusClause = '';
+
+      if (statusFilter !== 'all') {
+        const dbStatuses = STATUS_MAP[statusFilter];
+        statusClause = ` AND pd.status = ANY($${picParamIndex})`;
+        docsParams.push(dbStatuses);
+      }
+
+      docsQuery = `
+        SELECT
+          pd.id,
+          pd.nomor_dokumen,
+          pd.nama_dokumen,
+          pd.level_dokumen,
+          pd.tanggal_selesai_approval,
+          pd.revisi,
+          pd.owner,
+          pd.pic,
+          pd.email,
+          pd.status,
+          pd.updated_at AS created_at
+        FROM procedure_documents pd
+        WHERE (${picWhereClause})${statusClause}
+        ORDER BY pd.tanggal_selesai_approval DESC
+      `;
+
+      statsQuery = `
+        SELECT pd.status FROM procedure_documents pd WHERE (${picWhereClause})
+      `;
     }
-
-    picConditions.push(`pd.email ILIKE $${picParamIndex}`);
-    picParams.push(`%${picEmail}%`);
-    picParamIndex++;
-
-    const picWhereClause = picConditions.join(' OR ');
-
-    // ── docsQuery: picParams + status filter opsional ─────────────────────────
-    // Copy picParams ke array terpisah — jangan mutasi picParams langsung
-    const docsParams: (string | string[])[] = [...picParams];
-    let   docsParamIndex = picParamIndex;   // lanjutkan dari indeks setelah picParams
-    let   statusClause   = '';
-
-    if (statusFilter !== 'all') {
-      const dbStatuses = STATUS_MAP[statusFilter];
-      statusClause  = ` AND pd.status = ANY($${docsParamIndex})`;
-      docsParams.push(dbStatuses as unknown as string);  // pg driver terima array
-      docsParamIndex++;
-    }
-
-    const docsQuery = `
-      SELECT
-        id,
-        nomor_dokumen,
-        nama_dokumen,
-        level_dokumen,
-        tanggal_selesai_approval,
-        revisi,
-        owner,
-        pic,
-        email,
-        status,
-        updated_at AS created_at
-      FROM procedure_documents pd
-      WHERE (${picWhereClause})${statusClause}
-      ORDER BY tanggal_selesai_approval DESC
-    `;
 
     const docsResult = await client.query(docsQuery, docsParams);
-    const documents  = docsResult.rows.map((row: any) => ({
+    const documents = docsResult.rows.map((row: any) => ({
       id:             row.id,
       documentNumber: row.nomor_dokumen,
       title:          row.nama_dokumen,
       status:         row.status,
       createdAt:      row.created_at,
+      owner:          row.owner,
+      pic:            row.pic,
     }));
 
-    // ── statsQuery: SELALU tanpa filter status — pakai picParams langsung ─────
-    // Tujuan: angka di StatsCards tidak berubah saat user mengaktifkan filter.
-    // picParams tidak pernah mengandung status param, jadi aman dipakai di sini.
-    let statsDocuments = documents;   // default: reuse hasil docs jika tidak ada filter
+    // ── statsQuery: SELALU tanpa filter status ────────────────────────────────
+    let statsDocuments = documents;
     if (statusFilter !== 'all') {
-      const statsResult = await client.query(
-        `SELECT status FROM procedure_documents pd WHERE (${picWhereClause})`,
-        picParams   // ← picParams murni, tidak ada status param di dalamnya
-      );
+      const statsResult = await client.query(statsQuery, statsParams);
       statsDocuments = statsResult.rows;
     }
 
@@ -146,18 +227,49 @@ export async function GET(request: NextRequest) {
       ['Relevan', 'Revisi', 'Obsolete'].includes(d.status)
     ).length;
 
-    // 🆕 Total Request: hanya hitung permintaan aktif
-    // - Revisi: pending AND dokumen saat ini belum 'Relevan'
-    // - Dokumen Baru: pending
-    const reviewReqResult = await client.query(
-      `SELECT COUNT(*) as count 
-       FROM pic_review_requests r
-       JOIN procedure_documents pd ON pd.nomor_dokumen = r.nomor_dokumen
-       WHERE r.pic_id = $1 
-         AND r.status = 'pending' 
-         AND pd.status != 'Relevan'`,
-      [picId]
-    );
+    // ── Total Request: hitung permintaan aktif ────────────────────────────────
+    let reviewReqResult;
+    if (isManager) {
+      reviewReqResult = await client.query(
+        `WITH target_depts AS (
+          SELECT id, nama FROM departments WHERE id = ANY($1)
+        ),
+        target_sections AS (
+          SELECT id, nama FROM sections WHERE department_id = ANY($1)
+        ),
+        target_staff AS (
+          SELECT DISTINCT s.kode, s.email
+          FROM staff_directory s
+          LEFT JOIN staff_sections ss ON ss.staff_kode = s.kode
+          LEFT JOIN sections sc ON sc.id = ss.section_id
+          WHERE (s.unit_type = 'department' AND s.unit_id = ANY($1))
+             OR sc.department_id = ANY($1)
+        )
+        SELECT COUNT(*) as count 
+        FROM pic_review_requests r
+        JOIN procedure_documents pd ON pd.nomor_dokumen = r.nomor_dokumen
+        WHERE (
+          r.pic_id = $2
+          OR EXISTS (SELECT 1 FROM target_depts td WHERE pd.owner ILIKE '%' || td.nama || '%')
+          OR EXISTS (SELECT 1 FROM target_sections ts WHERE pd.owner ILIKE '%' || ts.nama || '%')
+          OR EXISTS (SELECT 1 FROM target_staff tst WHERE pd.pic ILIKE '%' || tst.kode || '%' OR pd.email ILIKE '%' || tst.email || '%')
+        )
+          AND r.status = 'pending' 
+          AND pd.status != 'Relevan'`,
+        [deptIds, picId]
+      );
+    } else {
+      reviewReqResult = await client.query(
+        `SELECT COUNT(*) as count 
+         FROM pic_review_requests r
+         JOIN procedure_documents pd ON pd.nomor_dokumen = r.nomor_dokumen
+         WHERE r.pic_id = $1 
+           AND r.status = 'pending' 
+           AND pd.status != 'Relevan'`,
+        [picId]
+      );
+    }
+
     const docReqResult = await client.query(
       `SELECT COUNT(*) as count FROM pic_document_requests WHERE pic_id = $1 AND status = 'pending'`,
       [picId]
@@ -184,10 +296,13 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       picUser: {
-        id:       picUser.id,
-        fullName: picUser.full_name,
-        email:    picUser.email,
+        id:             picUser.id,
+        fullName:       picUser.full_name,
+        email:          picUser.email,
         picCode,
+        isManager:      managerInfo.isManager,
+        jabatan:        managerInfo.jabatan,
+        departmentName: deptNames || picUser.department || null,
       },
       stats: {
         totalDocuments,

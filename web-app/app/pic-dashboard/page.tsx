@@ -20,6 +20,9 @@ interface PICDashboardData {
     fullName: string;
     email: string;
     picCode: string;
+    isManager?: boolean;
+    jabatan?: string | null;
+    departmentName?: string | null;
   };
   stats: {
     totalDocuments: number;
@@ -33,6 +36,8 @@ interface PICDashboardData {
     title: string;
     status: string;
     createdAt: string;
+    owner?: string;
+    pic?: string;
   }>;
   activities: Array<{
     id: number;
@@ -184,8 +189,11 @@ export default function PICDashboardPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <PICDashboardHeader
-        userName={user?.fullName || 'PIC'}
+        userName={dashboardData?.picUser.fullName || user?.fullName || 'PIC'}
         onLogout={handleLogout}
+        isManager={dashboardData?.picUser.isManager}
+        departmentName={dashboardData?.picUser.departmentName}
+        jabatan={dashboardData?.picUser.jabatan}
       />
 
       {/* CHANGED: max-w-screen-xl (lebih lebar dari 7xl), py-8→py-5, px tetap */}
@@ -206,38 +214,112 @@ export default function PICDashboardPage() {
           <SectionReviewChart />
         </div>
 
-        {/* Action Buttons — CHANGED: gap-4→gap-3, mb-8→mb-5, py-3→py-2, text-sm ditambah */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
+        {/* Action Quick Access — 4 Kartu Aksi Rapi, Kompak & Menarik */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+          {/* 1. Review Dokumen */}
           <Link
             href={`/review-page-owner/${picCode}`}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white py-2 px-5 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2"
+            className="group relative bg-white hover:bg-emerald-50/30 border border-slate-200/80 hover:border-emerald-300 rounded-xl p-3 flex items-center justify-between gap-2.5 transition-all duration-150 shadow-xs hover:shadow-sm"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 flex-shrink-0 group-hover:bg-emerald-600 group-hover:text-white group-hover:border-emerald-600 transition-all duration-150">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-slate-800 group-hover:text-emerald-700 transition-colors truncate">
+                  Review Dokumen
+                </p>
+                <p className="text-[11px] text-slate-500 truncate">
+                  Verifikasi dokumen saya
+                </p>
+              </div>
+            </div>
+            <svg className="w-3.5 h-3.5 text-slate-300 group-hover:text-emerald-600 group-hover:translate-x-0.5 transition-all flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
-            Review Dokumen Saya
           </Link>
 
+          {/* 2. Approval Dokumen */}
+          <Link
+            href="/pic-approval"
+            className="group relative bg-white hover:bg-indigo-50/30 border border-slate-200/80 hover:border-indigo-300 rounded-xl p-3 flex items-center justify-between gap-2.5 transition-all duration-150 shadow-xs hover:shadow-sm"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 flex-shrink-0 group-hover:bg-indigo-600 group-hover:text-white group-hover:border-indigo-600 transition-all duration-150">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                </svg>
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <p className="text-xs font-bold text-slate-800 group-hover:text-indigo-700 transition-colors truncate">
+                    Approval Dokumen
+                  </p>
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse flex-shrink-0" />
+                </div>
+                <p className="text-[11px] text-slate-500 truncate">
+                  Prepared &bull; Checked &bull; Approved
+                </p>
+              </div>
+            </div>
+            <svg className="w-3.5 h-3.5 text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-0.5 transition-all flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </Link>
+
+          {/* 3. Minta Revisi Dokumen */}
           <button
             onClick={() => setShowRequestReviewModal(true)}
-            className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-5 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2"
+            className="group relative bg-white hover:bg-blue-50/30 border border-slate-200/80 hover:border-blue-300 rounded-xl p-3 flex items-center justify-between gap-2.5 transition-all duration-150 shadow-xs hover:shadow-sm text-left"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 flex-shrink-0 group-hover:bg-blue-600 group-hover:text-white group-hover:border-blue-600 transition-all duration-150">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-slate-800 group-hover:text-blue-700 transition-colors truncate">
+                  Minta Revisi
+                </p>
+                <p className="text-[11px] text-slate-500 truncate">
+                  Ajukan perbaikan dokumen
+                </p>
+              </div>
+            </div>
+            <svg className="w-3.5 h-3.5 text-slate-300 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
-            Minta Revisi Dokumen
           </button>
 
+          {/* 4. Dokumen Baru */}
           <button
             onClick={() => setShowNewDocumentModal(true)}
-            className="bg-slate-600 hover:bg-slate-700 text-white py-2 px-5 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2"
+            className="group relative bg-white hover:bg-slate-100/60 border border-slate-200/80 hover:border-slate-300 rounded-xl p-3 flex items-center justify-between gap-2.5 transition-all duration-150 shadow-xs hover:shadow-sm text-left"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700 flex-shrink-0 group-hover:bg-slate-700 group-hover:text-white group-hover:border-slate-700 transition-all duration-150">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-slate-800 group-hover:text-slate-900 transition-colors truncate">
+                  Dokumen Baru
+                </p>
+                <p className="text-[11px] text-slate-500 truncate">
+                  Ajukan permohonan baru
+                </p>
+              </div>
+            </div>
+            <svg className="w-3.5 h-3.5 text-slate-300 group-hover:text-slate-600 group-hover:translate-x-0.5 transition-all flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
-            Dokumen Baru
           </button>
         </div>
 

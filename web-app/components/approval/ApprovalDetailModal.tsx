@@ -179,7 +179,14 @@ export default function ApprovalDetailModal({
                 <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block mb-0.5">
                   Selesai Approval
                 </span>
-                <span className="font-semibold text-slate-800">{formatDate(doc.completedAt)}</span>
+                <span className="font-semibold text-slate-800">
+                  {doc.documentStatus === 'Revisi' ||
+                  doc.documentStatus === 'Ditolak' ||
+                  doc.documentStatus === 'Menunggu Setting Approver' ||
+                  doc.documentStatus === 'Menunggu Approval'
+                    ? '-'
+                    : formatDate(doc.completedAt)}
+                </span>
               </div>
               <div>
                 <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block mb-0.5">
@@ -187,21 +194,29 @@ export default function ApprovalDetailModal({
                 </span>
                 <span
                   className={`inline-block px-2.5 py-0.5 rounded-full font-bold text-[11px] ${
-                    doc.cycleStatus === 'completed'
+                    doc.documentStatus === 'Relevan' && doc.cycleStatus === 'completed'
                       ? 'bg-emerald-100 text-emerald-800'
                       : doc.cycleStatus === 'in_progress'
                       ? 'bg-amber-100 text-amber-800'
-                      : doc.cycleStatus === 'rejected'
+                      : doc.cycleStatus === 'rejected' || doc.documentStatus === 'Ditolak'
                       ? 'bg-rose-100 text-rose-800'
+                      : doc.cycleStatus === 'revisi' || doc.documentStatus === 'Revisi'
+                      ? 'bg-rose-100 text-rose-800'
+                      : doc.cycleStatus === 'setting_approver' || doc.documentStatus === 'Menunggu Setting Approver'
+                      ? 'bg-sky-100 text-sky-800'
                       : 'bg-slate-200 text-slate-700'
                   }`}
                 >
-                  {doc.cycleStatus === 'completed'
+                  {doc.documentStatus === 'Relevan' && doc.cycleStatus === 'completed'
                     ? 'Selesai'
                     : doc.cycleStatus === 'in_progress'
                     ? 'Dalam Proses'
-                    : doc.cycleStatus === 'rejected'
+                    : doc.cycleStatus === 'rejected' || doc.documentStatus === 'Ditolak'
                     ? 'Ditolak'
+                    : doc.cycleStatus === 'revisi' || doc.documentStatus === 'Revisi'
+                    ? 'Perlu Revisi'
+                    : doc.cycleStatus === 'setting_approver' || doc.documentStatus === 'Menunggu Setting Approver'
+                    ? 'Perlu Approval'
                     : doc.cycleStatus}
                 </span>
               </div>
@@ -216,15 +231,26 @@ export default function ApprovalDetailModal({
                 <span>Progres Approval Dokumen (Siapa yang Sudah Approve)</span>
               </h3>
               <span className="text-xs text-slate-400">
-                Tahap berjalan: <strong className="text-slate-700 capitalize">{doc.currentStage}</strong>
+                Tahap berjalan:{' '}
+                <strong className="text-slate-700 capitalize">
+                  {doc.documentStatus === 'Revisi' ? 'Revisi' : doc.currentStage}
+                </strong>
               </span>
             </div>
 
             <div className="space-y-4">
               {stages.map(({ key, label, step, stage }) => {
-                const isCompleted = stage.status === 'completed';
-                const isInProgress = stage.status === 'in_progress';
-                const isRejected = stage.status === 'rejected';
+                const isRestarting =
+                  doc.documentStatus === 'Revisi' ||
+                  doc.documentStatus === 'Ditolak' ||
+                  doc.documentStatus === 'Menunggu Setting Approver' ||
+                  doc.documentStatus === 'Menunggu Approval' ||
+                  doc.cycleStatus === 'revisi' ||
+                  doc.cycleStatus === 'setting_approver';
+
+                const isCompleted = !isRestarting && stage.status === 'completed';
+                const isInProgress = !isRestarting && stage.status === 'in_progress';
+                const isRejected = !isRestarting && stage.status === 'rejected';
 
                 let headerBg = 'bg-slate-100 border-slate-200 text-slate-700';
                 let StatusBadge = (
@@ -259,6 +285,8 @@ export default function ApprovalDetailModal({
                   );
                 }
 
+                const displayApprovedCount = isRestarting ? 0 : stage.approvedCount;
+
                 return (
                   <div
                     key={key}
@@ -274,7 +302,7 @@ export default function ApprovalDetailModal({
                       </div>
                       <div className="flex items-center gap-3">
                         <span className="text-xs font-mono font-medium">
-                          {stage.approvedCount} dari {stage.totalCount} disetujui
+                          {displayApprovedCount} dari {stage.totalCount} disetujui
                         </span>
                         {StatusBadge}
                       </div>
@@ -288,11 +316,12 @@ export default function ApprovalDetailModal({
                         </p>
                       ) : (
                         stage.approvers.map((approver, aIdx) => {
-                          const hasApproved = approver.accStatus === 'acc';
-                          const isApproverRejected = approver.accStatus === 'rejected';
+                          const hasApproved = !isRestarting && approver.accStatus === 'acc';
+                          const isApproverRejected = !isRestarting && approver.accStatus === 'rejected';
                           const isPending =
-                            approver.accStatus === 'pending' ||
-                            (stage.status === 'in_progress' && !hasApproved && !isApproverRejected);
+                            !isRestarting &&
+                            (approver.accStatus === 'pending' ||
+                            (stage.status === 'in_progress' && !hasApproved && !isApproverRejected));
 
                           return (
                             <div

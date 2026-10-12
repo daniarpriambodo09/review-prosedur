@@ -13,6 +13,8 @@ import { useParams } from 'next/navigation';
 import PDFViewer from '@/components/documents/PDFViewer';
 import VersionToggleBar from '@/components/documents/VersionToggleBar';
 import DocumentChat from '@/components/chat/DocumentChat';
+import { useAuth } from '@/contexts/AuthContext';
+import { checkUserApproverMatch } from '@/lib/approvalAuth';
 import {
   FileText,
   CheckCircle2,
@@ -30,6 +32,7 @@ import {
   Info,
   ChevronRight,
   FileCheck2,
+  Lock,
 } from 'lucide-react';
 
 interface RejectionInfo {
@@ -142,11 +145,17 @@ export default function AccPage() {
   const params = useParams<{ token: string }>();
   const token  = params?.token ?? '';
 
+  const { user, isAuthenticated } = useAuth();
+
   const [info,       setInfo]       = useState<AccInfo | null>(null);
   const [loading,    setLoading]    = useState(true);
   const [loadError,  setLoadError]  = useState('');
   const [submitError, setSubmitError] = useState('');
   const [result,     setResult]     = useState<AccSubmitResult | null>(null);
+
+  // Cek apakah akun yang sedang login adalah PIC dan BUKAN pejabat approver dokumen ini
+  const isPicUser = isAuthenticated && !!user && user.role === 'pic';
+  const isMatchingApprover = !isPicUser || !info || checkUserApproverMatch(user, { email: info.email, nama: info.nama });
 
   // Form tolak dokumen
   const [showRejectForm, setShowRejectForm] = useState(false);
@@ -623,9 +632,33 @@ export default function AccPage() {
                 </div>
               )}
 
-              {/* 4. FORM TINDAKAN: Tombol Approve & Tombol Tolak */}
+              {/* 4. FORM TINDAKAN: Validasi Kesesuaian Pejabat Approver */}
               {!result && !cycleRejected && !alreadyAcc && (
-                !showRejectForm ? (
+                !isMatchingApprover ? (
+                  <div className="space-y-3 pt-3 border-t border-slate-100 animate-in fade-in">
+                    <div className="p-4 rounded-2xl bg-amber-50/90 border border-amber-300 space-y-2">
+                      <div className="flex items-center gap-2 text-amber-900 font-bold text-xs">
+                        <Lock size={16} className="text-amber-700 flex-shrink-0" />
+                        <span>Akses Persetujuan Dibatasi (Hanya Lihat)</span>
+                      </div>
+                      <p className="text-xs text-amber-800 leading-relaxed">
+                        Anda sedang login sebagai <strong>{user?.fullName || user?.email}</strong> ({user?.email}).
+                        Dokumen ini memerlukan persetujuan dari pejabat <strong>{info.nama || info.email}</strong> ({info.email}).
+                      </p>
+                      <p className="text-[11px] text-amber-700 leading-relaxed">
+                        Karena akun Anda tidak cocok dengan pejabat approver yang disetting oleh admin, tombol persetujuan dinonaktifkan. Anda hanya dapat melihat dokumen ini.
+                      </p>
+                    </div>
+
+                    <button
+                      disabled
+                      className="w-full inline-flex items-center justify-center gap-2 px-5 py-3.5 bg-slate-100 text-slate-400 border border-slate-200 text-xs font-bold rounded-2xl cursor-not-allowed opacity-75 shadow-2xs"
+                    >
+                      <Lock size={15} />
+                      <span>Persetujuan Dinonaktifkan (Bukan Pejabat Terdaftar)</span>
+                    </button>
+                  </div>
+                ) : !showRejectForm ? (
                   <div className="space-y-3 pt-3 border-t border-slate-100">
                     <p className="text-xs text-slate-600 leading-relaxed">
                       Harap teliti lembar dokumen di sebelah kiri, kemudian tentukan keputusan Anda:

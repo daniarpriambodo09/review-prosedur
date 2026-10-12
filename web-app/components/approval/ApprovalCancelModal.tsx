@@ -26,6 +26,10 @@ export default function ApprovalCancelModal({
   const currentStageLabel =
     doc.documentStatus === 'Menunggu Setting Approver' || doc.cycleStatus === 'setting_approver'
       ? 'Perlu Approval (Setting Approver)'
+      : doc.documentStatus === 'Revisi' || doc.cycleStatus === 'revisi'
+      ? 'Revisi (Perlu Upload Ulang)'
+      : doc.documentStatus === 'Ditolak' || doc.cycleStatus === 'rejected'
+      ? 'Ditolak'
       : doc.currentStage
       ? doc.currentStage.charAt(0).toUpperCase() + doc.currentStage.slice(1)
       : doc.documentStatus;

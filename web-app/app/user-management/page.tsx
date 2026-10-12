@@ -1,12 +1,25 @@
 // app/user-management/page.tsx
 'use client';
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import Link from 'next/link';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { useAuth } from '@/contexts/AuthContext';
-import { Search, X, ChevronUp, ChevronDown, Trash2 } from 'lucide-react';
+import { Search, X, ChevronUp, ChevronDown, Trash2, CheckCircle2 } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+export interface StaffDirectoryItem {
+  kode: string;
+  email: string;
+  nama: string;
+  jabatanRaw?: string | null;
+  jabatan?: string | null;
+  departmentNama?: string | null;
+  unitNama?: string | null;
+  parentDepartmentNama?: string | null;
+  isManager?: boolean;
+}
+
 interface UserRow {
   id: number;
   username: string;
@@ -138,6 +151,275 @@ function SortableTh({
   );
 }
 
+// ── Searchable Dropdown untuk Nama Staf & Manager ────────────────────────────
+function StaffSearchDropdown({
+  value,
+  onSelect,
+  onManualInput,
+  staffList,
+  loading = false,
+  registeredEmails,
+  error,
+}: {
+  value: string;
+  onSelect: (staff: StaffDirectoryItem) => void;
+  onManualInput: (nama: string) => void;
+  staffList: StaffDirectoryItem[];
+  loading?: boolean;
+  registeredEmails?: Set<string>;
+  error?: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const containerRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Tutup dropdown saat klik di luar
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  // Autofocus input pencarian saat dropdown dibuka
+  useEffect(() => {
+    if (isOpen) {
+      setTimeout(() => {
+        searchInputRef.current?.focus();
+      }, 50);
+    }
+  }, [isOpen]);
+
+  const sortedStaffList = useMemo(() => {
+    return [...staffList].sort((a, b) => (a.nama || '').localeCompare(b.nama || ''));
+  }, [staffList]);
+
+  const filteredStaff = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return sortedStaffList;
+    return sortedStaffList.filter(s =>
+      (s.nama && s.nama.toLowerCase().includes(q)) ||
+      (s.email && s.email.toLowerCase().includes(q)) ||
+      (s.kode && s.kode.toLowerCase().includes(q)) ||
+      (s.jabatan && s.jabatan.toLowerCase().includes(q)) ||
+      (s.unitNama && s.unitNama.toLowerCase().includes(q)) ||
+      (s.departmentNama && s.departmentNama.toLowerCase().includes(q))
+    );
+  }, [sortedStaffList, searchTerm]);
+
+  const selectedStaff = useMemo(() => {
+    if (!value.trim()) return null;
+    return staffList.find(s => s.nama.trim().toLowerCase() === value.trim().toLowerCase()) || null;
+  }, [staffList, value]);
+
+  const handleOpen = () => {
+    setSearchTerm('');
+    setIsOpen(prev => !prev);
+  };
+
+  return (
+    <div className="relative" ref={containerRef}>
+      {/* Trigger Box */}
+      <div
+        onClick={handleOpen}
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            handleOpen();
+          }
+        }}
+        className={`w-full px-3 py-2 text-sm rounded-lg border bg-white cursor-pointer select-none transition-all flex items-center justify-between gap-2 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+          error ? 'border-red-500 ring-1 ring-red-500' : isOpen ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-300 hover:border-slate-400'
+        }`}
+      >
+        <div className="flex-1 min-w-0">
+          {value ? (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-semibold text-slate-800 truncate">{value}</span>
+              {selectedStaff?.kode && (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                  {selectedStaff.kode}
+                </span>
+              )}
+              {selectedStaff?.jabatan && (
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                  selectedStaff.isManager ? 'bg-amber-100 text-amber-800 border border-amber-200' : 'bg-slate-100 text-slate-700 border border-slate-200'
+                }`}>
+                  {selectedStaff.jabatan}
+                </span>
+              )}
+            </div>
+          ) : (
+            <span className="text-slate-400 text-xs">-- Pilih atau cari nama staf/manager --</span>
+          )}
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          {value && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onManualInput('');
+              }}
+              className="p-1 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100 transition-colors"
+              title="Hapus pilihan"
+            >
+              <X size={13} />
+            </button>
+          )}
+          <ChevronDown
+            size={15}
+            className={`text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180 text-blue-600' : ''}`}
+          />
+        </div>
+      </div>
+
+      {error && <p className="text-[11px] text-red-500 mt-1">{error}</p>}
+
+      {/* Floating Dropdown */}
+      {isOpen && (
+        <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 overflow-hidden divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-100">
+          {/* Header Search Box */}
+          <div className="p-2.5 bg-slate-50 space-y-2">
+            <div className="relative">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                placeholder="Cari nama, kode, email, jabatan..."
+                className="w-full pl-8 pr-7 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between text-[10px] text-slate-500 px-0.5">
+              <span>
+                {loading
+                  ? 'Memuat data staf...'
+                  : searchTerm
+                  ? `Ditemukan: ${filteredStaff.length} dari ${staffList.length} staf`
+                  : `Daftar Semua Staf & Manager (${staffList.length} orang)`}
+              </span>
+              <span className="text-blue-600 font-medium">Klik untuk auto-fill</span>
+            </div>
+          </div>
+
+          {/* List Staff */}
+          <div className="max-h-56 overflow-y-auto divide-y divide-slate-100">
+            {loading ? (
+              <div className="p-6 text-center text-xs text-slate-400">
+                <span className="inline-block animate-spin mr-2">⟳</span> Memuat staf dari database...
+              </div>
+            ) : filteredStaff.length === 0 ? (
+              <div className="p-4 text-center space-y-2">
+                <p className="text-xs text-slate-500">
+                  Tidak ada staf yang cocok dengan &quot;{searchTerm}&quot;
+                </p>
+                {searchTerm.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onManualInput(searchTerm.trim());
+                      setIsOpen(false);
+                    }}
+                    className="text-xs text-blue-600 hover:underline font-semibold block mx-auto py-1 px-2 rounded hover:bg-blue-50"
+                  >
+                    Gunakan nama &quot;{searchTerm.trim()}&quot;
+                  </button>
+                )}
+              </div>
+            ) : (
+              filteredStaff.map((staff, idx) => {
+                const isSelected = value.trim().toLowerCase() === (staff.nama || '').trim().toLowerCase();
+                const isAlreadyRegistered = staff.email && registeredEmails?.has(staff.email.trim().toLowerCase());
+
+                return (
+                  <button
+                    key={`${staff.kode}-${idx}`}
+                    type="button"
+                    onClick={() => {
+                      onSelect(staff);
+                      setIsOpen(false);
+                      setSearchTerm('');
+                    }}
+                    className={`w-full text-left px-3 py-2 transition-colors flex items-center justify-between gap-2.5 group ${
+                      isSelected
+                        ? 'bg-blue-50/90 text-blue-900 border-l-4 border-blue-600'
+                        : 'hover:bg-slate-50 text-slate-800'
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-xs font-semibold text-slate-900 group-hover:text-blue-700">
+                          {staff.nama}
+                        </span>
+                        {staff.kode && (
+                          <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-slate-100 text-slate-600 border border-slate-200">
+                            {staff.kode}
+                          </span>
+                        )}
+                        {staff.jabatan && (
+                          <span className={`px-1.5 py-0.2 rounded text-[10px] font-semibold ${
+                            staff.isManager ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'
+                          }`}>
+                            {staff.jabatan}
+                          </span>
+                        )}
+                        {staff.unitNama && (
+                          <span className="text-[10px] text-slate-400">
+                            • {staff.unitNama}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500">
+                        <span className="truncate">{staff.email || '(Email belum diset)'}</span>
+                        {isAlreadyRegistered && (
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-50 text-amber-700 border border-amber-200 shrink-0">
+                            Sudah ada akun PIC
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {isSelected && (
+                      <CheckCircle2 size={15} className="text-blue-600 shrink-0" />
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
+
+          {/* Footer note link to kelola-departemen */}
+          <div className="p-2 bg-slate-50 text-center">
+            <p className="text-[10px] text-slate-500">
+              Master staf &amp; manager diambil dari{' '}
+              <Link href="/kelola-departemen" target="_blank" className="text-blue-600 hover:underline font-semibold">
+                Kelola Departemen
+              </Link>
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Page Content ─────────────────────────────────────────────────────────
 function UserManagementContent() {
   const { user } = useAuth();
@@ -167,6 +449,10 @@ function UserManagementContent() {
   const [addForm, setAddForm] = useState(EMPTY_FORM);
   const [addErrors, setAddErrors] = useState<Record<string, string>>({});
   const [addLoading, setAddLoading] = useState(false);
+
+  // 🆕 Master staff directory (dari kelola-departemen tab Staff & Manager)
+  const [staffList, setStaffList] = useState<StaffDirectoryItem[]>([]);
+  const [loadingStaff, setLoadingStaff] = useState(false);
 
   const [editForm, setEditForm] = useState(EMPTY_EDIT);
   const [editErrors, setEditErrors] = useState<Record<string, string>>({});
@@ -204,9 +490,67 @@ function UserManagementContent() {
     }
   }, [authHeaders]);
 
+  const fetchStaffList = useCallback(async () => {
+    try {
+      setLoadingStaff(true);
+      const res = await fetch('/review-prosedur/api/staff');
+      if (res.ok) {
+        const data = await res.json();
+        setStaffList(Array.isArray(data) ? data : []);
+      }
+    } catch {
+      console.error('Gagal mengambil daftar staff');
+    } finally {
+      setLoadingStaff(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchUsers();
-  }, [fetchUsers]);
+    fetchStaffList();
+  }, [fetchUsers, fetchStaffList]);
+
+  // Set email PIC yang sudah terdaftar
+  const registeredPicEmails = useMemo(() => {
+    const set = new Set<string>();
+    picUsers.forEach(u => {
+      if (u.email) set.add(u.email.trim().toLowerCase());
+    });
+    return set;
+  }, [picUsers]);
+
+  // Handler saat nama staf dipilih dari dropdown
+  const handleSelectStaffForAdd = (staff: StaffDirectoryItem) => {
+    const cleanName = (staff.nama || '').trim();
+    const cleanEmail = (staff.email || '').trim();
+    setAddForm(prev => ({
+      ...prev,
+      fullName: cleanName,
+      email: cleanEmail,
+      username: prev.role === 'pic' ? (cleanEmail || cleanName.toLowerCase().replace(/\s+/g, '.')) : prev.username,
+    }));
+    setAddErrors(prev => {
+      const next = { ...prev };
+      delete next.fullName;
+      if (cleanEmail) delete next.email;
+      if (cleanEmail) delete next.username;
+      return next;
+    });
+  };
+
+  const handleManualNameForAdd = (nama: string) => {
+    setAddForm(prev => ({
+      ...prev,
+      fullName: nama,
+    }));
+    if (nama.trim()) {
+      setAddErrors(prev => {
+        const next = { ...prev };
+        delete next.fullName;
+        return next;
+      });
+    }
+  };
 
   // ── Toggle password visibility ──────────────────────────────────────────────
   const togglePassword = async (id: number, role: string) => {
@@ -666,7 +1010,12 @@ function UserManagementContent() {
             <p className="text-sm text-slate-500 mt-0.5">Kelola akun Admin dan PIC yang dapat mengakses sistem</p>
           </div>
           <button
-            onClick={() => { setAddForm(EMPTY_FORM); setAddErrors({}); setShowAddModal(true); }}
+            onClick={() => {
+              setAddForm({ ...EMPTY_FORM, role: activeTab });
+              setAddErrors({});
+              setShowAddModal(true);
+              fetchStaffList();
+            }}
             className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-semibold transition-all active:scale-95 shadow-sm"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
@@ -771,46 +1120,123 @@ function UserManagementContent() {
       {showAddModal && (
         <Modal title="Tambah User Baru" onClose={() => setShowAddModal(false)}>
           <div className="space-y-4">
-            <Field label="Nama Lengkap" required>
-              <input type="text" className={inputCls} placeholder="contoh: Budi Santoso"
-                value={addForm.fullName} onChange={e => setAddForm(f => ({ ...f, fullName: e.target.value }))} />
-              {addErrors.fullName && <p className="text-[11px] text-red-500 mt-1">{addErrors.fullName}</p>}
-            </Field>
             <Field label="Role" required>
-              <select className={selectCls} value={addForm.role}
-                onChange={e => setAddForm(f => ({ ...f, role: e.target.value as 'admin' | 'pic' }))}>
+              <select
+                className={selectCls}
+                value={addForm.role}
+                onChange={e => {
+                  const newRole = e.target.value as 'admin' | 'pic';
+                  setAddForm(f => ({
+                    ...f,
+                    role: newRole,
+                    username: newRole === 'pic' && f.email ? f.email : f.username,
+                  }));
+                }}
+              >
                 <option value="pic">PIC</option>
                 <option value="admin">Admin</option>
               </select>
             </Field>
-            <Field label="Username" required>
-              <input type="text" className={inputCls}
-                placeholder={addForm.role === 'pic' ? 'contoh: budi.santoso' : 'contoh: budi.admin'}
-                value={addForm.username} onChange={e => setAddForm(f => ({ ...f, username: e.target.value }))} />
-              {addErrors.username && <p className="text-[11px] text-red-500 mt-1">{addErrors.username}</p>}
+
+            <Field label="Nama Lengkap" required>
+              {addForm.role === 'pic' ? (
+                <StaffSearchDropdown
+                  value={addForm.fullName}
+                  onSelect={handleSelectStaffForAdd}
+                  onManualInput={handleManualNameForAdd}
+                  staffList={staffList}
+                  loading={loadingStaff}
+                  registeredEmails={registeredPicEmails}
+                  error={addErrors.fullName}
+                />
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    className={inputCls}
+                    placeholder="contoh: Budi Santoso"
+                    value={addForm.fullName}
+                    onChange={e => setAddForm(f => ({ ...f, fullName: e.target.value }))}
+                  />
+                  {addErrors.fullName && <p className="text-[11px] text-red-500 mt-1">{addErrors.fullName}</p>}
+                </>
+              )}
             </Field>
+
             <Field label="Email" required={addForm.role === 'pic'}>
-              <input type="email" className={inputCls} placeholder="contoh: budi@example.com"
-                value={addForm.email} onChange={e => setAddForm(f => ({ ...f, email: e.target.value }))} />
+              <input
+                type="email"
+                className={inputCls}
+                placeholder={addForm.role === 'pic' ? 'contoh: nama.pic@jai.co.id' : 'contoh: budi@example.com'}
+                value={addForm.email}
+                onChange={e => {
+                  const val = e.target.value;
+                  setAddForm(f => ({
+                    ...f,
+                    email: val,
+                    username: f.role === 'pic' ? val : f.username,
+                  }));
+                }}
+              />
               {addErrors.email && <p className="text-[11px] text-red-500 mt-1">{addErrors.email}</p>}
+              {addForm.role === 'pic' && addForm.email && (
+                <p className="text-[11px] text-emerald-600 mt-1 flex items-center gap-1 font-medium">
+                  <CheckCircle2 size={12} className="shrink-0" />
+                  Email otomatis terisi dari staf &amp; digunakan login PIC
+                </p>
+              )}
             </Field>
+
+            <Field label="Username" required>
+              <input
+                type="text"
+                className={inputCls}
+                placeholder={addForm.role === 'pic' ? 'contoh: nama.pic@jai.co.id' : 'contoh: budi.admin'}
+                value={addForm.username}
+                onChange={e => setAddForm(f => ({ ...f, username: e.target.value }))}
+              />
+              {addErrors.username && <p className="text-[11px] text-red-500 mt-1">{addErrors.username}</p>}
+              {addForm.role === 'pic' && (
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  (Untuk PIC, username login disamakan dengan email)
+                </p>
+              )}
+            </Field>
+
             <Field label="Password" required>
-              <input type="password" className={inputCls} placeholder="Minimal 6 karakter"
-                value={addForm.password} onChange={e => setAddForm(f => ({ ...f, password: e.target.value }))} />
+              <input
+                type="password"
+                className={inputCls}
+                placeholder="Minimal 6 karakter"
+                value={addForm.password}
+                onChange={e => setAddForm(f => ({ ...f, password: e.target.value }))}
+              />
               {addErrors.password && <p className="text-[11px] text-red-500 mt-1">{addErrors.password}</p>}
             </Field>
+
             <Field label="Konfirmasi Password" required>
-              <input type="password" className={inputCls} placeholder="Ulangi password"
-                value={addForm.confirmPassword} onChange={e => setAddForm(f => ({ ...f, confirmPassword: e.target.value }))} />
+              <input
+                type="password"
+                className={inputCls}
+                placeholder="Ulangi password"
+                value={addForm.confirmPassword}
+                onChange={e => setAddForm(f => ({ ...f, confirmPassword: e.target.value }))}
+              />
               {addErrors.confirmPassword && <p className="text-[11px] text-red-500 mt-1">{addErrors.confirmPassword}</p>}
             </Field>
+
             <div className="flex gap-3 pt-2">
-              <button onClick={() => setShowAddModal(false)}
-                className="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+              >
                 Batal
               </button>
-              <button onClick={handleAdd} disabled={addLoading}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-xs font-semibold transition-all active:scale-95">
+              <button
+                onClick={handleAdd}
+                disabled={addLoading}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-xs font-semibold transition-all active:scale-95"
+              >
                 {addLoading ? 'Menyimpan...' : 'Simpan'}
               </button>
             </div>

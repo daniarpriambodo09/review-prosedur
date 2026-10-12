@@ -8,9 +8,18 @@ import Image from 'next/image';
 interface PICDashboardHeaderProps {
   userName: string;
   onLogout: () => void;
+  isManager?: boolean;
+  departmentName?: string | null;
+  jabatan?: string | null;
 }
 
-export default function PICDashboardHeader({ userName, onLogout }: PICDashboardHeaderProps) {
+export default function PICDashboardHeader({
+  userName,
+  onLogout,
+  isManager = false,
+  departmentName,
+  jabatan,
+}: PICDashboardHeaderProps) {
   // Ambil inisial dari nama untuk avatar
   const initials = userName
     .split(' ')
@@ -39,9 +48,17 @@ export default function PICDashboardHeader({ userName, onLogout }: PICDashboardH
               />
             </div>
             <div>
-              {/* CHANGED: text-xl→text-base */}
-              <h1 className="text-base font-bold text-slate-900">PIC Dashboard</h1>
-              {/* CHANGED: text-xs→text-[11px] */}
+              <div className="flex items-center gap-2">
+                <h1 className="text-base font-bold text-slate-900">PIC Dashboard</h1>
+                <Link
+                  href="/pic-approval"
+                  className="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 hover:border-indigo-300 transition-all"
+                  title="Buka Halaman Persetujuan Dokumen (Prepared, Checked, Approved)"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                  Approval Dokumen &rarr;
+                </Link>
+              </div>
               <p className="text-[11px] text-slate-500">Review Prosedur</p>
             </div>
           </div>
@@ -51,8 +68,14 @@ export default function PICDashboardHeader({ userName, onLogout }: PICDashboardH
             <div className="text-right hidden sm:block">
               {/* CHANGED: text-sm→text-xs */}
               <p className="text-xs font-semibold text-slate-900">{userName}</p>
-              {/* CHANGED: text-xs→text-[11px] */}
-              <p className="text-[11px] text-slate-500">Person In Charge</p>
+              {isManager ? (
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                  {jabatan || 'Manager'}{departmentName ? ` • ${departmentName}` : ''}
+                </span>
+              ) : (
+                <p className="text-[11px] text-slate-500">Person In Charge</p>
+              )}
             </div>
 
             {/* Notification Bell — tidak diubah, sudah compact */}

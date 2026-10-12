@@ -23,6 +23,7 @@ export interface ApproverDetail {
   approverId?: number;
   nama: string | null;
   email: string;
+  token?: string | null;
   accStatus: 'acc' | 'pending' | 'rejected' | 'waiting';
   accAt: string | null;
   emailSentAt: string | null;
@@ -148,22 +149,21 @@ export default function ApprovalTable({
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse text-sm table-auto">
+        <table className="w-full text-left border-collapse text-xs sm:text-sm table-auto">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50/90 text-[11px] font-bold text-slate-500 uppercase tracking-wider select-none">
-              <th className="py-3 px-3.5 text-center w-12">No</th>
-              <th className="py-3 px-4 min-w-[260px]">Nama Dokumen</th>
-              <th className="py-3 px-4 text-center w-36 whitespace-nowrap">Nomor Dokumen</th>
-              <th className="py-3 px-4 w-72 whitespace-nowrap">Status Approval</th>
-              <th className="py-3 px-4 text-center w-40 whitespace-nowrap">Aksi</th>
+              <th className="py-3 px-2 text-center w-10">No</th>
+              <th className="py-3 px-3 min-w-0">Nama Dokumen</th>
+              <th className="py-3 px-2 text-center w-28 whitespace-nowrap">No. Dokumen</th>
+              <th className="py-3 px-2.5 w-44 whitespace-nowrap">Status Approval</th>
+              <th className="py-3 px-2 text-center w-[250px] whitespace-nowrap">Aksi</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {documents.map((doc, idx) => {
               const isCompleted =
-                doc.cycleStatus === 'completed' ||
-                doc.documentStatus === 'Relevan' ||
-                doc.currentStage === 'completed';
+                doc.documentStatus === 'Relevan' &&
+                (doc.cycleStatus === 'completed' || doc.currentStage === 'completed');
 
               const stages = [
                 { key: 'prepared' as const, label: 'Prepared', stage: doc.stages.prepared },
@@ -177,14 +177,14 @@ export default function ApprovalTable({
                   className="hover:bg-slate-50/70 transition-colors"
                 >
                   {/* Kolom 1: No */}
-                  <td className="py-3.5 px-3.5 text-center font-medium text-xs text-slate-400">
+                  <td className="py-3 px-2 text-center font-medium text-xs text-slate-400">
                     {idx + 1}
                   </td>
 
                   {/* Kolom 2: Nama Dokumen */}
-                  <td className="py-3.5 px-4">
+                  <td className="py-3 px-3 min-w-0">
                     <div className="min-w-0">
-                      <p className="font-semibold text-slate-900 text-sm leading-snug">
+                      <p className="font-semibold text-slate-900 text-xs sm:text-sm leading-snug break-words">
                         {doc.namaDokumen}
                       </p>
                       <div className="flex flex-wrap items-center gap-1.5 mt-1 text-xs">
@@ -220,21 +220,21 @@ export default function ApprovalTable({
                   </td>
 
                   {/* Kolom 3: Nomor Dokumen */}
-                  <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                    <span className="inline-block px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 font-mono text-xs font-bold text-slate-800 tracking-wide">
+                  <td className="py-3 px-2 text-center whitespace-nowrap">
+                    <span className="inline-block px-2 py-0.5 rounded-lg bg-slate-100 border border-slate-200/90 font-mono text-xs font-bold text-slate-800 tracking-wide">
                       {doc.nomorDokumen}
                     </span>
                   </td>
 
                   {/* Kolom 4: Status (Daftar 3 ke bawah: Prepared, Checked, Approved) */}
-                  <td className="py-3 px-4">
-                    <div className="space-y-1.5 w-full max-w-[270px]">
+                  <td className="py-2.5 px-2.5">
+                    <div className="space-y-1 w-full max-w-[175px]">
                       {/* Highlight Badge jika dokumen telah SELESAI seluruh tahap approval */}
                       {isCompleted && (
-                        <div className="flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 text-[11px] font-bold shadow-2xs">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <CheckCircle2 size={13} className="text-emerald-600 flex-shrink-0" />
-                            <span className="truncate">Selesai Approval (ACC)</span>
+                        <div className="flex items-center justify-between gap-1 px-2 py-1 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-900 text-[11px] font-bold shadow-2xs">
+                          <div className="flex items-center gap-1 min-w-0">
+                            <CheckCircle2 size={12} className="text-emerald-600 flex-shrink-0" />
+                            <span className="truncate">Selesai (ACC)</span>
                           </div>
                           {doc.completedAt && (
                             <span className="text-[10px] text-emerald-700/90 font-mono font-medium flex-shrink-0" title="Waktu selesai approval">
@@ -249,19 +249,19 @@ export default function ApprovalTable({
                         (() => {
                           const hasApprovers = (doc.stages?.prepared?.totalCount > 0);
                           return (
-                            <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-bold shadow-xs border ${
+                            <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-bold shadow-2xs border ${
                               hasApprovers
                                 ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
                                 : 'bg-amber-50 border-amber-300 text-amber-900'
                             }`}>
                               {hasApprovers ? (
                                 <>
-                                  <Play size={11} className="text-emerald-600 fill-current ml-0.5 flex-shrink-0" />
+                                  <Play size={10} className="text-emerald-600 fill-current ml-0.5 flex-shrink-0" />
                                   <span className="truncate">Siap Mulai Approval</span>
                                 </>
                               ) : (
                                 <>
-                                  <AlertCircle size={13} className="text-amber-600 flex-shrink-0" />
+                                  <AlertCircle size={12} className="text-amber-600 flex-shrink-0" />
                                   <span className="truncate">Perlu Setting Approver</span>
                                 </>
                               )}
@@ -272,8 +272,8 @@ export default function ApprovalTable({
 
                       {/* Highlight Badge jika dokumen berstatus Revisi atau Ditolak */}
                       {(doc.documentStatus === 'Revisi' || doc.cycleStatus === 'revisi') && !isCompleted && (
-                        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-bold">
-                          <RotateCcw size={13} className="text-rose-600 flex-shrink-0" />
+                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-bold">
+                          <RotateCcw size={12} className="text-rose-600 flex-shrink-0" />
                           <span className="truncate">Perlu Upload Revisi</span>
                         </div>
                       )}
@@ -282,17 +282,17 @@ export default function ApprovalTable({
                         <button
                           type="button"
                           onClick={() => onOpenRejection(doc)}
-                          className="w-full flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100/90 border border-red-300 text-red-900 text-[11px] font-bold shadow-2xs transition-all active:scale-98 group cursor-pointer text-left"
+                          className="w-full flex items-center justify-between gap-1 px-2 py-1 rounded-md bg-red-50 hover:bg-red-100/90 border border-red-300 text-red-900 text-[11px] font-bold shadow-2xs transition-all active:scale-98 group cursor-pointer text-left"
                           title="Klik untuk melihat keterangan & alasan penolakan dokumen ini"
                         >
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <XCircle size={13} className="text-red-600 flex-shrink-0 group-hover:scale-110 transition-transform" />
+                          <div className="flex items-center gap-1 min-w-0">
+                            <XCircle size={12} className="text-red-600 flex-shrink-0 group-hover:scale-110 transition-transform" />
                             <span className="truncate">
                               Ditolak {doc.rejection ? `(${doc.rejection.roleLabel})` : ''}
                             </span>
                           </div>
-                          <span className="text-[10px] bg-red-200/90 text-red-800 px-1.5 py-0.5 rounded font-semibold flex-shrink-0 group-hover:bg-red-300 transition-colors">
-                            Lihat Alasan &rarr;
+                          <span className="text-[10px] bg-red-200/90 text-red-800 px-1 py-0.2 rounded font-semibold flex-shrink-0 group-hover:bg-red-300 transition-colors">
+                            Alasan &rarr;
                           </span>
                         </button>
                       )}
@@ -336,17 +336,17 @@ export default function ApprovalTable({
                               type="button"
                               key={key}
                               onClick={() => onOpenRejection(doc)}
-                              className={`w-full flex items-center justify-between px-2.5 py-1 rounded-lg border text-xs transition-all cursor-pointer hover:bg-rose-100/90 active:scale-98 group ${styleClass}`}
+                              className={`w-full flex items-center justify-between px-2 py-0.5 rounded-md border text-[11px] transition-all cursor-pointer hover:bg-rose-100/90 active:scale-98 group ${styleClass}`}
                               title={`Tahap ${label} ditolak — Klik untuk melihat alasan penolakan`}
                             >
                               <div className="flex items-center gap-1.5 min-w-0">
                                 <IconComponent
-                                  size={13}
+                                  size={11}
                                   className="flex-shrink-0 text-rose-600 group-hover:scale-110 transition-transform"
                                 />
                                 <span className="truncate">{label}</span>
                               </div>
-                              <span className="text-[11px] font-mono ml-2 opacity-90 flex-shrink-0 group-hover:underline">
+                              <span className="text-[10px] font-mono ml-1.5 opacity-90 flex-shrink-0 group-hover:underline">
                                 {statusBadge}
                               </span>
                             </button>
@@ -356,11 +356,11 @@ export default function ApprovalTable({
                         return (
                           <div
                             key={key}
-                            className={`flex items-center justify-between px-2.5 py-1 rounded-lg border text-xs transition-colors ${styleClass}`}
+                            className={`flex items-center justify-between px-2 py-0.5 rounded-md border text-[11px] transition-colors ${styleClass}`}
                           >
                             <div className="flex items-center gap-1.5 min-w-0">
                               <IconComponent
-                                size={13}
+                                size={11}
                                 className={`flex-shrink-0 ${
                                   status === 'completed'
                                     ? 'text-emerald-600'
@@ -371,7 +371,7 @@ export default function ApprovalTable({
                               />
                               <span className="truncate">{label}</span>
                             </div>
-                            <span className="text-[11px] font-mono ml-2 opacity-90 flex-shrink-0">
+                            <span className="text-[10px] font-mono ml-1.5 opacity-90 flex-shrink-0">
                               {statusBadge}
                             </span>
                           </div>
@@ -381,8 +381,8 @@ export default function ApprovalTable({
                   </td>
 
                   {/* Kolom 5: Tombol Aksi (Upload Ulang, Detail, dan Edit) */}
-                  <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                    <div className="flex items-center justify-center gap-1.5">
+                  <td className="py-2.5 px-2 text-center">
+                    <div className="flex items-center justify-center flex-wrap gap-1 max-w-[250px] mx-auto">
                       {doc.documentStatus === 'Menunggu Setting Approver' || doc.cycleStatus === 'setting_approver' ? (
                         (() => {
                           const hasApprovers = (doc.stages?.prepared?.totalCount > 0);
@@ -393,19 +393,19 @@ export default function ApprovalTable({
                                   {/* Tombol Utama: Start Approval */}
                                   <button
                                     onClick={() => onOpenStartApproval(doc)}
-                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold
-                                               bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm shadow-emerald-600/25 ring-2 ring-emerald-500/20
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold
+                                               bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs
                                                transition-all active:scale-95"
                                     title="Mulai alur approval untuk dokumen ini"
                                   >
-                                    <Play size={12} className="fill-current ml-0.5" />
+                                    <Play size={11} className="fill-current ml-0.5" />
                                     <span>Start Approval</span>
                                   </button>
 
                                   {/* Tombol Sekunder: Atur Approver */}
                                   <button
                                     onClick={() => onOpenEdit(doc)}
-                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold
                                                bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100
                                                transition-all active:scale-95 shadow-2xs"
                                     title="Ubah susunan approver dokumen sebelum memulai approval"
@@ -418,12 +418,12 @@ export default function ApprovalTable({
                                 /* Jika dokumen BELUM ada approver sama sekali */
                                 <button
                                   onClick={() => onOpenEdit(doc)}
-                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold
-                                             bg-amber-500 hover:bg-amber-600 text-white shadow-sm shadow-amber-500/25 ring-2 ring-amber-500/20
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold
+                                             bg-amber-500 hover:bg-amber-600 text-white shadow-2xs
                                              transition-all active:scale-95"
                                   title="Atur approver (Prepared, Checked, Approved) untuk memulai alur approval"
                                 >
-                                  <UserCheck size={13} />
+                                  <UserCheck size={12} />
                                   <span>Atur Approver</span>
                                 </button>
                               )}
@@ -431,12 +431,12 @@ export default function ApprovalTable({
                               {/* Tombol Detail */}
                               <button
                                 onClick={() => onOpenDetail(doc)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold
                                            bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-100
                                            transition-all active:scale-95 shadow-2xs"
                                 title="Lihat detail dokumen"
                               >
-                                <Eye size={13} />
+                                <Eye size={12} />
                                 <span>Detail</span>
                               </button>
 
@@ -444,12 +444,12 @@ export default function ApprovalTable({
                               {onOpenCancelApproval && (
                                 <button
                                   onClick={() => onOpenCancelApproval(doc)}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold
                                              bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 hover:text-rose-800
                                              transition-all active:scale-95 shadow-2xs"
                                   title="Batalkan tahap approval dokumen ini dan kembalikan status menjadi Relevan (tanpa menambah revisi)"
                                 >
-                                  <XCircle size={13} className="text-rose-600" />
+                                  <XCircle size={12} className="text-rose-600" />
                                   <span>Batalkan</span>
                                 </button>
                               )}
@@ -462,12 +462,12 @@ export default function ApprovalTable({
                           {onOpenStampDate && !doc.isDateStamped && (
                             <button
                               onClick={() => onOpenStampDate(doc)}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold
-                                         bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm shadow-emerald-600/25 ring-2 ring-emerald-500/20
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold
+                                         bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs
                                          transition-all active:scale-95"
                               title="Tarik kotak pada halaman Catatan Perubahan untuk men-generate tanggal selesai approval"
                             >
-                              <Calendar size={13} />
+                              <Calendar size={12} />
                               <span>Isi Tanggal</span>
                             </button>
                           )}
@@ -475,12 +475,12 @@ export default function ApprovalTable({
                           {/* Tombol Detail */}
                           <button
                             onClick={() => onOpenDetail(doc)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold
                                        bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:text-blue-800
                                        transition-all active:scale-95 shadow-2xs"
                             title="Lihat detail dokumen dan riwayat approval"
                           >
-                            <Eye size={13} />
+                            <Eye size={12} />
                             <span>Detail</span>
                           </button>
                         </>
@@ -489,24 +489,24 @@ export default function ApprovalTable({
                           {/* Tombol Detail */}
                           <button
                             onClick={() => onOpenDetail(doc)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold
                                        bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:text-blue-800
                                        transition-all active:scale-95 shadow-2xs"
                             title="Lihat detail dokumen dan siapa yang sudah approve"
                           >
-                            <Eye size={13} />
+                            <Eye size={12} />
                             <span>Detail</span>
                           </button>
 
                           {/* Tombol Edit */}
                           <button
                             onClick={() => onOpenEdit(doc)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold
                                        bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 hover:text-amber-800
                                        transition-all active:scale-95 shadow-2xs"
                             title="Edit nama dokumen dan ketiga approver (Prepared, Checked, Approved)"
                           >
-                            <Pencil size={13} />
+                            <Pencil size={11} />
                             <span>Edit</span>
                           </button>
 
@@ -514,26 +514,26 @@ export default function ApprovalTable({
                           {(doc.documentStatus === 'Revisi' || doc.documentStatus === 'Ditolak') && (
                             <button
                               onClick={() => onOpenUpload(doc)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold
-                                         bg-blue-600 hover:bg-blue-700 text-white shadow-sm shadow-blue-500/25 ring-2 ring-blue-500/20
-                                         transition-all active:scale-95 shadow-2xs"
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold
+                                         bg-blue-600 hover:bg-blue-700 text-white shadow-2xs
+                                         transition-all active:scale-95"
                               title="Upload ulang dokumen untuk memulai / mengulang alur approval"
                             >
-                              <Upload size={13} />
+                              <Upload size={11} />
                               <span>Upload</span>
                             </button>
                           )}
 
-                          {/* Tombol Batalkan Approval (khusus tahap yang sedang berjalan) */}
-                          {onOpenCancelApproval && (doc.cycleStatus === 'in_progress' || doc.documentStatus.startsWith('Menunggu ACC')) && (
+                          {/* Tombol Batalkan Approval (tampil di tab Sedang Berjalan & dokumen yang berjalan) */}
+                          {onOpenCancelApproval && (
                             <button
                               onClick={() => onOpenCancelApproval(doc)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold
                                          bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 hover:text-rose-800
                                          transition-all active:scale-95 shadow-2xs"
                               title="Batalkan tahap approval dokumen ini dan kembalikan status menjadi Relevan (tanpa menambah revisi)"
                             >
-                              <XCircle size={13} className="text-rose-600" />
+                              <XCircle size={12} className="text-rose-600" />
                               <span>Batalkan</span>
                             </button>
                           )}
