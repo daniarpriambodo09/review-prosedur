@@ -9,22 +9,24 @@ const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
 
-// 1. Muat environment variable dari .env.local jika ada
-const envPath = path.resolve(__dirname, '../.env.local');
-if (fs.existsSync(envPath)) {
-  const envContent = fs.readFileSync(envPath, 'utf-8');
-  envContent.split(/\r?\n/).forEach(line => {
-    const trimmed = line.trim();
-    if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
-      const idx = trimmed.indexOf('=');
-      const key = trimmed.slice(0, idx).trim();
-      const val = trimmed.slice(idx + 1).trim();
-      if (!process.env[key]) {
-        process.env[key] = val;
+// 1. Muat environment variable dari .env.production, .env.local, atau .env jika ada
+['.env.production', '.env.local', '.env'].forEach(fileName => {
+  const envPath = path.resolve(__dirname, '..', fileName);
+  if (fs.existsSync(envPath)) {
+    const envContent = fs.readFileSync(envPath, 'utf-8');
+    envContent.split(/\r?\n/).forEach(line => {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
+        const idx = trimmed.indexOf('=');
+        const key = trimmed.slice(0, idx).trim();
+        const val = trimmed.slice(idx + 1).trim();
+        if (!process.env[key]) {
+          process.env[key] = val;
+        }
       }
-    }
-  });
-}
+    });
+  }
+});
 
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',

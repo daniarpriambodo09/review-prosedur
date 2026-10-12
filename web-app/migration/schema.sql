@@ -29,8 +29,8 @@ CREATE INDEX idx_status ON procedure_documents(status);
 CREATE TABLE document_reviews (
     id SERIAL PRIMARY KEY,
     nomor_dokumen VARCHAR(100) NOT NULL,
-    status VARCHAR(20) NOT NULL,
-    revisi VARCHAR(20) NOT NULL,
+    status VARCHAR(100) NOT NULL,
+    revisi VARCHAR(100) NOT NULL,
     last_reviewed_month INTEGER NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
