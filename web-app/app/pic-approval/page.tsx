@@ -523,35 +523,22 @@ export default function PICApprovalPage() {
                     </div>
                   </div>
 
-                  {/* Right: Status Pill & Direct Action (HANYA untuk approver bersangkutan) */}
-                  <div className="text-right flex-shrink-0">
+                  {/* Right: Status Pill & Direct Action (Tombol Buka ACC langsung di luar untuk alur milik user) */}
+                  <div className="flex flex-col items-end gap-1 flex-shrink-0 text-right">
+                    {/* Status Pill */}
                     {isAcc ? (
-                      <div>
+                      <div className="flex items-center gap-1.5 flex-wrap justify-end">
                         <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
                           <CheckCircle2 className="w-3 h-3 text-emerald-600" /> ACC
                         </span>
                         {a.accAt && (
-                          <p className="text-[9px] text-slate-400 mt-0.5">{formatDate(a.accAt)}</p>
+                          <span className="text-[9px] text-slate-400">{formatDate(a.accAt)}</span>
                         )}
                       </div>
                     ) : isPending && isStageActive ? (
-                      <div className="flex flex-col items-end gap-1">
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-300 animate-pulse">
-                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> Pending
-                        </span>
-                        {/* HANYA tampilkan tautan persetujuan jika akun yang login adalah approver yang ditunjuk */}
-                        {isUserApprover && a.token && (
-                          <Link
-                            href={`/acc/${a.token}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-[9px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline"
-                          >
-                            <span>ACC Disini</span>
-                            <ExternalLink className="w-2.5 h-2.5" />
-                          </Link>
-                        )}
-                      </div>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-300 animate-pulse">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> Pending
+                      </span>
                     ) : isRej ? (
                       <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
                         <XCircle className="w-3 h-3 text-rose-600" /> Ditolak
@@ -561,6 +548,26 @@ export default function PICApprovalPage() {
                         <Clock className="w-3 h-3 text-slate-400" />
                         {isUserApprover ? 'Antre Giliran Anda' : 'Antre Giliran'}
                       </span>
+                    )}
+
+                    {/* 🆕 TOMBOL BUKA ACC LANGSUNG DI LUAR (BAGIAN ALUR MILIK DIA) */}
+                    {isUserApprover && a.token && (
+                      <Link
+                        href={`/acc/${a.token}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[10px] font-bold transition-all shadow-2xs ${
+                          isPending && isStageActive
+                            ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white shadow-xs hover:scale-105 active:scale-95'
+                            : isAcc
+                            ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 hover:border-emerald-300'
+                            : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 hover:border-indigo-300'
+                        }`}
+                        title="Buka formulir persetujuan (ACC) dokumen Anda"
+                      >
+                        <span>Buka ACC</span>
+                        <ExternalLink className="w-2.5 h-2.5" />
+                      </Link>
                     )}
                   </div>
                 </div>
@@ -1078,19 +1085,7 @@ export default function PICApprovalPage() {
                         </Link>
                       )}
 
-                      {/* 4. USER SUDAH PERNAH ACC DI TAHAP SEBELUMNYA */}
-                      {!isCompleted && effStage !== 'rejected' && !myApproval.isMyTurn && userHasApprovedThisDoc && (
-                        <button
-                          disabled
-                          className="px-3.5 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold flex items-center gap-1.5 cursor-default shadow-2xs"
-                          title="Anda telah menyetujui tahap ini"
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>Telah Anda ACC</span>
-                        </button>
-                      )}
-
-                      {/* 5. USER TERDAFTAR DI TAHAP MASA DEPAN (MENUNGGU GILIRAN) */}
+                      {/* 4. USER TERDAFTAR DI TAHAP MASA DEPAN (MENUNGGU GILIRAN) */}
                       {!isCompleted && effStage !== 'rejected' && !myApproval.isMyTurn && !userHasApprovedThisDoc && userFutureStage && (
                         <button
                           disabled

@@ -207,14 +207,7 @@ export default function PICDashboardPage() {
           />
         )}
 
-        {/* 🆕 Grafik Total vs Sudah Direview per Section — GLOBAL, sama untuk
-            semua PIC & admin. Diletakkan paling atas, tepat di bawah stat
-            cards dan sebelum tombol aksi / daftar dokumen. */}
-        <div className="mb-5">
-          <SectionReviewChart />
-        </div>
-
-        {/* Action Quick Access — 4 Kartu Aksi Rapi, Kompak & Menarik */}
+        {/* Action Quick Access — 4 Kartu Aksi Rapi, Kompak & Menarik (Dipindah ke atas grafik) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
           {/* 1. Review Dokumen */}
           <Link
@@ -321,6 +314,12 @@ export default function PICDashboardPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
           </button>
+        </div>
+
+        {/* 🆕 Grafik Total vs Sudah Direview per Section — GLOBAL, sama untuk
+            semua PIC & admin. Diletakkan tepat di bawah 4 kartu aksi dan sebelum daftar dokumen. */}
+        <div className="mb-5">
+          <SectionReviewChart />
         </div>
 
         {/* Documents and Activity — CHANGED: gap-8→gap-5 */}
