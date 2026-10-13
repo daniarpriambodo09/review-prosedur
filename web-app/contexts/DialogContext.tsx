@@ -29,6 +29,7 @@ export interface DialogContextType {
   showError: (message: string, title?: string) => Promise<void>;
   showWarning: (message: string, title?: string) => Promise<void>;
   showInfo: (message: string, title?: string) => Promise<void>;
+  showToast: (message: string, type?: DialogType, durationMs?: number) => void;
 }
 
 const DialogContext = createContext<DialogContextType | undefined>(undefined);
@@ -38,12 +39,20 @@ interface ActiveDialogState extends DialogOptions {
   resolve?: (value: any) => void;
 }
 
+interface ToastItem {
+  id: string;
+  message: string;
+  type: DialogType;
+}
+
 export function DialogProvider({ children }: { children: React.ReactNode }) {
   const [dialog, setDialog] = useState<ActiveDialogState>({
     isOpen: false,
     message: '',
     type: 'info',
   });
+
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   const dialogRef = useRef<ActiveDialogState>(dialog);
   dialogRef.current = dialog;
@@ -186,6 +195,19 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
     [showAlert]
   );
 
+  const dismissToast = useCallback((id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
+
+  const showToast = useCallback((message: string, type: DialogType = 'success', durationMs: number = 3500) => {
+    const id = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    setToasts(prev => [...prev, { id, message, type }]);
+
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, durationMs);
+  }, []);
+
   // Global override for window.alert to automatically use custom card popup modal
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -257,9 +279,71 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
         showError,
         showWarning,
         showInfo,
+        showToast,
       }}
     >
       {children}
+
+      {/* ── Floating Toast Notifications Container ── */}
+      {toasts.length > 0 && (
+        <aside
+          aria-live="polite"
+          className="fixed bottom-5 right-5 z-[99998] flex flex-col gap-2.5 max-w-sm w-full pointer-events-none px-3 sm:px-0"
+        >
+          {toasts.map(t => {
+            const isSuccess = t.type === 'success';
+            const isDanger = t.type === 'danger';
+            const isWarning = t.type === 'warning';
+            return (
+              <div
+                key={t.id}
+                className={`pointer-events-auto flex items-start gap-3 p-3.5 rounded-2xl border shadow-xl backdrop-blur-md transition-all animate-in slide-in-from-bottom-3 duration-200 ${
+                  isSuccess
+                    ? 'bg-white/95 text-emerald-950 border-emerald-200 shadow-emerald-500/10'
+                    : isDanger
+                    ? 'bg-white/95 text-rose-950 border-rose-200 shadow-rose-500/10'
+                    : isWarning
+                    ? 'bg-white/95 text-amber-950 border-amber-200 shadow-amber-500/10'
+                    : 'bg-white/95 text-slate-900 border-slate-200 shadow-slate-500/10'
+                }`}
+              >
+                <div
+                  className={`w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                    isSuccess
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : isDanger
+                      ? 'bg-rose-100 text-rose-700'
+                      : isWarning
+                      ? 'bg-amber-100 text-amber-700'
+                      : 'bg-slate-100 text-slate-700'
+                  }`}
+                >
+                  {isSuccess ? (
+                    <CheckCircle2 size={16} />
+                  ) : isDanger ? (
+                    <AlertCircle size={16} />
+                  ) : isWarning ? (
+                    <AlertTriangle size={16} />
+                  ) : (
+                    <Info size={16} />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0 pt-0.5">
+                  <p className="text-xs font-semibold leading-relaxed">{t.message}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => dismissToast(t.id)}
+                  className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors flex-shrink-0"
+                  title="Tutup notifikasi"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            );
+          })}
+        </aside>
+      )}
 
       {/* ── Modal Pop-up Card Konfirmasi / Alert ── */}
       {dialog.isOpen && (

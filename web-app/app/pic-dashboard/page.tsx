@@ -151,16 +151,61 @@ export default function PICDashboardPage() {
   // ── Loading & Error state ─────────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="inline-flex items-center justify-center w-10 h-10 bg-emerald-100 rounded-full mb-3">
-            <svg className="animate-spin h-5 w-5 text-emerald-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-            </svg>
+      <div className="min-h-screen bg-slate-50 animate-pulse">
+        {/* Skeleton Header */}
+        <div className="bg-white border-b border-slate-200">
+          <div className="max-w-screen-xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-slate-200" />
+              <div className="space-y-1.5">
+                <div className="h-4 w-32 bg-slate-200 rounded" />
+                <div className="h-3 w-48 bg-slate-100 rounded" />
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="h-8 w-28 bg-slate-100 rounded-xl" />
+              <div className="w-8 h-8 rounded-full bg-slate-200" />
+            </div>
           </div>
-          <p className="text-slate-600 text-sm font-medium">Memuat dashboard...</p>
         </div>
+
+        <main className="max-w-screen-xl mx-auto px-4 py-5 sm:px-6 lg:px-8 space-y-5">
+          {/* 4 Stats Cards Skeleton */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3 shadow-2xs">
+                <div className="flex justify-between">
+                  <div className="h-3.5 w-24 bg-slate-200 rounded" />
+                  <div className="w-7 h-7 bg-slate-100 rounded-lg" />
+                </div>
+                <div className="h-7 w-16 bg-slate-200 rounded" />
+                <div className="h-3 w-28 bg-slate-100 rounded" />
+              </div>
+            ))}
+          </div>
+
+          {/* 4 Quick Access Cards Skeleton */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} className="bg-white border border-slate-200 rounded-xl p-3 flex items-center gap-3 shadow-2xs">
+                <div className="w-9 h-9 rounded-lg bg-slate-100" />
+                <div className="space-y-1 flex-1">
+                  <div className="h-3.5 w-24 bg-slate-200 rounded" />
+                  <div className="h-3 w-32 bg-slate-100 rounded" />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Chart & Documents Skeleton */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4 shadow-2xs">
+            <div className="flex justify-between items-center pb-4 border-b border-slate-100">
+              <div className="h-5 w-48 bg-slate-200 rounded" />
+              <div className="h-7 w-28 bg-slate-100 rounded-xl" />
+            </div>
+            <div className="h-44 bg-slate-100/60 rounded-xl" />
+          </div>
+        </main>
       </div>
     );
   }

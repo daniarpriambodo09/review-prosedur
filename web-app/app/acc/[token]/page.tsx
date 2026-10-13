@@ -114,12 +114,74 @@ function getInitials(name: string | null, email: string): string {
 
 function LoadingState() {
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <div className="text-center p-8 bg-white rounded-3xl border border-slate-200 shadow-xl max-w-sm w-full">
-        <div className="animate-spin rounded-full h-12 w-12 border-3 border-blue-600 border-t-transparent mx-auto mb-4" />
-        <h2 className="text-base font-bold text-slate-800">Memuat Dokumen</h2>
-        <p className="text-xs text-slate-400 mt-1">Mengambil data persetujuan & file dokumen...</p>
-      </div>
+    <div className="min-h-screen bg-slate-50/60 flex flex-col antialiased text-slate-800 animate-pulse">
+      {/* Header Skeleton */}
+      <header className="bg-white/95 border-b border-slate-200/80 px-4 sm:px-6 py-2.5 flex items-center justify-between">
+        <div className="flex items-center gap-3.5">
+          <div className="w-10 h-10 rounded-2xl bg-slate-200" />
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <div className="h-5 w-24 bg-slate-200 rounded-lg" />
+              <div className="h-5 w-48 bg-slate-200 rounded-md" />
+            </div>
+            <div className="h-3 w-36 bg-slate-100 rounded" />
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="h-7 w-28 bg-slate-200 rounded-full" />
+          <div className="w-8 h-8 rounded-xl bg-slate-200 hidden md:block" />
+        </div>
+      </header>
+
+      {/* Main Skeleton */}
+      <main className="flex-1 flex flex-col lg:flex-row p-3 sm:p-5 gap-5 max-w-[1840px] w-full mx-auto">
+        {/* Left PDF Canvas Skeleton */}
+        <section className="flex-1 flex flex-col bg-white rounded-3xl border border-slate-200/90 shadow-xs overflow-hidden min-h-[620px]">
+          <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-slate-200" />
+              <div className="space-y-1">
+                <div className="h-4 w-36 bg-slate-200 rounded" />
+                <div className="h-3 w-28 bg-slate-100 rounded" />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <div className="h-7 w-24 bg-slate-100 rounded-xl" />
+              <div className="h-7 w-28 bg-slate-100 rounded-xl" />
+            </div>
+          </div>
+          <div className="flex-1 bg-slate-100/70 flex flex-col items-center justify-center p-8 space-y-4">
+            <div className="w-16 h-16 rounded-2xl bg-slate-200" />
+            <div className="h-4 w-48 bg-slate-200 rounded" />
+            <div className="h-3 w-64 bg-slate-200/60 rounded" />
+          </div>
+        </section>
+
+        {/* Right Aside Skeleton */}
+        <aside className="w-full lg:w-[400px] xl:w-[430px] flex flex-col space-y-4">
+          <div className="bg-white rounded-3xl border border-slate-200/90 p-5 space-y-4">
+            <div className="flex justify-between">
+              <div className="h-6 w-24 bg-slate-200 rounded-full" />
+              <div className="h-6 w-20 bg-slate-200 rounded-md" />
+            </div>
+            <div className="h-6 w-3/4 bg-slate-200 rounded-lg" />
+            <div className="flex gap-2">
+              <div className="h-5 w-16 bg-slate-100 rounded-md" />
+              <div className="h-5 w-16 bg-slate-100 rounded-md" />
+            </div>
+            <div className="h-px bg-slate-100" />
+            <div className="space-y-2">
+              <div className="h-4 w-32 bg-slate-200 rounded" />
+              <div className="h-12 bg-slate-100 rounded-xl" />
+            </div>
+            <div className="h-px bg-slate-100" />
+            <div className="space-y-2 pt-2">
+              <div className="h-10 bg-slate-200 rounded-xl" />
+              <div className="h-10 bg-slate-100 rounded-xl" />
+            </div>
+          </div>
+        </aside>
+      </main>
     </div>
   );
 }
@@ -165,6 +227,9 @@ export default function AccPage() {
   // Fitur Bandingkan Dokumen (versi lama vs baru)
   const [versions, setVersions] = useState<Array<{ id: number; fileName: string; filePath: string; version: number; uploadedAt: string; isActive: boolean }>>([]);
   const [viewing,  setViewing]  = useState<'current' | 'previous'>('current');
+
+  // Mobile Tab Switcher: 'pdf' (Lihat PDF) atau 'approval' (Form ACC)
+  const [mobileTab, setMobileTab] = useState<'pdf' | 'approval'>('pdf');
 
   // Fetch data approval dari token
   useEffect(() => {
@@ -330,8 +395,41 @@ export default function AccPage() {
 
       {/* ── Main Layout: Split Screen ── */}
       <main className="flex-1 flex flex-col lg:flex-row p-3 sm:p-5 gap-5 max-w-[1840px] w-full mx-auto">
+        {/* ── Segmented Control Mobile Switcher (< lg) ── */}
+        <div className="lg:hidden flex items-center p-1 bg-slate-200/80 rounded-2xl gap-1">
+          <button
+            type="button"
+            onClick={() => setMobileTab('pdf')}
+            className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+              mobileTab === 'pdf'
+                ? 'bg-white text-slate-900 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <FileText size={14} className={mobileTab === 'pdf' ? 'text-blue-600' : 'text-slate-500'} />
+            <span>Dokumen PDF</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMobileTab('approval')}
+            className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+              mobileTab === 'approval'
+                ? 'bg-white text-blue-700 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <ShieldCheck size={14} className={mobileTab === 'approval' ? 'text-blue-600' : 'text-slate-500'} />
+            <span>Form Persetujuan</span>
+            {!alreadyAcc && !cycleRejected && isMatchingApprover && (
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-0.5" />
+            )}
+          </button>
+        </div>
+
         {/* ── BAGIAN KIRI: Area Pratinjau Dokumen PDF (~68% width) ── */}
-        <section className="flex-1 flex flex-col bg-white rounded-3xl border border-slate-200/90 shadow-xs overflow-hidden min-h-[620px] lg:min-h-[calc(100vh-5.8rem)]">
+        <section className={`flex-1 flex-col bg-white rounded-3xl border border-slate-200/90 shadow-xs overflow-hidden min-h-[580px] lg:min-h-[calc(100vh-5.8rem)] ${
+          mobileTab === 'pdf' ? 'flex' : 'hidden lg:flex'
+        }`}>
           {/* Header Toolbar Pratinjau PDF */}
           <div className="px-5 py-3 border-b border-slate-100 bg-gradient-to-r from-slate-50/90 via-white to-slate-50/90 flex flex-wrap items-center justify-between gap-3 flex-shrink-0">
             <div className="flex items-center gap-3 min-w-0">
@@ -392,7 +490,7 @@ export default function AccPage() {
           </div>
 
           {/* Area Render PDF Asli (Native Browser Viewer) */}
-          <div className="flex-1 bg-slate-100/60 overflow-hidden relative min-h-[550px] flex flex-col">
+          <div className="flex-1 bg-slate-100/60 overflow-hidden relative min-h-[500px] flex flex-col">
             {displayFilePath ? (
               <div className="w-full h-full flex-1">
                 <PDFViewer
@@ -412,10 +510,27 @@ export default function AccPage() {
               </div>
             )}
           </div>
+
+          {/* Sticky Mobile Floating Pill to jump to Approval form */}
+          <div className="lg:hidden p-3 bg-white/95 border-t border-slate-200 flex items-center justify-between gap-3 shadow-lg flex-shrink-0">
+            <span className="text-[11px] text-slate-500 truncate">
+              Selesai membaca dokumen?
+            </span>
+            <button
+              type="button"
+              onClick={() => setMobileTab('approval')}
+              className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-md active:scale-95 flex-shrink-0"
+            >
+              <span>Buka Form ACC</span>
+              <ChevronRight size={14} />
+            </button>
+          </div>
         </section>
 
         {/* ── BAGIAN KANAN: Panel Persetujuan & Alur (~32% width, max 430px) ── */}
-        <aside className="w-full lg:w-[400px] xl:w-[430px] flex flex-col flex-shrink-0 space-y-4">
+        <aside className={`w-full lg:w-[400px] xl:w-[430px] flex-col flex-shrink-0 space-y-4 ${
+          mobileTab === 'approval' ? 'flex' : 'hidden lg:flex'
+        }`}>
           {/* Card Utama: Informasi Dokumen & Tindakan Persetujuan */}
           <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs overflow-hidden">
             {/* Top Header Card */}

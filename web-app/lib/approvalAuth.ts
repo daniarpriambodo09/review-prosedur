@@ -53,16 +53,27 @@ export function checkUserApproverMatch(
   const uUsername = (user.username || '').trim().toLowerCase();
 
   const uCodeMatch =
-    uName.match(/\(([a-z0-9_-]+)\)/i) ||
-    uUsername.match(/\(([a-z0-9_-]+)\)/i);
-  const aCodeMatch = aName.match(/\(([a-z0-9_-]+)\)/i);
+    uName.match(/\(([a-z0-9_.\s-]+)\)/i) ||
+    uUsername.match(/\(([a-z0-9_.\s-]+)\)/i);
+  const aCodeMatch = aName.match(/\(([a-z0-9_.\s-]+)\)/i);
 
   if (uCodeMatch && aCodeMatch) {
-    return uCodeMatch[1].toLowerCase().trim() === aCodeMatch[1].toLowerCase().trim();
+    if (uCodeMatch[1].toLowerCase().trim() === aCodeMatch[1].toLowerCase().trim()) {
+      return true;
+    }
   }
 
   // 3. Fallback nama lengkap jika persis sama
   if (uName && aName && uName === aName) return true;
+
+  // 4. Fallback nama dasar bersih jika salah satu email kosong
+  if ((!uEmail || !aEmail) && uName && aName) {
+    const cleanUName = uName.replace(/\s*\([^)]*\)/g, '').trim();
+    const cleanAName = aName.replace(/\s*\([^)]*\)/g, '').trim();
+    if (cleanUName && cleanAName && cleanUName.length >= 4 && cleanUName === cleanAName) {
+      return true;
+    }
+  }
 
   return false;
 }

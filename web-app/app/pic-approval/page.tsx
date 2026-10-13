@@ -1,7 +1,7 @@
 // app/pic-approval/page.tsx
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
@@ -189,6 +189,68 @@ function getEffectiveStage(
   return 'not_started';
 }
 
+function DocumentApprovalSkeleton() {
+  return (
+    <div className="space-y-4 animate-pulse">
+      {[1, 2, 3].map(i => (
+        <div key={i} className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
+          {/* Top Bar Skeleton */}
+          <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="space-y-2.5 flex-1">
+              <div className="flex items-center gap-2">
+                <div className="h-6 w-20 bg-slate-200 rounded-lg" />
+                <div className="h-6 w-16 bg-slate-200 rounded-lg" />
+                <div className="h-6 w-36 bg-slate-200 rounded-full" />
+              </div>
+              <div className="h-5 w-3/4 sm:w-1/2 bg-slate-200 rounded-md" />
+              <div className="flex items-center gap-3">
+                <div className="h-3.5 w-24 bg-slate-100 rounded" />
+                <div className="h-3.5 w-20 bg-slate-100 rounded" />
+                <div className="h-3.5 w-28 bg-slate-100 rounded" />
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <div className="h-8 w-24 bg-slate-200 rounded-xl" />
+              <div className="h-8 w-24 bg-slate-100 rounded-xl" />
+            </div>
+          </div>
+
+          {/* Pipeline Stepper Box Skeleton */}
+          <div className="p-4 sm:p-5 bg-slate-50/50 space-y-3">
+            <div className="flex justify-between items-center">
+              <div className="h-4 w-40 bg-slate-200 rounded" />
+              <div className="h-4 w-48 bg-slate-200 rounded" />
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+              {[1, 2, 3].map(box => (
+                <div key={box} className="rounded-xl border border-slate-200/80 bg-white p-3 space-y-2.5">
+                  <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-full bg-slate-200" />
+                      <div className="h-4 w-20 bg-slate-200 rounded" />
+                    </div>
+                    <div className="h-4 w-16 bg-slate-200 rounded-full" />
+                  </div>
+                  <div className="bg-slate-50 rounded-lg p-2.5 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-full bg-slate-200" />
+                      <div className="space-y-1">
+                        <div className="h-3.5 w-24 bg-slate-200 rounded" />
+                        <div className="h-2.5 w-28 bg-slate-100 rounded" />
+                      </div>
+                    </div>
+                    <div className="h-6 w-16 bg-slate-200 rounded-full" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function PICApprovalPage() {
   const { user, isAuthenticated, logout } = useAuth();
   const router = useRouter();
@@ -198,7 +260,26 @@ export default function PICApprovalPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<TabFilter>('all');
+  const [roleFilter, setRoleFilter] = useState<'all' | 'prepared' | 'checked' | 'approved'>('all');
+  const [adminViewAll, setAdminViewAll] = useState(false);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
+
+  // Search input ref & keyboard shortcut Ctrl+K atau /
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        (e.ctrlKey && e.key === 'k') ||
+        (e.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA')
+      ) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Modal Preview PDF
   const [previewPdfDoc, setPreviewPdfDoc] = useState<{ filePath: string; fileName: string; nomorDokumen: string } | null>(null);
@@ -252,7 +333,35 @@ export default function PICApprovalPage() {
     return { isMyTurn: false };
   }, [user]);
 
-  // Statistik & Hitungan per Tab
+  // Helper Mendapatkan Peran User di Dokumen Tertentu (Prepared / Checked / Approved)
+  const getUserRolesInDocument = useCallback((doc: ApprovalDocument): ('prepared' | 'checked' | 'approved')[] => {
+    if (!user) return [];
+    const roles: ('prepared' | 'checked' | 'approved')[] = [];
+
+    const isMatchInStage = (approvers?: ApproverItem[]) => {
+      if (!approvers || approvers.length === 0) return false;
+      return approvers.some(a => checkUserApproverMatch(user, a));
+    };
+
+    if (isMatchInStage(doc.stages?.prepared?.approvers)) roles.push('prepared');
+    if (isMatchInStage(doc.stages?.checked?.approvers)) roles.push('checked');
+    if (isMatchInStage(doc.stages?.approved?.approvers)) roles.push('approved');
+
+    return roles;
+  }, [user]);
+
+  // Helper Cek Apakah User Terlibat Sebagai Approver Dokumen Ini (Hak Akses Tampil)
+  const isUserInvolvedInDocument = useCallback((doc: ApprovalDocument): boolean => {
+    if (!user) return false;
+    // Khusus admin jika menyalakan mode lihat semua dokumen
+    if (user.role === 'admin' && adminViewAll) return true;
+
+    // Dokumen HANYA muncul jika user terdaftar sebagai Prepared, Checked, atau Approved
+    const roles = getUserRolesInDocument(doc);
+    return roles.length > 0;
+  }, [user, adminViewAll, getUserRolesInDocument]);
+
+  // Statistik & Hitungan per Tab (Hanya dari dokumen yang menjadi hak akses user ini)
   const stats = useMemo(() => {
     let preparedCount = 0;
     let checkedCount = 0;
@@ -266,6 +375,9 @@ export default function PICApprovalPage() {
 
       // Jangan hitung dokumen yang belum aktif/not_started atau rejected
       if (effStage === 'not_started' || effStage === 'rejected') continue;
+
+      // 🔒 FILTER HAK AKSES: Hanya hitung dokumen di mana user terlibat sebagai approver
+      if (!isUserInvolvedInDocument(doc)) continue;
 
       if (effStage === 'completed') {
         completedTotal++;
@@ -294,7 +406,7 @@ export default function PICApprovalPage() {
       myPendingCount,
       allTotal: inProgressTotal + completedTotal,
     };
-  }, [documents, isMyPendingApproval]);
+  }, [documents, isUserInvolvedInDocument, isMyPendingApproval]);
 
   // Filter Dokumen
   const filteredDocuments = useMemo(() => {
@@ -303,6 +415,9 @@ export default function PICApprovalPage() {
 
       // Jangan pernah tampilkan dokumen yang belum mulai alur / perlu upload revisi oleh admin
       if (effStage === 'not_started' || effStage === 'rejected') return false;
+
+      // 🔒 FILTER HAK AKSES: Hanya tampilkan jika user terlibat di dokumen ini!
+      if (!isUserInvolvedInDocument(doc)) return false;
 
       const isCompleted = effStage === 'completed';
 
@@ -314,7 +429,13 @@ export default function PICApprovalPage() {
       if (activeTab === 'approved' && (isCompleted || effStage !== 'approved')) return false;
       if (activeTab === 'completed' && !isCompleted) return false;
 
-      // 2. Filter Search
+      // 2. Filter Peran Saya (Prepared / Checked / Approved)
+      if (roleFilter !== 'all') {
+        const userRoles = getUserRolesInDocument(doc);
+        if (!userRoles.includes(roleFilter)) return false;
+      }
+
+      // 3. Filter Search (nomor, nama dokumen, owner, pic, nama/email approver)
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchNomor = doc.nomorDokumen.toLowerCase().includes(q);
@@ -329,7 +450,7 @@ export default function PICApprovalPage() {
 
       return true;
     });
-  }, [documents, activeTab, searchQuery, isMyPendingApproval]);
+  }, [documents, activeTab, roleFilter, searchQuery, isUserInvolvedInDocument, getUserRolesInDocument, isMyPendingApproval]);
 
   const copyLink = (token: string) => {
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -495,13 +616,12 @@ export default function PICApprovalPage() {
               return (
                 <div
                   key={idx}
-                  className={`bg-white rounded-lg p-2.5 border transition-all shadow-2xs flex items-center justify-between gap-2 text-xs ${
-                    isUserApprover && isPending && isStageActive
-                      ? 'border-indigo-400 ring-2 ring-indigo-200/50 bg-indigo-50/20'
-                      : isUserApprover
+                  className={`bg-white rounded-lg p-2.5 border transition-all shadow-2xs flex items-center justify-between gap-2 text-xs ${isUserApprover && isPending && isStageActive
+                    ? 'border-indigo-400 ring-2 ring-indigo-200/50 bg-indigo-50/20'
+                    : isUserApprover
                       ? 'border-indigo-200 bg-indigo-50/10'
                       : 'border-slate-200/90 hover:border-slate-300'
-                  }`}
+                    }`}
                 >
                   {/* Left: Avatar & Info */}
                   <div className="flex items-center gap-2.5 min-w-0">
@@ -556,13 +676,12 @@ export default function PICApprovalPage() {
                         href={`/acc/${a.token}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[10px] font-bold transition-all shadow-2xs ${
-                          isPending && isStageActive
-                            ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white shadow-xs hover:scale-105 active:scale-95'
-                            : isAcc
+                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[10px] font-bold transition-all shadow-2xs ${isPending && isStageActive
+                          ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white shadow-xs hover:scale-105 active:scale-95'
+                          : isAcc
                             ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 hover:border-emerald-300'
                             : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 hover:border-indigo-300'
-                        }`}
+                          }`}
                         title="Buka formulir persetujuan (ACC) dokumen Anda"
                       >
                         <span>Buka ACC</span>
@@ -686,11 +805,10 @@ export default function PICApprovalPage() {
           {/* 1. Sedang Berjalan */}
           <button
             onClick={() => setActiveTab('all')}
-            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden group shadow-2xs hover:shadow-xs ${
-              activeTab === 'all'
-                ? 'bg-indigo-50/40 border-indigo-600 ring-2 ring-indigo-500/20'
-                : 'bg-white border-slate-200/90 hover:border-indigo-300'
-            }`}
+            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden group shadow-2xs hover:shadow-xs ${activeTab === 'all'
+              ? 'bg-indigo-50/40 border-indigo-600 ring-2 ring-indigo-500/20'
+              : 'bg-white border-slate-200/90 hover:border-indigo-300'
+              }`}
           >
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
@@ -710,13 +828,12 @@ export default function PICApprovalPage() {
           {/* 2. Tugas Saya */}
           <button
             onClick={() => setActiveTab('my_pending')}
-            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden group shadow-2xs hover:shadow-xs ${
-              activeTab === 'my_pending'
-                ? 'bg-purple-50/40 border-purple-600 ring-2 ring-purple-500/20'
-                : stats.myPendingCount > 0
+            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden group shadow-2xs hover:shadow-xs ${activeTab === 'my_pending'
+              ? 'bg-purple-50/40 border-purple-600 ring-2 ring-purple-500/20'
+              : stats.myPendingCount > 0
                 ? 'bg-purple-50/20 border-purple-300 hover:border-purple-400'
                 : 'bg-white border-slate-200/90 hover:border-purple-300'
-            }`}
+              }`}
           >
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold uppercase tracking-wider text-purple-700">
@@ -739,11 +856,10 @@ export default function PICApprovalPage() {
           {/* 3. Tahap Prepared */}
           <button
             onClick={() => setActiveTab('prepared')}
-            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden group shadow-2xs hover:shadow-xs ${
-              activeTab === 'prepared'
-                ? 'bg-amber-50/40 border-amber-500 ring-2 ring-amber-500/20'
-                : 'bg-white border-slate-200/90 hover:border-amber-300'
-            }`}
+            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden group shadow-2xs hover:shadow-xs ${activeTab === 'prepared'
+              ? 'bg-amber-50/40 border-amber-500 ring-2 ring-amber-500/20'
+              : 'bg-white border-slate-200/90 hover:border-amber-300'
+              }`}
           >
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700">
@@ -763,11 +879,10 @@ export default function PICApprovalPage() {
           {/* 4. Tahap Checked */}
           <button
             onClick={() => setActiveTab('checked')}
-            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden group shadow-2xs hover:shadow-xs ${
-              activeTab === 'checked'
-                ? 'bg-blue-50/40 border-blue-600 ring-2 ring-blue-500/20'
-                : 'bg-white border-slate-200/90 hover:border-blue-300'
-            }`}
+            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden group shadow-2xs hover:shadow-xs ${activeTab === 'checked'
+              ? 'bg-blue-50/40 border-blue-600 ring-2 ring-blue-500/20'
+              : 'bg-white border-slate-200/90 hover:border-blue-300'
+              }`}
           >
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700">
@@ -787,11 +902,10 @@ export default function PICApprovalPage() {
           {/* 5. Tahap Approved */}
           <button
             onClick={() => setActiveTab('approved')}
-            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden group shadow-2xs hover:shadow-xs ${
-              activeTab === 'approved'
-                ? 'bg-purple-50/40 border-purple-600 ring-2 ring-purple-500/20'
-                : 'bg-white border-slate-200/90 hover:border-purple-300'
-            }`}
+            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden group shadow-2xs hover:shadow-xs ${activeTab === 'approved'
+              ? 'bg-purple-50/40 border-purple-600 ring-2 ring-purple-500/20'
+              : 'bg-white border-slate-200/90 hover:border-purple-300'
+              }`}
           >
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold uppercase tracking-wider text-purple-700">
@@ -811,11 +925,10 @@ export default function PICApprovalPage() {
           {/* 6. Selesai ACC */}
           <button
             onClick={() => setActiveTab('completed')}
-            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden group shadow-2xs hover:shadow-xs ${
-              activeTab === 'completed'
-                ? 'bg-emerald-50/40 border-emerald-600 ring-2 ring-emerald-500/20'
-                : 'bg-white border-slate-200/90 hover:border-emerald-300'
-            }`}
+            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden group shadow-2xs hover:shadow-xs ${activeTab === 'completed'
+              ? 'bg-emerald-50/40 border-emerald-600 ring-2 ring-emerald-500/20'
+              : 'bg-white border-slate-200/90 hover:border-emerald-300'
+              }`}
           >
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">
@@ -839,11 +952,10 @@ export default function PICApprovalPage() {
           <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0 scrollbar-none">
             <button
               onClick={() => setActiveTab('all')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${
-                activeTab === 'all'
-                  ? 'bg-slate-900 text-white shadow-xs'
-                  : 'text-slate-600 hover:bg-slate-100'
-              }`}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'all'
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100'
+                }`}
             >
               <span>Semua Berjalan</span>
               <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${activeTab === 'all' ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-700'}`}>
@@ -853,11 +965,10 @@ export default function PICApprovalPage() {
 
             <button
               onClick={() => setActiveTab('my_pending')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${
-                activeTab === 'my_pending'
-                  ? 'bg-purple-600 text-white shadow-xs'
-                  : 'text-purple-700 hover:bg-purple-50'
-              }`}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'my_pending'
+                ? 'bg-purple-600 text-white shadow-xs'
+                : 'text-purple-700 hover:bg-purple-50'
+                }`}
             >
               <span>Tugas Saya</span>
               <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${activeTab === 'my_pending' ? 'bg-purple-800 text-white' : 'bg-purple-100 text-purple-700'}`}>
@@ -867,11 +978,10 @@ export default function PICApprovalPage() {
 
             <button
               onClick={() => setActiveTab('prepared')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${
-                activeTab === 'prepared'
-                  ? 'bg-amber-500 text-white shadow-xs'
-                  : 'text-slate-600 hover:bg-slate-100'
-              }`}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'prepared'
+                ? 'bg-amber-500 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100'
+                }`}
             >
               <span>Prepared</span>
               <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${activeTab === 'prepared' ? 'bg-amber-700 text-white' : 'bg-amber-100 text-amber-800'}`}>
@@ -881,11 +991,10 @@ export default function PICApprovalPage() {
 
             <button
               onClick={() => setActiveTab('checked')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${
-                activeTab === 'checked'
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:bg-slate-100'
-              }`}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'checked'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100'
+                }`}
             >
               <span>Checked</span>
               <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${activeTab === 'checked' ? 'bg-blue-800 text-white' : 'bg-blue-100 text-blue-700'}`}>
@@ -895,11 +1004,10 @@ export default function PICApprovalPage() {
 
             <button
               onClick={() => setActiveTab('approved')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${
-                activeTab === 'approved'
-                  ? 'bg-purple-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:bg-slate-100'
-              }`}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'approved'
+                ? 'bg-purple-600 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100'
+                }`}
             >
               <span>Approved</span>
               <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${activeTab === 'approved' ? 'bg-purple-800 text-white' : 'bg-purple-100 text-purple-700'}`}>
@@ -909,11 +1017,10 @@ export default function PICApprovalPage() {
 
             <button
               onClick={() => setActiveTab('completed')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${
-                activeTab === 'completed'
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:bg-slate-100'
-              }`}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'completed'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100'
+                }`}
             >
               <span>Selesai</span>
               <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${activeTab === 'completed' ? 'bg-emerald-800 text-white' : 'bg-emerald-100 text-emerald-800'}`}>
@@ -922,36 +1029,72 @@ export default function PICApprovalPage() {
             </button>
           </div>
 
-          {/* Search Box */}
-          <div className="relative w-full md:w-72 flex-shrink-0">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Cari nomor, judul, approver..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-7 py-1.5 rounded-xl border border-slate-200 text-xs bg-slate-50/80 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition-all shadow-inner"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2 top-2 text-slate-400 hover:text-slate-600"
+          {/* Controls: Role Filter & Search */}
+          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 w-full md:w-auto">
+            {/* Filter Peran Saya */}
+            <div className="relative">
+              <select
+                value={roleFilter}
+                onChange={e => setRoleFilter(e.target.value as any)}
+                className="pl-2.5 pr-7 py-1.5 rounded-xl border border-slate-200 text-xs font-semibold bg-slate-50 hover:bg-slate-100 text-slate-700 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400 cursor-pointer transition-colors shadow-2xs"
+                title="Filter dokumen berdasarkan peran Anda (Prepared / Checked / Approved)"
               >
-                <X className="w-3.5 h-3.5" />
+                <option value="all">Semua Peran Saya</option>
+                <option value="prepared">Sebagai Prepared</option>
+                <option value="checked">Sebagai Checked</option>
+                <option value="approved">Sebagai Approved</option>
+              </select>
+            </div>
+
+            {/* Toggle Mode Admin (Khusus user dengan role admin) */}
+            {user?.role === 'admin' && (
+              <button
+                type="button"
+                onClick={() => setAdminViewAll(prev => !prev)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors flex items-center gap-1.5 whitespace-nowrap shadow-2xs ${
+                  adminViewAll
+                    ? 'bg-amber-500 text-white border-amber-600 shadow-amber-500/20'
+                    : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                }`}
+                title="Khusus Akun Admin: Beralih antara melihat semua dokumen atau hanya dokumen Anda"
+              >
+                <ShieldCheck size={13} className={adminViewAll ? 'text-white' : 'text-slate-500'} />
+                <span>{adminViewAll ? 'Mode Admin: Semua' : 'Dokumen Saya'}</span>
               </button>
             )}
+
+            {/* Search Box with Shortcut Badge */}
+            <div className="relative flex-1 sm:w-60 md:w-64">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                placeholder="Cari nomor, judul, approver..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="w-full pl-8 pr-16 py-1.5 rounded-xl border border-slate-200 text-xs bg-slate-50/80 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition-all shadow-inner"
+              />
+              <div className="absolute right-2.5 top-2 flex items-center gap-1">
+                {searchQuery ? (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                ) : (
+                  <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[9px] font-mono font-medium text-slate-400 bg-slate-200/80 rounded border border-slate-300/80 select-none">
+                    Ctrl K
+                  </kbd>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
         {/* ─── Daftar Dokumen ─────────────────────────────────────────────────── */}
         {loading ? (
-          <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center shadow-xs">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 mb-3 shadow-2xs">
-              <RotateCw className="w-6 h-6 text-indigo-600 animate-spin" />
-            </div>
-            <p className="text-sm font-bold text-slate-800">Sinkronisasi Alur Persetujuan Dokumen...</p>
-            <p className="text-xs text-slate-400 mt-0.5">Memuat data real-time tahap Prepared, Checked, Approved</p>
-          </div>
+          <DocumentApprovalSkeleton />
         ) : filteredDocuments.length === 0 ? (
           <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center shadow-xs">
             <div className="w-14 h-14 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center mx-auto mb-3 shadow-2xs">
@@ -962,8 +1105,8 @@ export default function PICApprovalPage() {
               {searchQuery
                 ? `Tidak ada dokumen yang cocok dengan kata kunci "${searchQuery}".`
                 : activeTab === 'my_pending'
-                ? 'Bagus! Saat ini tidak ada dokumen yang memerlukan tindakan persetujuan (ACC) dari Anda.'
-                : 'Tidak ada dokumen aktif pada kategori ini.'}
+                  ? 'Bagus! Saat ini tidak ada dokumen yang memerlukan tindakan persetujuan (ACC) dari Anda.'
+                  : 'Tidak ada dokumen aktif pada kategori ini.'}
             </p>
           </div>
         ) : (
@@ -997,19 +1140,18 @@ export default function PICApprovalPage() {
               return (
                 <div
                   key={`${doc.nomorDokumen}-${doc.cycleId}`}
-                  className={`bg-white rounded-2xl border transition-all duration-200 shadow-xs hover:shadow-sm overflow-hidden ${
-                    myApproval.isMyTurn
-                      ? 'border-l-4 border-l-purple-600 border-purple-200 ring-2 ring-purple-500/10'
-                      : isCompleted
+                  className={`bg-white rounded-2xl border transition-all duration-200 shadow-xs hover:shadow-sm overflow-hidden ${myApproval.isMyTurn
+                    ? 'border-l-4 border-l-purple-600 border-purple-200 ring-2 ring-purple-500/10'
+                    : isCompleted
                       ? 'border-l-4 border-l-emerald-500 border-slate-200'
                       : effStage === 'prepared'
-                      ? 'border-l-4 border-l-amber-500 border-slate-200'
-                      : effStage === 'checked'
-                      ? 'border-l-4 border-l-blue-500 border-slate-200'
-                      : effStage === 'approved'
-                      ? 'border-l-4 border-l-purple-500 border-slate-200'
-                      : 'border-l-4 border-l-slate-400 border-slate-200'
-                  }`}
+                        ? 'border-l-4 border-l-amber-500 border-slate-200'
+                        : effStage === 'checked'
+                          ? 'border-l-4 border-l-blue-500 border-slate-200'
+                          : effStage === 'approved'
+                            ? 'border-l-4 border-l-purple-500 border-slate-200'
+                            : 'border-l-4 border-l-slate-400 border-slate-200'
+                    }`}
                 >
                   {/* Top Bar Dokumen */}
                   <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3.5">
@@ -1026,6 +1168,26 @@ export default function PICApprovalPage() {
                           Rev. {doc.revisi || '0'}
                         </span>
                         {renderDocumentStatusBadge(doc)}
+
+                        {/* Badge Peran Anda pada Dokumen Ini */}
+                        {userInPrepared && (
+                          <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded-lg border border-amber-200 shadow-2xs flex items-center gap-1">
+                            <UserCheck size={11} className="text-amber-600" />
+                            <span>Peran Anda: Prepared</span>
+                          </span>
+                        )}
+                        {userInChecked && (
+                          <span className="text-[11px] font-bold text-blue-800 bg-blue-50 px-2.5 py-0.5 rounded-lg border border-blue-200 shadow-2xs flex items-center gap-1">
+                            <FileCheck2 size={11} className="text-blue-600" />
+                            <span>Peran Anda: Checked</span>
+                          </span>
+                        )}
+                        {userInApproved && (
+                          <span className="text-[11px] font-bold text-purple-800 bg-purple-50 px-2.5 py-0.5 rounded-lg border border-purple-200 shadow-2xs flex items-center gap-1">
+                            <ShieldCheck size={11} className="text-purple-600" />
+                            <span>Peran Anda: Approved</span>
+                          </span>
+                        )}
                       </div>
 
                       {/* Judul Dokumen */}
@@ -1321,13 +1483,12 @@ export default function PICApprovalPage() {
                           <span className={`w-2 h-2 rounded-full ${isStageDone ? 'bg-emerald-500' : effStage === role ? 'bg-amber-500 animate-pulse' : 'bg-slate-300'}`} />
                           Tahap {role.toUpperCase()}
                         </span>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          isStageDone
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : effStage === role
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isStageDone
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : effStage === role
                             ? 'bg-amber-100 text-amber-800'
                             : 'bg-slate-100 text-slate-600'
-                        }`}>
+                          }`}>
                           {isStageDone ? '✓ Selesai ACC' : effStage === role ? 'Sedang Berjalan' : 'Antre Giliran'}
                         </span>
                       </div>

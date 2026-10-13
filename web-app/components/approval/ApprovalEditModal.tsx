@@ -107,11 +107,60 @@ function ApproverInputCombobox({
     );
   }, [sortedStaffList, searchTerm]);
 
-  // Periksa apakah nama yang diinput terdaftar di daftar staff (case-insensitive)
+  // Periksa apakah approver terdaftar di daftar staff (berdasarkan email atau nama)
   const isRegistered = useMemo(() => {
-    if (!nama.trim()) return true; // belum ada input
-    return staffList.some(s => s.nama.toLowerCase().trim() === nama.toLowerCase().trim());
-  }, [staffList, nama]);
+    const trimmedNama = (nama || '').trim().toLowerCase();
+    const trimmedEmail = (email || '').trim().toLowerCase();
+
+    // Jika belum ada input nama dan email, jangan tampilkan warning
+    if (!trimmedNama && !trimmedEmail) return true;
+
+    // Jika daftar staff belum selesai dimuat, jangan tampilkan warning semu
+    if (staffList.length === 0) return true;
+
+    // 1. Cek kecocokan Email (identifier unik dan akurat di database staff)
+    if (trimmedEmail) {
+      const matchEmail = staffList.some(
+        s => (s.email || '').trim().toLowerCase() === trimmedEmail
+      );
+      if (matchEmail) return true;
+    }
+
+    // 2. Cek kecocokan Nama
+    if (trimmedNama) {
+      // 2a. Nama persis sama
+      const matchExactNama = staffList.some(
+        s => (s.nama || '').trim().toLowerCase() === trimmedNama
+      );
+      if (matchExactNama) return true;
+
+      // 2b. Nama dasar (membersihkan kode kurung / inisial seperti "(DP)", "(M. PENS)", dsb)
+      const cleanInputNama = trimmedNama.replace(/\s*\([^)]*\)/g, '').trim();
+
+      const matchBaseNama = staffList.some(s => {
+        const cleanSNama = (s.nama || '').toLowerCase().replace(/\s*\([^)]*\)/g, '').trim();
+        if (!cleanSNama || !cleanInputNama) return false;
+
+        // Sama persis nama bersihnya
+        if (cleanSNama === cleanInputNama) return true;
+
+        // Salah satu memuat yang lain jika panjang kata memadai (>= 4 huruf)
+        if (
+          cleanSNama.length >= 4 &&
+          cleanInputNama.length >= 4 &&
+          (cleanInputNama.includes(cleanSNama) || cleanSNama.includes(cleanInputNama))
+        ) {
+          return true;
+        }
+
+        return false;
+      });
+
+      if (matchBaseNama) return true;
+    }
+
+    return false;
+  }, [staffList, nama, email]);
 
   const handleOpenDropdown = () => {
     if (disabled) return;
@@ -219,9 +268,12 @@ function ApproverInputCombobox({
                 ) : (
                   filteredStaff.map((staff, idx) => {
                     const isSelected =
-                      Boolean(nama.trim()) &&
-                      (nama.trim().toLowerCase() === staff.nama.trim().toLowerCase() ||
-                        nama.trim().toLowerCase().startsWith(staff.nama.trim().toLowerCase()));
+                      (Boolean(email.trim()) &&
+                        (staff.email || '').trim().toLowerCase() === email.trim().toLowerCase()) ||
+                      (Boolean(nama.trim()) &&
+                        ((staff.nama || '').trim().toLowerCase() === nama.trim().toLowerCase() ||
+                          (staff.nama || '').trim().toLowerCase().startsWith(nama.trim().toLowerCase()) ||
+                          nama.trim().toLowerCase().startsWith((staff.nama || '').trim().toLowerCase())));
 
                     return (
                       <button
@@ -298,12 +350,12 @@ function ApproverInputCombobox({
         </button>
       </div>
 
-      {/* Warning jika nama yang diinput tidak terdaftar di kelola-departemen */}
+      {/* Warning jika nama / email yang diinput tidak terdaftar di kelola-departemen */}
       {!isRegistered && (
         <div className="flex items-center gap-1.5 text-[11px] text-amber-800 bg-amber-50 border border-amber-200/90 rounded-xl px-3 py-1.5 shadow-2xs animate-in fade-in duration-150">
           <AlertTriangle size={13} className="text-amber-600 flex-shrink-0" />
           <span>
-            Nama tidak ada dalam daftar staff. Admin perlu menambahkannya di halaman{' '}
+            Nama atau email belum terdaftar di daftar staff. Admin perlu menambahkannya di halaman{' '}
             <Link
               href="/kelola-departemen"
               target="_blank"
@@ -333,6 +385,7 @@ export default function ApprovalEditModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [showConfirmStart, setShowConfirmStart] = useState(false);
 
   // Load daftar staff dari database (kelola-departemen)
   useEffect(() => {
@@ -369,6 +422,7 @@ export default function ApprovalEditModal({
     setApprovedApprovers(mapApprovers(doc.stages.approved.approvers));
     setError(null);
     setSuccessMsg(null);
+    setShowConfirmStart(false);
   }, [doc, isOpen]);
 
   // Tutup dengan Escape
@@ -387,6 +441,13 @@ export default function ApprovalEditModal({
     doc.documentStatus === 'Menunggu Setting Approver' ||
     doc.documentStatus === 'Menunggu Approval' ||
     doc.cycleStatus === 'setting_approver';
+
+  // Cek apakah siklus approval sedang aktif berjalan
+  const isCycleActive =
+    doc.cycleStatus === 'in_progress' ||
+    doc.stages?.prepared?.status === 'in_progress' ||
+    doc.stages?.checked?.status === 'in_progress' ||
+    doc.stages?.approved?.status === 'in_progress';
 
   const isPreparedCompleted = doc.stages?.prepared?.status === 'completed';
   const isCheckedCompleted  = doc.stages?.checked?.status === 'completed';
@@ -461,14 +522,12 @@ export default function ApprovalEditModal({
     });
   };
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const validateForm = () => {
     if (!namaDokumen.trim()) {
       setError('Nama dokumen wajib diisi.');
-      return;
+      return false;
     }
 
-    // Validasi email
     const filterValid = (list: ApproverRow[]) =>
       list.filter(a => a.email && a.email.trim());
 
@@ -478,16 +537,29 @@ export default function ApprovalEditModal({
 
     if (validPrepared.length === 0) {
       setError('Approver Prepared wajib diisi minimal 1 nama & email.');
-      return;
+      return false;
     }
     if (validChecked.length === 0) {
       setError('Approver Checked wajib diisi minimal 1 nama & email.');
-      return;
+      return false;
     }
     if (validApproved.length === 0) {
       setError('Approver Approved wajib diisi minimal 1 nama & email.');
-      return;
+      return false;
     }
+
+    return true;
+  };
+
+  const executeSave = async (startCycle: boolean) => {
+    if (!validateForm()) return;
+
+    const filterValid = (list: ApproverRow[]) =>
+      list.filter(a => a.email && a.email.trim());
+
+    const validPrepared = filterValid(preparedApprovers);
+    const validChecked = filterValid(checkedApprovers);
+    const validApproved = filterValid(approvedApprovers);
 
     try {
       setSaving(true);
@@ -499,6 +571,7 @@ export default function ApprovalEditModal({
         body: JSON.stringify({
           nomorDokumen: doc.nomorDokumen,
           namaDokumen: namaDokumen.trim(),
+          startCycle,
           approvers: {
             prepared: validPrepared,
             checked: validChecked,
@@ -512,11 +585,13 @@ export default function ApprovalEditModal({
         throw new Error(data.error || 'Gagal menyimpan perubahan approval.');
       }
 
+      setShowConfirmStart(false);
+
       setSuccessMsg(
         data.message ||
-        (isSettingApprover
+        (startCycle
           ? 'Data approver berhasil disimpan dan dokumen resmi masuk ke tahap approval (Prepared)!'
-          : 'Perubahan nama dokumen dan approver berhasil disimpan!')
+          : 'Data approver berhasil disimpan!')
       );
 
       setTimeout(() => {
@@ -526,8 +601,22 @@ export default function ApprovalEditModal({
     } catch (err: any) {
       console.error('Error saving approval details:', err);
       setError(err?.message || 'Terjadi kesalahan saat menyimpan.');
+      setShowConfirmStart(false);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validateForm()) return;
+
+    if (isCycleActive) {
+      // 🔒 Jika alur sudah berjalan: simpan langsung tanpa card pop-up konfirmasi
+      await executeSave(false);
+    } else {
+      // 🆕 Jika alur belum berjalan: tampilkan card pop-up konfirmasi (masuk alur approval atau nanti saja)
+      setShowConfirmStart(true);
     }
   };
 
@@ -577,9 +666,9 @@ export default function ApprovalEditModal({
             <div className="p-3.5 rounded-2xl bg-blue-50/80 border border-blue-200 flex items-start gap-2.5 text-xs text-blue-900 shadow-2xs">
               <Sparkles size={18} className="text-blue-600 flex-shrink-0 mt-0.5" />
               <div>
-                <p className="font-bold">Lengkapi Approver Sebelum Masuk Tahap Approval</p>
+                <p className="font-bold">Lengkapi Approver Dokumen</p>
                 <p className="text-blue-700 text-[11px] mt-0.5 leading-relaxed">
-                  Data approver untuk <strong>Prepared</strong>, <strong>Checked</strong>, dan <strong>Approved</strong> harus diisi terlebih dahulu. Setelah Anda menekan tombol simpan, dokumen akan langsung masuk ke tahap approval pertama (<strong>Prepared</strong>) dan email permohonan approval akan otomatis dikirimkan.
+                  Data approver untuk <strong>Prepared</strong>, <strong>Checked</strong>, dan <strong>Approved</strong> harus diisi terlebih dahulu. Saat Anda menekan tombol <strong>Simpan</strong>, Anda dapat memilih apakah dokumen langsung masuk ke alur approval sekarang atau disimpan terlebih dahulu.
                 </p>
               </div>
             </div>
@@ -874,24 +963,107 @@ export default function ApprovalEditModal({
             <button
               type="submit"
               disabled={saving}
-              className={`px-5 py-2.5 rounded-xl text-white text-xs font-bold transition-all shadow-sm active:scale-95 disabled:opacity-50 flex items-center gap-2 ${
-                isSettingApprover
-                  ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/25'
-                  : 'bg-blue-600 hover:bg-blue-700'
-              }`}
+              className="px-5 py-2.5 rounded-xl text-white text-xs font-bold transition-all shadow-sm active:scale-95 disabled:opacity-50 flex items-center gap-2 bg-blue-600 hover:bg-blue-700 shadow-blue-500/25"
             >
               {saving && <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-white" />}
-              <span>
-                {saving
-                  ? 'Menyimpan...'
-                  : isSettingApprover
-                  ? 'Simpan & Masuk Alur Approval'
-                  : 'Simpan Perubahan'}
-              </span>
+              <span>{saving ? 'Menyimpan...' : 'Simpan'}</span>
             </button>
           </div>
         </form>
       </div>
+
+      {/* ── Card Pop-up Konfirmasi: Masuk Alur Approval atau Nanti Saja ── */}
+      {showConfirmStart && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(15, 23, 42, 0.7)', backdropFilter: 'blur(5px)' }}
+          onClick={() => {
+            if (!saving) setShowConfirmStart(false);
+          }}
+        >
+          <div
+            className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-150"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header Pop-up */}
+            <div className="flex items-start justify-between mb-3.5">
+              <div className="w-11 h-11 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shadow-2xs">
+                <Sparkles className="w-5 h-5 text-blue-600" />
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowConfirmStart(false)}
+                disabled={saving}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors disabled:opacity-50"
+                title="Tutup"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <h3 className="text-base font-bold text-slate-900 leading-snug">
+              Mulai Alur Approval Sekarang?
+            </h3>
+            <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
+              Data ketiga approver sudah lengkap. Anda dapat langsung memulai alur approval atau menyimpannya terlebih dahulu dan memulainya nanti.
+            </p>
+
+            {/* Opsi Ringkas */}
+            <div className="mt-4 space-y-2.5">
+              <div className="p-3 rounded-2xl bg-blue-50/80 border border-blue-100 text-xs text-blue-900">
+                <div className="font-bold flex items-center gap-1.5 text-blue-700">
+                  <CheckCircle2 size={14} className="text-blue-600 flex-shrink-0" />
+                  <span>Masuk Alur Approval</span>
+                </div>
+                <p className="text-[11px] text-blue-800/80 mt-1 leading-relaxed">
+                  Alur approval resmi dimulai. Dokumen masuk ke tahap <strong className="text-blue-950">Prepared</strong> dan email permohonan approval langsung dikirimkan ke approver Prepared.
+                </p>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/80 text-xs text-slate-700">
+                <div className="font-bold flex items-center gap-1.5 text-slate-800">
+                  <Clock size={14} className="text-slate-500 flex-shrink-0" />
+                  <span>Nanti Saja</span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                  Hanya simpan susunan data approver ke sistem. Alur approval belum berjalan dan belum ada email yang dikirimkan.
+                </p>
+              </div>
+            </div>
+
+            {/* Tombol Aksi */}
+            <div className="mt-6 flex flex-col sm:flex-row items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowConfirmStart(false)}
+                disabled={saving}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors disabled:opacity-50"
+              >
+                Batal
+              </button>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => executeSave(false)}
+                  disabled={saving}
+                  className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all disabled:opacity-50"
+                >
+                  {saving ? 'Menyimpan...' : 'Nanti Saja'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => executeSave(true)}
+                  disabled={saving}
+                  className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm shadow-blue-500/25 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-1.5"
+                >
+                  {saving && <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-white" />}
+                  <span>Masuk Alur Approval</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

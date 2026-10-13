@@ -677,7 +677,7 @@ export async function PATCH(request: NextRequest) {
   const client = await pool.connect();
   try {
     const body = await request.json();
-    const { nomorDokumen, namaDokumen, approvers } = body;
+    const { nomorDokumen, namaDokumen, approvers, startCycle } = body;
 
     if (!nomorDokumen || typeof nomorDokumen !== 'string') {
       return NextResponse.json({ error: 'Nomor dokumen wajib diisi.' }, { status: 400 });
@@ -863,6 +863,7 @@ export async function PATCH(request: NextRequest) {
     let pendingActions: any[] = [];
 
     if (
+      startCycle === true &&
       (curStatus === 'Menunggu Setting Approver' || curStatus === 'Menunggu Approval' || !activeCycle) &&
       approvers && typeof approvers === 'object'
     ) {
@@ -978,7 +979,7 @@ export async function PATCH(request: NextRequest) {
         ? 'Data approver berhasil disimpan dan dokumen resmi masuk ke tahap approval (Prepared)!'
         : newActionsToNotify.length > 0
         ? `Approver baru berhasil ditambahkan dan email permintaan approval telah dikirim!`
-        : 'Detail dokumen dan approval berhasil diperbarui.',
+        : 'Data approver berhasil disimpan.',
     });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
