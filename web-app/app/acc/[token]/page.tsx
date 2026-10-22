@@ -9,7 +9,8 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import PDFViewer from '@/components/documents/PDFViewer';
 import VersionToggleBar from '@/components/documents/VersionToggleBar';
 import DocumentChat from '@/components/chat/DocumentChat';
@@ -33,6 +34,8 @@ import {
   ChevronRight,
   FileCheck2,
   Lock,
+  LayoutDashboard,
+  LogOut,
 } from 'lucide-react';
 
 interface RejectionInfo {
@@ -73,6 +76,7 @@ interface AccInfo {
   filePath: string | null;
   rejection: RejectionInfo | null;
   timeline?: TimelineItem[];
+  picUser?: any;
 }
 
 interface AccSubmitResult {
@@ -195,6 +199,22 @@ function ErrorState({ message }: { message: string }) {
         </div>
         <h1 className="text-lg font-extrabold text-slate-900 mb-2">Akses Tidak Valid</h1>
         <p className="text-xs text-slate-500 leading-relaxed mb-6">{message}</p>
+        <div className="flex gap-2.5 justify-center mb-6">
+          <Link
+            href="/pic-dashboard"
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all"
+          >
+            <LayoutDashboard size={14} />
+            <span>Dashboard PIC</span>
+          </Link>
+          <Link
+            href="/login-page"
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all"
+          >
+            <LogOut size={14} />
+            <span>Login Page</span>
+          </Link>
+        </div>
         <p className="text-[11px] text-slate-400">
           Silakan hubungi administrator jika Anda merasa ini adalah sebuah kesalahan.
         </p>
@@ -205,9 +225,10 @@ function ErrorState({ message }: { message: string }) {
 
 export default function AccPage() {
   const params = useParams<{ token: string }>();
+  const router = useRouter();
   const token  = params?.token ?? '';
 
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, setAuthUser, logout } = useAuth();
 
   const [info,       setInfo]       = useState<AccInfo | null>(null);
   const [loading,    setLoading]    = useState(true);
@@ -242,12 +263,20 @@ export default function AccPage() {
         if (!res.ok) throw new Error(data.error || 'Link tidak ditemukan atau tidak valid.');
         return data as AccInfo;
       })
-      .then(data => { if (!cancelled) setInfo(data); })
+      .then(data => {
+        if (!cancelled) {
+          setInfo(data);
+          // 🆕 Otomatis login akun PIC berdasarkan email approver dari link email ini
+          if (data.picUser && typeof setAuthUser === 'function') {
+            setAuthUser(data.picUser);
+          }
+        }
+      })
       .catch(err => { if (!cancelled) setLoadError(err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
-  }, [token]);
+  }, [token, setAuthUser]);
 
   // Fetch riwayat versi file untuk nomor dokumen ini
   useEffect(() => {
@@ -370,14 +399,14 @@ export default function AccPage() {
           </div>
         </div>
 
-        {/* Right Info: Role Badge & Approver Identity */}
-        <div className="flex items-center gap-3 flex-shrink-0">
-          <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border shadow-xs ${roleColorCls}`}>
+        {/* Right Info: Role Badge, Approver Identity, and Action Buttons */}
+        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+          <div className={`hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border shadow-xs ${roleColorCls}`}>
             <span className="w-2 h-2 rounded-full bg-current animate-pulse" />
             <span>Tahap: {info.roleLabel}</span>
           </div>
 
-          <div className="hidden md:flex items-center gap-2.5 pl-3 border-l border-slate-200/80">
+          <div className="hidden lg:flex items-center gap-2.5 pl-3 border-l border-slate-200/80">
             <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-xs ring-2 ring-slate-100">
               {getInitials(info.nama, info.email)}
             </div>
@@ -385,10 +414,36 @@ export default function AccPage() {
               <p className="font-bold text-slate-800 text-[11px] leading-tight">
                 {info.nama || 'Approver'}
               </p>
-              <p className="text-[10px] text-slate-500 leading-tight truncate max-w-[160px]">
+              <p className="text-[10px] text-slate-500 leading-tight truncate max-w-[140px]">
                 {info.email}
               </p>
             </div>
+          </div>
+
+          {/* Action Navigation: PIC Dashboard & Logout */}
+          <div className="flex items-center gap-1.5 sm:gap-2 pl-2 sm:pl-3 border-l border-slate-200/80">
+            <Link
+              href="/pic-dashboard"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-50 text-blue-700 hover:bg-blue-100/90 hover:text-blue-800 border border-blue-200/80 transition-all shadow-2xs active:scale-[0.98]"
+              title="Kembali ke Halaman PIC Dashboard"
+            >
+              <LayoutDashboard size={14} className="text-blue-600" />
+              <span className="hidden sm:inline">Dashboard PIC</span>
+            </Link>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (confirm('Apakah Anda yakin ingin logout dari akun PIC?')) {
+                  logout();
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-50 text-slate-600 hover:text-rose-600 hover:bg-rose-50 border border-slate-200/80 hover:border-rose-200/80 transition-all shadow-2xs active:scale-[0.98] cursor-pointer"
+              title="Keluar dari akun PIC"
+            >
+              <LogOut size={14} className="text-slate-400" />
+              <span className="hidden sm:inline">Logout</span>
+            </button>
           </div>
         </div>
       </header>
@@ -747,6 +802,19 @@ export default function AccPage() {
                 </div>
               )}
 
+              {/* Tombol Cepat Menuju Dashboard PIC jika dokumen sudah diproses atau selesai */}
+              {(result || cycleRejected || alreadyAcc) && (
+                <div className="pt-2 animate-in fade-in">
+                  <Link
+                    href="/pic-dashboard"
+                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold rounded-2xl transition-all shadow-md shadow-blue-500/20 active:scale-[0.99]"
+                  >
+                    <LayoutDashboard size={15} />
+                    <span>Kembali ke Halaman PIC Dashboard</span>
+                  </Link>
+                </div>
+              )}
+
               {/* 4. FORM TINDAKAN: Validasi Kesesuaian Pejabat Approver */}
               {!result && !cycleRejected && !alreadyAcc && (
                 !isMatchingApprover ? (
@@ -765,9 +833,27 @@ export default function AccPage() {
                       </p>
                     </div>
 
+                    <div className="flex gap-2">
+                      <Link
+                        href="/pic-dashboard"
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all"
+                      >
+                        <LayoutDashboard size={14} />
+                        <span>Dashboard PIC</span>
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => logout()}
+                        className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-all cursor-pointer"
+                      >
+                        <LogOut size={14} />
+                        <span>Logout</span>
+                      </button>
+                    </div>
+
                     <button
                       disabled
-                      className="w-full inline-flex items-center justify-center gap-2 px-5 py-3.5 bg-slate-100 text-slate-400 border border-slate-200 text-xs font-bold rounded-2xl cursor-not-allowed opacity-75 shadow-2xs"
+                      className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 bg-slate-100 text-slate-400 border border-slate-200 text-xs font-bold rounded-2xl cursor-not-allowed opacity-75 shadow-2xs"
                     >
                       <Lock size={15} />
                       <span>Persetujuan Dinonaktifkan (Bukan Pejabat Terdaftar)</span>

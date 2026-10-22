@@ -20,6 +20,7 @@ import {
 } from '@/lib/approvalCycle';
 import { getActiveSmtpSettings, sendMail } from '@/lib/mailer';
 import { buildAccEmailHtml, buildAccEmailText } from '@/lib/approvalEmailTemplate';
+import { ensurePicUserExists } from '@/lib/picUserHelper';
 
 export const dynamic = 'force-dynamic';
 
@@ -734,6 +735,11 @@ export async function PATCH(request: NextRequest) {
         const newApprovers: ApproverInput[] = Array.isArray(approvers[role])
           ? approvers[role].filter((a: ApproverInput) => a.email && a.email.trim())
           : [];
+
+        // Pastikan setiap approver terdaftar di pic_users (auto-create dengan password default jai1234 jika belum ada)
+        for (const app of newApprovers) {
+          await ensurePicUserExists(client, app.email, app.nama);
+        }
 
         // Ambil approver existing untuk role ini
         const existingRes = await client.query(

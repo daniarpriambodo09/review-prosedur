@@ -1,7 +1,7 @@
 // contexts/AuthContext.tsx
 
 'use client';
-import { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 
 interface User {
@@ -21,6 +21,7 @@ interface AuthContextType {
   logout: () => void;
   isLoading: boolean;
   updateUser: (partial: Partial<User>) => void;
+  setAuthUser: (userData: User) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -190,8 +191,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  const setAuthUser = useCallback((userData: User) => {
+    localStorage.setItem('isAuthenticated', 'true');
+    localStorage.setItem('user', JSON.stringify(userData));
+    setUser(userData);
+    setIsAuthenticated(true);
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ isAuthenticated, user, login, picLogin, logout, isLoading, updateUser }}>
+    <AuthContext.Provider value={{ isAuthenticated, user, login, picLogin, logout, isLoading, updateUser, setAuthUser }}>
       {children}
     </AuthContext.Provider>
   );

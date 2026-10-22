@@ -11,6 +11,7 @@
 
 import crypto from 'crypto';
 import type { PoolClient } from 'pg';
+import { ensurePicUserExists } from './picUserHelper';
 
 export type ApprovalRole = 'prepared' | 'checked' | 'approved';
 
@@ -78,6 +79,9 @@ async function insertStageActions(
 ): Promise<PendingAction[]> {
   const actions: PendingAction[] = [];
   for (const approver of approverRows) {
+    // Otomatis daftarkan approver ke pic_users dengan password default 'jai1234' jika belum ada
+    await ensurePicUserExists(client, approver.email, approver.nama);
+
     const token = generateToken();
     const verificationCode = generateVerificationCode();
     const result = await client.query(

@@ -23,6 +23,7 @@ import {
 import { finalizeApprovalCycle } from '@/lib/approvalFinalize';
 import { getActiveSmtpSettings, sendMail } from '@/lib/mailer';
 import { buildAccEmailHtml, buildAccEmailText } from '@/lib/approvalEmailTemplate';
+import { ensurePicUserExists } from '@/lib/picUserHelper';
 
 // ── GET — info untuk ditampilkan di halaman /acc/[token] ─────────────────────
 export async function GET(
@@ -118,6 +119,8 @@ export async function GET(
       // 🆕 detail penolakan & timeline alur
       rejection,
       timeline,
+      // 🆕 Pastikan user approver terdaftar di pic_users & kembalikan untuk auto-login
+      picUser: await ensurePicUserExists(client, row.email, row.nama),
     });
   } catch (error) {
     console.error('Error fetching ACC info:', error);
