@@ -24,7 +24,12 @@ import path from 'path';
 import pool from '@/lib/db';
 import { PDFDocument } from 'pdf-lib';
 import { logActivity } from '@/lib/activityLogger';
-import { startApprovalCycle, STAGE_STATUS_LABEL, type PendingAction } from '@/lib/approvalCycle';
+import {
+  startApprovalCycle,
+  getLatestRejectionForDocument,
+  STAGE_STATUS_LABEL,
+  type PendingAction,
+} from '@/lib/approvalCycle';
 import { getActiveSmtpSettings, sendMail } from '@/lib/mailer';
 import { buildAccEmailHtml, buildAccEmailText } from '@/lib/approvalEmailTemplate';
 import { ensureDecryptedPdf } from '@/lib/pdfDecrypt';
@@ -347,6 +352,7 @@ export async function POST(request: NextRequest) {
       if (!smtpSettings) {
         emailWarning = 'Alur approval sudah dimulai, tapi konfigurasi SMTP belum diatur — email ke Prepared belum terkirim. Atur di halaman SMTP Settings.';
       } else {
+        const rejectionNote = await getLatestRejectionForDocument(client, nomorDokumen);
         let sentCount = 0;
         for (const action of pendingEmailActions) {
           try {
@@ -357,11 +363,15 @@ export async function POST(request: NextRequest) {
               namaDokumen,
               nomorDokumen,
               accLink,
+              rejectionNote,
             };
+            const emailSubject = rejectionNote
+              ? `[Review Prosedur] [Revisi] Permintaan Approval Dokumen Prosedur (Prepared) - ${nomorDokumen}`
+              : `[Review Prosedur] Permintaan Approval Dokumen Prosedur (Prepared) - ${nomorDokumen}`;
             await sendMail(
               smtpSettings,
               action.email,
-              'Permintaan Approval Dokumen Prosedur',
+              emailSubject,
               buildAccEmailHtml(emailParams),
               buildAccEmailText(emailParams)
             );

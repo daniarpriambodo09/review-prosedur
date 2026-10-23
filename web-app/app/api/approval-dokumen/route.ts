@@ -12,6 +12,7 @@ import pool from '@/lib/db';
 import { logActivity } from '@/lib/activityLogger';
 import {
   startApprovalCycle,
+  getLatestRejectionForDocument,
   STAGE_DISPLAY,
   STAGE_STATUS_LABEL,
   generateToken,
@@ -757,7 +758,9 @@ export async function PATCH(request: NextRequest) {
           const incoming = newApprovers[i];
 
           if (existing && incoming) {
-            // Update row yang sudah ada
+            const isEmailChanged = existing.email.trim().toLowerCase() !== incoming.email.trim().toLowerCase();
+
+            // Update row yang sudah ada di procedure_approvers
             await client.query(
               `UPDATE procedure_approvers
                SET nama = $1, email = $2, urutan = $3, updated_at = CURRENT_TIMESTAMP
@@ -765,22 +768,21 @@ export async function PATCH(request: NextRequest) {
               [incoming.nama?.trim() || null, incoming.email.trim(), i, existing.id]
             );
 
-            // Jika ada action pending di siklus in_progress yang menunjuk approver ini,
-            // sinkronkan nama dan emailnya
-            await client.query(
-              `UPDATE procedure_approval_actions
-               SET nama = $1, email = $2
-               WHERE approver_id = $3 AND acc_status = 'pending'`,
-              [incoming.nama?.trim() || null, incoming.email.trim(), existing.id]
-            );
+            if (isEmailChanged) {
+              // 🔒 PENTING: Email approver diganti (misal admin salah orang).
+              // 1. Hapus pending action lama di siklus aktif saat ini agar token lama yang terkirim ke
+              //    email lama TIDAK BISA DIPAKAI LAGI dan tidak bisa mengakses akun/dashboard orang baru!
+              if (activeCycle) {
+                await client.query(
+                  `DELETE FROM procedure_approval_actions
+                   WHERE cycle_id = $1 AND approver_id = $2 AND acc_status = 'pending'`,
+                  [activeCycle.id, existing.id]
+                );
+              }
 
-            // Jika role ini sedang berjalan di activeCycle, cek apakah action sudah ada dan sudah dikirimi email
-            if (activeCycle && activeCycle.current_stage === role) {
-              const actCheck = await client.query(
-                `SELECT id, email_sent_at, token FROM procedure_approval_actions WHERE cycle_id = $1 AND approver_id = $2`,
-                [activeCycle.id, existing.id]
-              );
-              if (actCheck.rows.length === 0) {
+              // 2. Jika role ini sedang berjalan di activeCycle, buatkan action baru dengan
+              //    TOKEN BARU & UNIK khusus untuk approver baru, dan jadwalkan kirim email notifikasi!
+              if (activeCycle && activeCycle.current_stage === role) {
                 const token = generateToken();
                 const verificationCode = generateVerificationCode();
                 const actionInsert = await client.query(
@@ -799,16 +801,53 @@ export async function PATCH(request: NextRequest) {
                   email: incoming.email.trim(),
                   token,
                 });
-              } else if (!actCheck.rows[0].email_sent_at) {
-                newActionsToNotify.push({
-                  actionId: actCheck.rows[0].id,
-                  cycleId: activeCycle.id,
-                  approverId: existing.id,
-                  role: role,
-                  nama: incoming.nama?.trim() || null,
-                  email: incoming.email.trim(),
-                  token: actCheck.rows[0].token,
-                });
+              }
+            } else {
+              // Email approver SAMA, hanya nama yang mungkin disinkronkan
+              await client.query(
+                `UPDATE procedure_approval_actions
+                 SET nama = $1
+                 WHERE approver_id = $2 AND acc_status = 'pending'`,
+                [incoming.nama?.trim() || null, existing.id]
+              );
+
+              // Jika role ini sedang berjalan di activeCycle, cek apakah action sudah ada dan sudah dikirimi email
+              if (activeCycle && activeCycle.current_stage === role) {
+                const actCheck = await client.query(
+                  `SELECT id, email_sent_at, token FROM procedure_approval_actions
+                   WHERE cycle_id = $1 AND approver_id = $2 AND acc_status = 'pending'`,
+                  [activeCycle.id, existing.id]
+                );
+                if (actCheck.rows.length === 0) {
+                  const token = generateToken();
+                  const verificationCode = generateVerificationCode();
+                  const actionInsert = await client.query(
+                    `INSERT INTO procedure_approval_actions
+                       (cycle_id, approver_id, role, nama, email, token, verification_code, acc_status)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
+                     RETURNING id`,
+                    [activeCycle.id, existing.id, role, incoming.nama?.trim() || null, incoming.email.trim(), token, verificationCode]
+                  );
+                  newActionsToNotify.push({
+                    actionId: actionInsert.rows[0]?.id,
+                    cycleId: activeCycle.id,
+                    approverId: existing.id,
+                    role: role,
+                    nama: incoming.nama?.trim() || null,
+                    email: incoming.email.trim(),
+                    token,
+                  });
+                } else if (!actCheck.rows[0].email_sent_at) {
+                  newActionsToNotify.push({
+                    actionId: actCheck.rows[0].id,
+                    cycleId: activeCycle.id,
+                    approverId: existing.id,
+                    role: role,
+                    nama: incoming.nama?.trim() || null,
+                    email: incoming.email.trim(),
+                    token: actCheck.rows[0].token,
+                  });
+                }
               }
             }
           } else if (!existing && incoming) {
@@ -844,7 +883,14 @@ export async function PATCH(request: NextRequest) {
               });
             }
           } else if (existing && !incoming) {
-            // Approver dikurangi dari form. Cek apakah aman untuk dihapus (tidak direferensikan action)
+            // Approver dikurangi dari form. Hapus pending action di activeCycle
+            if (activeCycle) {
+              await client.query(
+                `DELETE FROM procedure_approval_actions
+                 WHERE cycle_id = $1 AND approver_id = $2 AND acc_status = 'pending'`,
+                [activeCycle.id, existing.id]
+              );
+            }
             const refCheck = await client.query(
               `SELECT COUNT(*)::int AS count FROM procedure_approval_actions WHERE approver_id = $1`,
               [existing.id]
@@ -910,6 +956,7 @@ export async function PATCH(request: NextRequest) {
       try {
         const smtpSettings = await getActiveSmtpSettings(client);
         if (smtpSettings) {
+          const rejectionNote = await getLatestRejectionForDocument(client, nomorDokumen, activeCycle?.id);
           for (const action of newActionsToNotify) {
             try {
               const accLink = `${smtpSettings.appUrl}/review-prosedur/acc/${action.token}`;
@@ -919,11 +966,15 @@ export async function PATCH(request: NextRequest) {
                 nomorDokumen,
                 role: action.role as ApprovalRole,
                 accLink,
+                rejectionNote,
               };
+              const emailSubject = rejectionNote
+                ? `[Review Prosedur] [Revisi] Permintaan Approval Dokumen Prosedur (${STAGE_DISPLAY[action.role as ApprovalRole]}) - ${nomorDokumen}`
+                : `[Review Prosedur] Permintaan Approval Dokumen Prosedur (${STAGE_DISPLAY[action.role as ApprovalRole]}) - ${nomorDokumen}`;
               await sendMail(
                 smtpSettings,
                 action.email,
-                `[Review Prosedur] Permintaan Approval Dokumen Prosedur (${STAGE_DISPLAY[action.role as ApprovalRole]}) - ${nomorDokumen}`,
+                emailSubject,
                 buildAccEmailHtml(emailParams),
                 buildAccEmailText(emailParams)
               );
@@ -946,6 +997,7 @@ export async function PATCH(request: NextRequest) {
       try {
         const smtpSettings = await getActiveSmtpSettings(client);
         if (smtpSettings) {
+          const rejectionNote = await getLatestRejectionForDocument(client, nomorDokumen);
           for (const action of pendingActions) {
             try {
               const accLink = `${smtpSettings.appUrl}/review-prosedur/acc/${action.token}`;
@@ -955,11 +1007,15 @@ export async function PATCH(request: NextRequest) {
                 nomorDokumen,
                 role: 'prepared' as ApprovalRole,
                 accLink,
+                rejectionNote,
               };
+              const emailSubject = rejectionNote
+                ? `[Review Prosedur] [Revisi] Permintaan Approval Dokumen Prosedur (Prepared) - ${nomorDokumen}`
+                : `[Review Prosedur] Permintaan Approval Dokumen Prosedur (Prepared) - ${nomorDokumen}`;
               await sendMail(
                 smtpSettings,
                 action.email,
-                `[Review Prosedur] Permintaan Approval Dokumen Prosedur (Prepared) - ${nomorDokumen}`,
+                emailSubject,
                 buildAccEmailHtml(emailParams),
                 buildAccEmailText(emailParams)
               );
@@ -1069,6 +1125,7 @@ export async function POST(request: NextRequest) {
     try {
       const smtpSettings = await getActiveSmtpSettings(client);
       if (smtpSettings && actions.length > 0) {
+        const rejectionNote = await getLatestRejectionForDocument(client, nomorDokumen, cycleId);
         for (const action of actions) {
           try {
             const accLink = `${smtpSettings.appUrl}/review-prosedur/acc/${action.token}`;
@@ -1078,11 +1135,15 @@ export async function POST(request: NextRequest) {
               namaDokumen,
               nomorDokumen,
               accLink,
+              rejectionNote,
             };
+            const emailSubject = rejectionNote
+              ? `[Review Prosedur] [Revisi] Permintaan Approval Dokumen Prosedur (Prepared) - ${nomorDokumen}`
+              : `[Review Prosedur] Permintaan Approval Dokumen Prosedur (Prepared) - ${nomorDokumen}`;
             await sendMail(
               smtpSettings,
               action.email,
-              'Permintaan Approval Dokumen Prosedur (Prepared)',
+              emailSubject,
               buildAccEmailHtml(emailParams),
               buildAccEmailText(emailParams)
             );

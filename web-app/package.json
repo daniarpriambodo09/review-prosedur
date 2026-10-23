@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "prebuild": "node scripts/copy-pdf-assets.mjs && node scripts/auto-migrate.js",
+    "prebuild": "node scripts/copy-pdf-assets.mjs && node scripts/auto-migrate.js && node scripts/generate-favicons.mjs",
     "migrate": "node scripts/auto-migrate.js",
     "dev": "next dev -p 3090",
     "build": "next build",

@@ -169,17 +169,18 @@ export default function PICProfilePage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </Link>
-            <div className="flex items-center gap-2">
-                <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-red-50 border border-red-100 flex-shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="relative flex items-center flex-shrink-0">
                 <Image
-                    src="/review-prosedur/images/logo.png"
-                    alt="Yazaki"
-                    width={24}
-                    height={24}
-                    priority
-                    className="object-contain"
+                  src="/review-prosedur/images/yazaki-logo.jpg"
+                  alt="Yazaki Logo"
+                  width={110}
+                  height={28}
+                  priority
+                  className="object-contain h-7 w-auto"
                 />
-                </div>
+              </div>
+              <div className="h-5 w-[1px] bg-slate-200 hidden sm:block" />
               <span className="text-sm font-semibold text-slate-700">PIC Dashboard</span>
             </div>
           </div>

@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#F8FAFC"/>
+    </linearGradient>
+    <linearGradient id="yazakiRed" x1="0" y1="0" x2="1" y2="0.8">
+      <stop offset="0%" stop-color="#FF1A24"/>
+      <stop offset="100%" stop-color="#D9000C"/>
+    </linearGradient>
+    <linearGradient id="emeraldCheck" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#10B981"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <filter id="cardShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-color="#0F172A" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+
+  <!-- Squircle Base -->
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#bg)" stroke="#E2E8F0" stroke-width="1.5" filter="url(#cardShadow)"/>
+
+  <!-- Yazaki Arrowhead Emblem -->
+  <polygon points="7,18 57,18 52.87,22.13 52.87,30.38 50.34,43 7,18" fill="url(#yazakiRed)"/>
+
+  <!-- Quality Review / Verification Badge (Bottom Right) -->
+  <circle cx="48" cy="48" r="10.5" fill="url(#emeraldCheck)" stroke="#FFFFFF" stroke-width="2.5"/>
+  <path d="M43.5 48L46.8 51.3L53 45" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

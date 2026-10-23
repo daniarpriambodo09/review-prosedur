@@ -298,3 +298,63 @@ export async function rejectApprovalAction(
 
   return { cycleId, nomorDokumen, role, nama: row.nama, email: row.email };
 }
+
+export interface RejectionDetail {
+  role: ApprovalRole;
+  roleLabel: string;
+  nama: string | null;
+  email: string;
+  reason: string;
+  rejectedAt: string | null;
+}
+
+/**
+ * Mengambil catatan penolakan terakhir untuk dokumen prosedur.
+ * Hanya mengembalikan data jika penolakan tersebut terjadi pada siklus sebelum
+ * currentCycleId (atau siklus terakhir) dan BELUM ADA siklus 'completed' setelahnya.
+ */
+export async function getLatestRejectionForDocument(
+  client: PoolClient,
+  nomorDokumen: string,
+  currentCycleId?: number | null
+): Promise<RejectionDetail | null> {
+  const query = `
+    SELECT a.role, a.nama, a.email, a.reject_reason, a.acc_at, c.id AS cycle_id
+    FROM procedure_approval_actions a
+    JOIN procedure_approval_cycles c ON c.id = a.cycle_id
+    WHERE c.nomor_dokumen = $1
+      AND a.acc_status = 'rejected'
+      AND a.reject_reason IS NOT NULL
+      AND TRIM(a.reject_reason) != ''
+      ${currentCycleId ? 'AND c.id < $2' : ''}
+    ORDER BY c.id DESC, a.id DESC
+    LIMIT 1
+  `;
+  const params = currentCycleId ? [nomorDokumen, currentCycleId] : [nomorDokumen];
+  const res = await client.query(query, params);
+  if (res.rows.length === 0) return null;
+
+  const row = res.rows[0];
+
+  // Pastikan tidak ada siklus 'completed' setelah siklus penolakan ini
+  const completedCheck = await client.query(
+    `SELECT id FROM procedure_approval_cycles
+     WHERE nomor_dokumen = $1
+       AND status = 'completed'
+       AND id > $2
+     LIMIT 1`,
+    [nomorDokumen, row.cycle_id]
+  );
+  if (completedCheck.rows.length > 0) {
+    return null;
+  }
+
+  return {
+    role: row.role as ApprovalRole,
+    roleLabel: STAGE_DISPLAY[row.role as ApprovalRole] || row.role,
+    nama: row.nama,
+    email: row.email,
+    reason: row.reject_reason,
+    rejectedAt: row.acc_at ? new Date(row.acc_at).toISOString() : null,
+  };
+}

@@ -17,19 +17,80 @@ function escapeHtml(s: string): string {
     .replace(/'/g, '&#039;');
 }
 
-interface AccEmailParams {
+export interface RejectionInfoParam {
+  role: ApprovalRole | string;
+  roleLabel: string;
+  nama: string | null;
+  email: string;
+  reason: string;
+  rejectedAt?: string | null;
+}
+
+export interface AccEmailParams {
   nama: string | null;
   role: ApprovalRole;
   namaDokumen: string;
   nomorDokumen: string;
   accLink: string;
+  rejectionNote?: RejectionInfoParam | null;
 }
 
 export function buildAccEmailHtml(params: AccEmailParams): string {
-  const { nama, role, namaDokumen, nomorDokumen, accLink } = params;
+  const { nama, role, namaDokumen, nomorDokumen, accLink, rejectionNote } = params;
   const greeting  = nama ? `Dear. ${escapeHtml(nama)},` : 'Dear. Bapak/Ibu,';
   const roleLabel = STAGE_DISPLAY[role];
   const accLinkSafe = escapeHtml(accLink);
+
+  let rejectionBannerHtml = '';
+  if (rejectionNote) {
+    const rejectionAuthor = rejectionNote.nama
+      ? `${escapeHtml(rejectionNote.nama)} (${escapeHtml(rejectionNote.email)})`
+      : escapeHtml(rejectionNote.email);
+
+    let rejectedAtText = '';
+    if (rejectionNote.rejectedAt) {
+      try {
+        const d = new Date(rejectionNote.rejectedAt).toLocaleString('id-ID', {
+          day: '2-digit', month: 'long', year: 'numeric',
+          hour: '2-digit', minute: '2-digit'
+        });
+        rejectedAtText = ` pada ${d}`;
+      } catch {}
+    }
+
+    rejectionBannerHtml = `
+      <table width="100%" cellpadding="0" cellspacing="0"
+             style="background-color:#fff1f2;border:1px solid #fecdd3;border-left:4px solid #e11d48;
+                    border-radius:6px;margin-bottom:24px;border-collapse:collapse;">
+        <tr>
+          <td style="padding:16px;">
+            <p style="margin:0 0 6px;color:#9f1239;font-size:13px;font-weight:700;">
+              ⚠️ Dokumen Hasil Revisi (Siklus Sebelumnya Ditolak)
+            </p>
+            <p style="margin:0 0 10px;color:#4c0519;font-size:13px;line-height:1.5;">
+              Dokumen ini diajukan kembali ke alur persetujuan setelah sebelumnya mendapatkan <strong>penolakan</strong> pada tahap <strong>${escapeHtml(rejectionNote.roleLabel)}</strong> oleh <strong>${rejectionAuthor}</strong>${rejectedAtText}.
+            </p>
+            <table width="100%" cellpadding="0" cellspacing="0"
+                   style="background-color:#ffffff;border:1px dashed #fda4af;border-radius:6px;">
+              <tr>
+                <td style="padding:12px 14px;">
+                  <p style="margin:0 0 4px;color:#881337;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">
+                    Catatan / Alasan Penolakan:
+                  </p>
+                  <p style="margin:0;color:#1e293b;font-size:13px;line-height:1.5;font-style:italic;">
+                    &ldquo;${escapeHtml(rejectionNote.reason)}&rdquo;
+                  </p>
+                </td>
+              </tr>
+            </table>
+            <p style="margin:10px 0 0;color:#881337;font-size:11px;line-height:1.4;">
+              Harap periksa lembar dokumen hasil revisi ini dengan seksama sebelum memberikan persetujuan Anda.
+            </p>
+          </td>
+        </tr>
+      </table>
+    `;
+  }
 
   return `<!DOCTYPE html>
 <html lang="id">
@@ -52,7 +113,7 @@ export function buildAccEmailHtml(params: AccEmailParams): string {
                 Permintaan Approval Dokumen
               </h1>
               <p style="margin:6px 0 0;color:#e5d9fb;font-size:13px;">
-                Tahap: ${roleLabel}
+                Tahap: ${roleLabel}${rejectionNote ? ' (Revisi)' : ''}
               </p>
             </td>
           </tr>
@@ -61,6 +122,7 @@ export function buildAccEmailHtml(params: AccEmailParams): string {
               <p style="margin:0 0 16px;color:#333;font-size:15px;line-height:1.6;">
                 ${greeting}
               </p>
+              ${rejectionBannerHtml}
               <p style="margin:0 0 20px;color:#555;font-size:14px;line-height:1.6;">
                 Dokumen prosedur berikut telah diperbarui (revisi) dan memerlukan
                 persetujuan (ACC) Anda sebagai <strong>${roleLabel}</strong>:
@@ -133,11 +195,30 @@ export function buildAccEmailHtml(params: AccEmailParams): string {
 }
 
 export function buildAccEmailText(params: AccEmailParams): string {
-  const { nama, role, namaDokumen, nomorDokumen, accLink } = params;
+  const { nama, role, namaDokumen, nomorDokumen, accLink, rejectionNote } = params;
   const roleLabel = STAGE_DISPLAY[role];
+
+  let rejectionText = '';
+  if (rejectionNote) {
+    const rejectionAuthor = rejectionNote.nama
+      ? `${rejectionNote.nama} (${rejectionNote.email})`
+      : rejectionNote.email;
+    rejectionText = [
+      '------------------------------------------------------------',
+      '⚠️ INFORMASI REVISI DOKUMEN (SEBELUMNYA DITOLAK)',
+      `Tahap Penolakan : ${rejectionNote.roleLabel}`,
+      `Ditolak Oleh    : ${rejectionAuthor}`,
+      `Catatan/Alasan  : "${rejectionNote.reason}"`,
+      'Harap periksa lembar dokumen hasil revisi sebelum menyetujui.',
+      '------------------------------------------------------------',
+      '',
+    ].join('\n');
+  }
+
   return [
     nama ? `Dear. ${nama},` : 'Dear. Bapak/Ibu,',
     '',
+    rejectionText,
     `Dokumen prosedur berikut memerlukan persetujuan (ACC) Anda sebagai ${roleLabel}:`,
     `  ${namaDokumen} (${nomorDokumen})`,
     '',
@@ -148,5 +229,5 @@ export function buildAccEmailText(params: AccEmailParams): string {
     '',
     'Terima kasih.',
     'Procedure Management System',
-  ].join('\n');
+  ].filter(line => line !== null).join('\n');
 }

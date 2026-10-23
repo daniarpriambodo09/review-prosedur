@@ -75,6 +75,7 @@ interface AccInfo {
   fileName: string | null;
   filePath: string | null;
   rejection: RejectionInfo | null;
+  previousRejection?: RejectionInfo | null;
   timeline?: TimelineItem[];
   picUser?: any;
 }
@@ -812,6 +813,30 @@ export default function AccPage() {
                     <LayoutDashboard size={15} />
                     <span>Kembali ke Halaman PIC Dashboard</span>
                   </Link>
+                </div>
+              )}
+
+              {/* ⚠️ Catatan Penolakan Siklus Sebelumnya jika dokumen ini adalah hasil revisi */}
+              {!result && !cycleRejected && !alreadyAcc && info.previousRejection && (
+                <div className="p-4 rounded-2xl bg-amber-50/90 border border-amber-300 space-y-2 animate-in fade-in">
+                  <div className="flex items-center gap-2 text-amber-900 font-bold text-xs">
+                    <AlertCircle size={16} className="text-amber-600 flex-shrink-0" />
+                    <span>Dokumen Hasil Revisi (Siklus Sebelumnya Ditolak)</span>
+                  </div>
+                  <p className="text-xs text-amber-800 leading-relaxed">
+                    Dokumen ini diajukan kembali setelah sebelumnya mendapatkan penolakan pada tahap <strong>{info.previousRejection.roleLabel}</strong> oleh <strong>{info.previousRejection.nama || info.previousRejection.email}</strong>.
+                  </p>
+                  {info.previousRejection.reason && (
+                    <div className="p-3 rounded-xl bg-white/90 border border-amber-200 text-xs text-slate-800 italic shadow-2xs">
+                      <p className="not-italic text-[10px] font-bold text-amber-900 uppercase tracking-wide mb-1">
+                        Catatan / Alasan Penolakan:
+                      </p>
+                      &ldquo;{info.previousRejection.reason}&rdquo;
+                    </div>
+                  )}
+                  <p className="text-[11px] text-amber-700">
+                    Harap periksa lembar dokumen hasil revisi ini dengan teliti sebelum memberikan keputusan Anda.
+                  </p>
                 </div>
               )}
 

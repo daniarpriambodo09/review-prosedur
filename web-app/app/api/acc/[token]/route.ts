@@ -16,6 +16,7 @@ import { logActivity } from '@/lib/activityLogger';
 import {
   checkAndAdvanceStage,
   rejectApprovalAction,
+  getLatestRejectionForDocument,
   STAGE_DISPLAY,
   type ApprovalRole,
   type PendingAction,
@@ -49,12 +50,20 @@ export async function GET(
 
     if (result.rows.length === 0) {
       return NextResponse.json(
-        { error: 'Link tidak ditemukan atau tidak valid.' },
+        { error: 'Tautan persetujuan tidak ditemukan atau sudah tidak berlaku karena data approver telah diperbarui oleh administrator.' },
         { status: 404 }
       );
     }
 
     const row = result.rows[0];
+
+    // 🔒 Jika action ini sudah dibatalkan karena approver diperbarui/diganti admin
+    if (row.acc_status === 'cancelled') {
+      return NextResponse.json(
+        { error: 'Tautan persetujuan ini sudah tidak berlaku karena data approver telah diperbarui atau diganti oleh administrator.' },
+        { status: 410 }
+      );
+    }
 
     // Detail timeline persetujuan semua approver di cycle ini
     const timelineResult = await client.query(
@@ -97,6 +106,9 @@ export async function GET(
       }
     }
 
+    // 🆕 Catatan penolakan dari siklus sebelumnya jika dokumen ini adalah hasil revisi yang diajukan ulang
+    const previousRejection = await getLatestRejectionForDocument(client, row.nomor_dokumen, row.cycle_id);
+
     return NextResponse.json({
       role:         row.role,
       roleLabel:    STAGE_DISPLAY[row.role as ApprovalRole],
@@ -118,6 +130,7 @@ export async function GET(
       filePath:     row.file_path ?? null,
       // 🆕 detail penolakan & timeline alur
       rejection,
+      previousRejection,
       timeline,
       // 🆕 Pastikan user approver terdaftar di pic_users & kembalikan untuk auto-login
       picUser: await ensurePicUserExists(client, row.email, row.nama),
@@ -166,7 +179,7 @@ export async function POST(
     if (actionResult.rows.length === 0) {
       await client.query('ROLLBACK');
       return NextResponse.json(
-        { error: 'Link tidak ditemukan atau tidak valid.' },
+        { error: 'Tautan persetujuan tidak ditemukan atau sudah tidak berlaku karena data approver telah diperbarui oleh administrator.' },
         { status: 404 }
       );
     }
@@ -178,6 +191,13 @@ export async function POST(
       return NextResponse.json(
         { error: 'Dokumen ini sudah Anda setujui sebelumnya.' },
         { status: 409 }
+      );
+    }
+    if (action.acc_status === 'cancelled') {
+      await client.query('ROLLBACK');
+      return NextResponse.json(
+        { error: 'Tautan persetujuan ini sudah tidak berlaku karena data approver telah diperbarui atau diganti oleh administrator.' },
+        { status: 410 }
       );
     }
     if (action.acc_status === 'rejected') {
@@ -256,6 +276,7 @@ export async function POST(
       if (!smtpSettings) {
         emailWarning = `Berhasil ACC, tahap berikutnya (${STAGE_DISPLAY[nextRole]}) sudah disiapkan, tapi konfigurasi SMTP belum diatur — email belum terkirim.`;
       } else {
+        const rejectionNote = await getLatestRejectionForDocument(client, action.nomor_dokumen, action.cycle_id);
         let sentCount = 0;
         for (const nextAction of pendingEmailActions) {
           try {
@@ -266,11 +287,15 @@ export async function POST(
               namaDokumen: action.nama_dokumen,
               nomorDokumen: action.nomor_dokumen,
               accLink,
+              rejectionNote,
             };
+            const emailSubject = rejectionNote
+              ? `[Review Prosedur] [Revisi] Permintaan Approval Dokumen Prosedur (${STAGE_DISPLAY[nextRole]}) - ${action.nomor_dokumen}`
+              : `[Review Prosedur] Permintaan Approval Dokumen Prosedur (${STAGE_DISPLAY[nextRole]}) - ${action.nomor_dokumen}`;
             await sendMail(
               smtpSettings,
               nextAction.email,
-              'Permintaan Approval Dokumen Prosedur',
+              emailSubject,
               buildAccEmailHtml(emailParams),
               buildAccEmailText(emailParams)
             );

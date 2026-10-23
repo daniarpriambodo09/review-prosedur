@@ -35,18 +35,18 @@ export default function PICDashboardHeader({
         <div className="flex items-center justify-between">
 
           {/* Logo and Title */}
-          <div className="flex items-center gap-2.5">
-            {/* CHANGED: w-10 h-10→w-8 h-8 */}
-            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-red-50 border border-red-100 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="relative flex items-center flex-shrink-0">
               <Image
-                src="/review-prosedur/images/logo.png"
-                alt="Yazaki"
-                width={24}
-                height={24}
+                src="/review-prosedur/images/yazaki-logo.jpg"
+                alt="Yazaki Logo"
+                width={120}
+                height={32}
                 priority
-                className="object-contain"
+                className="object-contain h-8 w-auto"
               />
             </div>
+            <div className="h-6 w-[1px] bg-slate-200 hidden sm:block" />
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-base font-bold text-slate-900">PIC Dashboard</h1>
