@@ -61,6 +61,8 @@ export async function GET(
 }
 
 // PUT — replace semua approvers untuk dokumen ini
+// Aman: jika ada cycle aktif, hanya update nama (bukan hapus+insert) untuk
+// approver dengan email sama, agar token yang sudah dikirim tetap valid.
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ nomorDokumen: string }> }
@@ -72,19 +74,70 @@ export async function PUT(
     const body = await request.json(); // { prepared: [{nama,email}], checked: [...], approved: [...] }
 
     await client.query('BEGIN');
-    await client.query(`DELETE FROM procedure_approvers WHERE nomor_dokumen = $1`, [nomorDokumen]);
+
+    // Cek apakah ada cycle approval yang sedang aktif
+    const cycleRes = await client.query(
+      `SELECT id FROM procedure_approval_cycles
+       WHERE nomor_dokumen = $1 AND status = 'in_progress'
+       LIMIT 1`,
+      [nomorDokumen]
+    );
+    const hasActiveCycle = cycleRes.rows.length > 0;
 
     const roles: ('prepared' | 'checked' | 'approved')[] = ['prepared', 'checked', 'approved'];
-    for (const role of roles) {
-      const list = body[role] || [];
-      for (let i = 0; i < list.length; i++) {
-        const { nama, email } = list[i];
-        if (!email) continue;
-        await client.query(
-          `INSERT INTO procedure_approvers (nomor_dokumen, role, nama, email, urutan)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [nomorDokumen, role, nama || null, email, i]
+
+    if (!hasActiveCycle) {
+      // Tidak ada cycle aktif: aman DELETE + INSERT naif
+      await client.query(`DELETE FROM procedure_approvers WHERE nomor_dokumen = $1`, [nomorDokumen]);
+      for (const role of roles) {
+        const list = body[role] || [];
+        for (let i = 0; i < list.length; i++) {
+          const { nama, email } = list[i];
+          if (!email) continue;
+          await client.query(
+            `INSERT INTO procedure_approvers (nomor_dokumen, role, nama, email, urutan)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [nomorDokumen, role, nama || null, email, i]
+          );
+        }
+      }
+    } else {
+      // Cycle aktif: hanya UPDATE nama jika email sama; abaikan perubahan email
+      // (perubahan email saat cycle aktif harus via endpoint /api/approval-dokumen
+      // yang punya logika cancel-token dan kirim email baru).
+      for (const role of roles) {
+        const list: { nama?: string; email: string }[] = body[role] || [];
+        const existingRes = await client.query(
+          `SELECT id, email, urutan FROM procedure_approvers
+           WHERE nomor_dokumen = $1 AND role = $2
+           ORDER BY urutan ASC, id ASC`,
+          [nomorDokumen, role]
         );
+        const existingRows = existingRes.rows;
+
+        for (let i = 0; i < Math.max(existingRows.length, list.length); i++) {
+          const existing = existingRows[i];
+          const incoming = list[i];
+
+          if (existing && incoming) {
+            const emailSame = existing.email.trim().toLowerCase() === incoming.email.trim().toLowerCase();
+            if (emailSame) {
+              // Hanya update nama — token tidak terpengaruh
+              await client.query(
+                `UPDATE procedure_approvers SET nama = $1, urutan = $2 WHERE id = $3`,
+                [incoming.nama?.trim() || null, i, existing.id]
+              );
+              // Sinkronkan nama ke pending actions juga
+              await client.query(
+                `UPDATE procedure_approval_actions SET nama = $1
+                 WHERE approver_id = $2 AND acc_status = 'pending'`,
+                [incoming.nama?.trim() || null, existing.id]
+              );
+            }
+            // Jika email beda saat ada cycle aktif: abaikan (tidak ubah, tidak hapus)
+          }
+          // Penambahan/pengurangan approver saat cycle aktif diabaikan di sini
+        }
       }
     }
 
