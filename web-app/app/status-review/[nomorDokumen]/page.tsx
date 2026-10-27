@@ -34,12 +34,12 @@ import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import DocumentModal from '@/components/documents/DocumentModal';
 import ApprovalCard from '@/components/status-review/ApprovalCard';
-import RevisionNotesModal from '@/components/status-review/RevisionNotesModal';
 import EditProcedureModal from '@/components/status-review/EditProcedureModal';
 import DocumentChat from '@/components/chat/DocumentChat';
 import {
   ArrowLeft, Hash, FileText, Calendar, RefreshCw, Building2, User, Mail,
-  Eye, Users, FileClock, Pencil, Trash2, Send, XCircle, Clock,
+  Eye, Users, Pencil, Trash2, Send, XCircle, Clock,
+  ShieldAlert, Copy, Check, ArrowRight, Layers, FileCheck,
 } from 'lucide-react';
 
 // =============================================================================
@@ -196,19 +196,19 @@ function StatusBadge({
   doc?: ProcedureDocument | null;
   lastSentAt?: string | null;
 }) {
-  const styles: Record<string, { bg: string; text: string; dot: string; clock: string }> = {
-    Revisi:           { bg: 'bg-amber-50',   text: 'text-amber-700',   dot: 'bg-amber-500',   clock: 'text-amber-600'   },
-    Relevan:          { bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-500', clock: 'text-emerald-600' },
-    Obsolete:         { bg: 'bg-red-50',     text: 'text-red-700',     dot: 'bg-red-500',     clock: 'text-red-600'     },
-    Menunggu:         { bg: 'bg-blue-50',    text: 'text-blue-700',    dot: 'bg-blue-500',    clock: 'text-blue-600'    },
-    'Belum dikirim':  { bg: 'bg-orange-50',  text: 'text-orange-700',  dot: 'bg-orange-500',  clock: 'text-orange-600'  },
-    'Telah terkirim': { bg: 'bg-cyan-50',    text: 'text-cyan-700',    dot: 'bg-cyan-500',    clock: 'text-cyan-600'    },
-    'Telah dibaca':   { bg: 'bg-purple-50',  text: 'text-purple-700',  dot: 'bg-purple-500',  clock: 'text-purple-600'  },
-    'Menunggu ACC Prepared': { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500', clock: 'text-violet-600' },
-    'Menunggu ACC Checked':  { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500', clock: 'text-violet-600' },
-    'Menunggu ACC Approved': { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500', clock: 'text-violet-600' },
-    'Ditolak':        { bg: 'bg-rose-50',     text: 'text-rose-700',    dot: 'bg-rose-500',    clock: 'text-rose-600'    },
-    '-':              { bg: 'bg-slate-50',   text: 'text-slate-500',   dot: 'bg-slate-400',   clock: 'text-slate-400'   },
+  const styles: Record<string, { bg: string; text: string; dot: string; clock: string; timeText: string }> = {
+    Revisi:           { bg: 'bg-amber-50',   text: 'text-amber-700',   dot: 'bg-amber-500',   clock: 'text-amber-400',   timeText: 'text-amber-200' },
+    Relevan:          { bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-500', clock: 'text-emerald-400', timeText: 'text-emerald-200' },
+    Obsolete:         { bg: 'bg-red-50',     text: 'text-red-700',     dot: 'bg-red-500',     clock: 'text-red-400',     timeText: 'text-red-200' },
+    Menunggu:         { bg: 'bg-blue-50',    text: 'text-blue-700',    dot: 'bg-blue-500',    clock: 'text-blue-400',    timeText: 'text-blue-200' },
+    'Belum dikirim':  { bg: 'bg-orange-50',  text: 'text-orange-700',  dot: 'bg-orange-500',  clock: 'text-orange-400',  timeText: 'text-orange-200' },
+    'Telah terkirim': { bg: 'bg-cyan-50',    text: 'text-cyan-700',    dot: 'bg-cyan-500',    clock: 'text-cyan-400',    timeText: 'text-cyan-200' },
+    'Telah dibaca':   { bg: 'bg-purple-50',  text: 'text-purple-700',  dot: 'bg-purple-500',  clock: 'text-purple-400',  timeText: 'text-purple-200' },
+    'Menunggu ACC Prepared': { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500', clock: 'text-violet-400', timeText: 'text-violet-200' },
+    'Menunggu ACC Checked':  { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500', clock: 'text-violet-400', timeText: 'text-violet-200' },
+    'Menunggu ACC Approved': { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500', clock: 'text-violet-400', timeText: 'text-violet-200' },
+    'Ditolak':        { bg: 'bg-rose-50',     text: 'text-rose-700',    dot: 'bg-rose-500',    clock: 'text-rose-400',    timeText: 'text-rose-200' },
+    '-':              { bg: 'bg-slate-50',   text: 'text-slate-500',   dot: 'bg-slate-400',   clock: 'text-slate-300',   timeText: 'text-slate-200' },
   };
   const s = styles[status] ?? styles['-'];
   const timeInfo = getStatusTimeInfo(status, doc, lastSentAt);
@@ -221,10 +221,10 @@ function StatusBadge({
       </span>
       {timeInfo && (
         <span
-          className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 whitespace-nowrap pl-0.5"
+          className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${s.timeText} whitespace-nowrap pl-0.5`}
           title={timeInfo.tooltip}
         >
-          <Clock size={11} className={`${s.clock} flex-shrink-0`} />
+          <Clock size={12} className={`${s.clock} flex-shrink-0`} />
           <span>{timeInfo.formatted}</span>
         </span>
       )}
@@ -301,13 +301,21 @@ export default function DocumentDetailPage() {
 
   const [doc, setDoc]           = useState<ProcedureDocument | null>(null);
   const [schedule, setSchedule] = useState<EmailSchedule | null>(null);
+  const [rejections, setRejections] = useState<any[]>([]);
   const [loading, setLoading]   = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [copiedNomor, setCopiedNomor] = useState(false);
 
   const [isPdfOpen,      setIsPdfOpen]      = useState(false);
   const [isApprovalOpen, setIsApprovalOpen] = useState(false);
-  const [isRevisionOpen, setIsRevisionOpen] = useState(false);
   const [isEditOpen,     setIsEditOpen]     = useState(false);
+
+  const handleCopyNomor = () => {
+    if (!doc?.nomorDokumen) return;
+    navigator.clipboard.writeText(doc.nomorDokumen);
+    setCopiedNomor(true);
+    setTimeout(() => setCopiedNomor(false), 2000);
+  };
 
   const loadData = useCallback(async () => {
     if (!nomorDokumen) return;
@@ -349,12 +357,22 @@ export default function DocumentDetailPage() {
       }
       setSchedule(sched);
 
+      // Riwayat penolakan & approver
+      try {
+        const approverRes = await fetch(`/review-prosedur/api/procedures/${encodeURIComponent(nomorDokumen)}/approvers`);
+        if (approverRes.ok) {
+          const approverJson = await approverRes.json();
+          setRejections(approverJson.rejectionHistory ?? (approverJson.rejection ? [approverJson.rejection] : []));
+        }
+      } catch (e) {
+        console.error('Gagal memuat data approver & penolakan:', e);
+      }
+
       const displayStatus = resolveDisplayStatus(resolved, sched);
       const finalDoc = { ...resolved, status: displayStatus };
       setDoc(finalDoc);
 
-      // Tandai review sudah dilihat admin (sama seperti saat modal PDF dibuka
-      // dari tabel — perilaku badge "Baru Direview" tetap konsisten)
+      // Tandai review sudah dilihat admin
       if (hasUnseenReview(finalDoc)) {
         markReviewAsSeen(nomorDokumen);
       }
@@ -449,101 +467,387 @@ export default function DocumentDetailPage() {
   return (
     <ProtectedRoute>
       <AdminLayout>
-        <div className="max-w-3xl mx-auto space-y-5">
+        <div className="max-w-6xl mx-auto space-y-6 pb-12 animate-in fade-in duration-150">
 
-          {/* Back link */}
-          <Link
-            href="/status-review"
-            className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 transition-colors"
-          >
-            <ArrowLeft size={15} /> Kembali ke Daftar Dokumen
-          </Link>
+          {/* ── Breadcrumb & Top Bar ── */}
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <Link
+              href="/status-review"
+              className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-indigo-600 bg-white hover:bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200/80 shadow-2xs transition-all"
+            >
+              <ArrowLeft size={14} />
+              <span>Kembali ke Status Review</span>
+            </Link>
 
-          {/* Header */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-            <div className="flex items-start justify-between gap-4 flex-wrap">
-              <div className="min-w-0">
-                <h1 className="text-xl font-bold text-slate-900">{doc.namaDokumen}</h1>
-                <p className="text-xs text-slate-400 font-mono mt-1">{doc.nomorDokumen}</p>
+            <div className="flex items-center gap-2 text-xs text-slate-400">
+              <span className="font-mono bg-slate-100 px-2 py-0.5 rounded-md text-[11px] text-slate-600 font-semibold">
+                {doc.nomorDokumen}
+              </span>
+              <span>&bull;</span>
+              <span>Departemen {doc.owner}</span>
+            </div>
+          </div>
+
+          {/* ── Executive Hero Card ── */}
+          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white p-6 sm:p-8 shadow-xl border border-indigo-900/40">
+            {/* Ambient Background Glows */}
+            <div className="absolute -right-20 -bottom-20 w-80 h-80 bg-indigo-500/15 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute -left-20 -top-20 w-60 h-60 bg-blue-500/10 rounded-full blur-2xl pointer-events-none" />
+
+            <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+              <div className="min-w-0 max-w-3xl space-y-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                    <FileText size={13} className="text-indigo-400" />
+                    Dokumen Prosedur Operasional
+                  </span>
+                  <div className="flex items-center gap-1 bg-white/10 hover:bg-white/15 px-2.5 py-1 rounded-lg text-xs font-mono text-slate-200 transition-colors">
+                    <span>{doc.nomorDokumen}</span>
+                    <button
+                      type="button"
+                      onClick={handleCopyNomor}
+                      className="ml-1 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                      title="Salin Nomor Dokumen"
+                    >
+                      {copiedNomor ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                    </button>
+                  </div>
+                </div>
+
+                <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white leading-tight">
+                  {doc.namaDokumen}
+                </h1>
+
+                {/* Metadata Pills */}
+                <div className="flex items-center gap-2.5 flex-wrap pt-1 text-xs text-slate-300">
+                  <span className="bg-slate-800/80 px-2.5 py-1 rounded-lg border border-slate-700/60 font-medium">
+                    Level: <strong className="text-white">{doc.levelDokumen || '-'}</strong>
+                  </span>
+                  <span className="bg-slate-800/80 px-2.5 py-1 rounded-lg border border-slate-700/60 font-medium">
+                    Revisi: <strong className="text-white">Rev. {doc.revisi ?? '0'}</strong>
+                  </span>
+                  <span className="bg-slate-800/80 px-2.5 py-1 rounded-lg border border-slate-700/60 font-medium">
+                    Tgl Approval: <strong className="text-white">{formatToDDMonYYYY(doc.tanggalSelesaiApproval)}</strong>
+                  </span>
+                  <span className="bg-slate-800/80 px-2.5 py-1 rounded-lg border border-slate-700/60 font-medium">
+                    Owner: <strong className="text-white">{doc.owner}</strong>
+                  </span>
+                </div>
               </div>
-              <StatusBadge status={doc.status} doc={doc} lastSentAt={schedule?.lastSentAt || doc.lastSentAt} />
+
+              {/* Right Side: Status Badge */}
+              <div className="flex flex-col sm:flex-row lg:flex-col items-start lg:items-end gap-3 flex-shrink-0">
+                <div className="bg-white/10 backdrop-blur-md p-3 rounded-2xl border border-white/15 shadow-sm">
+                  <StatusBadge status={doc.status} doc={doc} lastSentAt={schedule?.lastSentAt || doc.lastSentAt} />
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Informasi Dokumen */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-5">Informasi Dokumen</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
-              <DetailItem icon={Hash}      label="Nomor Dokumen"        value={doc.nomorDokumen} mono />
-              <DetailItem icon={FileText}  label="Level Dokumen"        value={doc.levelDokumen} />
-              <DetailItem icon={Calendar}  label="Tgl Selesai Approval" value={formatToDDMonYYYY(doc.tanggalSelesaiApproval)} />
-              <DetailItem icon={RefreshCw} label="Revisi"               value={String(doc.revisi ?? '0')} />
-              <DetailItem icon={Building2} label="Owner"                value={doc.owner} />
-              <DetailItem icon={User}      label="PIC"                  value={doc.pic} />
-              <DetailItem icon={Mail}      label="Email"                value={doc.email || '-'} />
-            </div>
-          </div>
 
-          {/* Jadwal Email — hanya tampil kalau ada jadwal aktif */}
-          {showScheduleCard && schedule && (
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-              <div className="flex items-center justify-between gap-3 mb-4">
-                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wide">Jadwal Email</h2>
-                {schedule.emailStatus === 'pending' && (
+
+          {/* ── Main Dashboard Layout (2 Columns) ── */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            
+            {/* ── Kolom Kiri: Detail Informasi & Diskusi (Col 8) ── */}
+            <div className="lg:col-span-8 space-y-6">
+
+              {/* Card Informasi Dokumen Modern Grid */}
+              <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs p-6 sm:p-7">
+                <div className="flex items-center justify-between pb-4 mb-5 border-b border-slate-100">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                      <Layers size={16} />
+                    </div>
+                    <div>
+                      <h2 className="text-sm font-bold text-slate-900">Informasi Lengkap Dokumen</h2>
+                      <p className="text-[11px] text-slate-400">Atribut data master dokumen prosedur</p>
+                    </div>
+                  </div>
+                  <span className="text-[11px] font-mono font-semibold text-slate-400 bg-slate-50 px-2 py-1 rounded-md border border-slate-100">
+                    ID: {doc.nomorDokumen}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Item 1: Nomor Dokumen */}
+                  <div className="p-3.5 rounded-2xl bg-slate-50/80 border border-slate-200/60">
+                    <div className="flex items-center gap-2 text-slate-400 text-xs mb-1">
+                      <Hash size={14} className="text-slate-400" />
+                      <span>Nomor Dokumen</span>
+                    </div>
+                    <p className="text-xs font-bold text-slate-900 font-mono select-all">
+                      {doc.nomorDokumen}
+                    </p>
+                  </div>
+
+                  {/* Item 2: Level Dokumen */}
+                  <div className="p-3.5 rounded-2xl bg-slate-50/80 border border-slate-200/60">
+                    <div className="flex items-center gap-2 text-slate-400 text-xs mb-1">
+                      <FileText size={14} className="text-slate-400" />
+                      <span>Level Dokumen</span>
+                    </div>
+                    <p className="text-xs font-bold text-slate-900">
+                      {doc.levelDokumen || '-'}
+                    </p>
+                  </div>
+
+                  {/* Item 3: Tanggal Approval */}
+                  <div className="p-3.5 rounded-2xl bg-slate-50/80 border border-slate-200/60">
+                    <div className="flex items-center gap-2 text-slate-400 text-xs mb-1">
+                      <Calendar size={14} className="text-slate-400" />
+                      <span>Tgl Selesai Approval</span>
+                    </div>
+                    <p className="text-xs font-bold text-slate-900">
+                      {formatToDDMonYYYY(doc.tanggalSelesaiApproval)}
+                    </p>
+                  </div>
+
+                  {/* Item 4: Revisi */}
+                  <div className="p-3.5 rounded-2xl bg-slate-50/80 border border-slate-200/60">
+                    <div className="flex items-center gap-2 text-slate-400 text-xs mb-1">
+                      <RefreshCw size={14} className="text-slate-400" />
+                      <span>Revisi Saat Ini</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                        Rev. {doc.revisi ?? '0'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Item 5: Owner / Departemen */}
+                  <div className="p-3.5 rounded-2xl bg-slate-50/80 border border-slate-200/60">
+                    <div className="flex items-center gap-2 text-slate-400 text-xs mb-1">
+                      <Building2 size={14} className="text-slate-400" />
+                      <span>Departemen / Section Owner</span>
+                    </div>
+                    <p className="text-xs font-bold text-slate-900">
+                      {doc.owner}
+                    </p>
+                  </div>
+
+                  {/* Item 6: Status Persetujuan */}
+                  <div className="p-3.5 rounded-2xl bg-slate-50/80 border border-slate-200/60">
+                    <div className="flex items-center gap-2 text-slate-400 text-xs mb-1">
+                      <FileCheck size={14} className="text-slate-400" />
+                      <span>Tahap Verifikasi</span>
+                    </div>
+                    <p className="text-xs font-bold text-slate-900">
+                      {doc.status}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Detail PIC Card di dalam info dokumen */}
+                <div className="mt-5 p-4 rounded-2xl bg-gradient-to-r from-blue-50/80 to-indigo-50/50 border border-blue-200/70 flex items-center justify-between gap-4 flex-wrap">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-blue-600 text-white font-bold text-sm flex items-center justify-center shadow-xs">
+                      {doc.pic ? doc.pic.charAt(0).toUpperCase() : 'P'}
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-semibold text-blue-700 uppercase tracking-wide">
+                        Person In Charge (PIC)
+                      </p>
+                      <h4 className="text-xs font-bold text-slate-900">{doc.pic}</h4>
+                      <p className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5 font-mono">
+                        <Mail size={12} className="text-slate-400" />
+                        {doc.email || '-'}
+                      </p>
+                    </div>
+                  </div>
+
+
+                </div>
+              </div>
+
+              {/* 🆕 Diskusi Dokumen dengan Approver (Prepared / Checked / Approved) */}
+              <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden">
+                <DocumentChat
+                  nomorDokumen={doc.nomorDokumen}
+                  adminNama={user?.fullName ?? 'Administrator'}
+                  adminEmail={user?.email ?? 'admin'}
+                  myEmail={user?.email ?? 'admin'}
+                  subtitle={doc.namaDokumen}
+                />
+              </div>
+
+            </div>
+
+            {/* ── Kolom Kanan: Panel Aksi & Jadwal (Col 4) ── */}
+            <div className="lg:col-span-4 space-y-6">
+
+              {/* Card Panel Aksi Cepat */}
+              <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs p-6">
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                  <span>Panel Tindakan</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                </h3>
+
+                <div className="space-y-2.5">
+                  {/* Aksi 1: Lihat Dokumen PDF */}
                   <button
                     type="button"
-                    onClick={handleCancelSchedule}
-                    disabled={isCancellingSchedule}
-                    className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg border border-rose-200 transition-colors disabled:opacity-50"
+                    onClick={() => setIsPdfOpen(true)}
+                    className="w-full flex items-center justify-between p-3 rounded-2xl bg-blue-50/80 hover:bg-blue-100/90 text-blue-700 border border-blue-200/80 transition-all font-semibold text-xs cursor-pointer group shadow-2xs"
                   >
-                    <XCircle size={14} className={isCancellingSchedule ? 'animate-spin' : ''} />
-                    {isCancellingSchedule ? 'Membatalkan...' : 'Batalkan Jadwal'}
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                        <Eye size={15} />
+                      </div>
+                      <div className="text-left">
+                        <p className="font-bold text-slate-900 group-hover:text-blue-700">Lihat PDF</p>
+                        <p className="text-[10px] text-slate-400 font-normal">Pratinjau lembar prosedur</p>
+                      </div>
+                    </div>
+                    <ArrowRight size={14} className="text-blue-500 group-hover:translate-x-0.5 transition-transform" />
                   </button>
-                )}
-              </div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <div className="flex items-center gap-2 text-sm text-slate-700">
-                  <Send size={14} className="text-slate-400" />
-                  {new Date(schedule.scheduledEmailAt).toLocaleDateString('id-ID', {
-                    day: '2-digit', month: 'short', year: 'numeric',
-                  })}{' '}
-                  {new Date(schedule.scheduledEmailAt).toLocaleTimeString('id-ID', {
-                    hour: '2-digit', minute: '2-digit',
-                  })}
-                </div>
-                <EmailStatusBadge status={schedule.emailStatus} />
-                {schedule.lastSentAt && (
-                  <span className="text-xs text-slate-400 flex items-center gap-1">
-                    <Clock size={12} className="text-slate-400" />
-                    Terkirim {formatSentDateTime(schedule.lastSentAt)}
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
 
-          {/* Aksi */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-4">Aksi</h2>
-            <div className="flex flex-wrap gap-2">
-              <ActionButton icon={Eye}       label="Lihat Dokumen"      onClick={() => setIsPdfOpen(true)} />
-              <ActionButton icon={Users}     label="Approval"           onClick={() => setIsApprovalOpen(true)} />
-              <ActionButton icon={FileClock} label="Catatan Perubahan"  onClick={() => setIsRevisionOpen(true)} />
-              <ActionButton icon={Pencil}    label="Edit Prosedur"      onClick={() => setIsEditOpen(true)} />
-              <ActionButton icon={Trash2}    label="Arsipkan"           onClick={handleArchive} danger />
+                  {/* Aksi 2: Approval Dokumen & Riwayat Penolakan */}
+                  <button
+                    type="button"
+                    onClick={() => setIsApprovalOpen(true)}
+                    className="w-full flex items-center justify-between p-3 rounded-2xl bg-indigo-50/80 hover:bg-indigo-100/90 text-indigo-700 border border-indigo-200/80 transition-all font-semibold text-xs cursor-pointer group shadow-2xs"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
+                        <Users size={15} />
+                      </div>
+                      <div className="text-left">
+                        <div className="flex items-center gap-1.5">
+                          <p className="font-bold text-slate-900 group-hover:text-indigo-700">Approval Dokumen</p>
+                          {rejections.length > 0 && (
+                            <span className="px-1.5 py-0.2 bg-rose-500 text-white text-[9px] font-bold rounded-full">
+                              {rejections.length}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-slate-400 font-normal">Approver & riwayat penolakan</p>
+                      </div>
+                    </div>
+                    <ArrowRight size={14} className="text-indigo-500 group-hover:translate-x-0.5 transition-transform" />
+                  </button>
+
+                  {/* Aksi 3: Edit Prosedur */}
+                  <button
+                    type="button"
+                    onClick={() => setIsEditOpen(true)}
+                    className="w-full flex items-center justify-between p-3 rounded-2xl bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 transition-all font-semibold text-xs cursor-pointer group shadow-2xs"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-slate-700 text-white flex items-center justify-center shadow-xs">
+                        <Pencil size={14} />
+                      </div>
+                      <div className="text-left">
+                        <p className="font-bold text-slate-900 group-hover:text-slate-800">Edit Data</p>
+                        <p className="text-[10px] text-slate-400 font-normal">Ubah metadata prosedur</p>
+                      </div>
+                    </div>
+                    <ArrowRight size={14} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+                  </button>
+
+                  {/* Aksi 5: Arsipkan */}
+                  <button
+                    type="button"
+                    onClick={handleArchive}
+                    className="w-full flex items-center justify-between p-3 rounded-2xl bg-rose-50/40 hover:bg-rose-50 text-rose-600 border border-rose-200/60 hover:border-rose-200 transition-all font-semibold text-xs cursor-pointer group shadow-2xs"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center">
+                        <Trash2 size={14} />
+                      </div>
+                      <div className="text-left">
+                        <p className="font-bold text-rose-700">Arsipkan Dokumen</p>
+                        <p className="text-[10px] text-rose-400 font-normal">Pindahkan ke arsip sistem</p>
+                      </div>
+                    </div>
+                    <ArrowRight size={14} className="text-rose-400 group-hover:translate-x-0.5 transition-transform" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Card Jadwal Email Aktif */}
+              {showScheduleCard && schedule && (
+                <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs p-6 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Send size={15} className="text-indigo-600" />
+                      <h3 className="text-xs font-bold text-slate-900">Jadwal Email PIC</h3>
+                    </div>
+                    <EmailStatusBadge status={schedule.emailStatus} />
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2">
+                    <div className="flex items-center gap-2 text-xs text-slate-700 font-medium">
+                      <Clock size={13} className="text-slate-400" />
+                      <span>
+                        {new Date(schedule.scheduledEmailAt).toLocaleDateString('id-ID', {
+                          day: '2-digit', month: 'long', year: 'numeric',
+                        })}{' '}
+                        {new Date(schedule.scheduledEmailAt).toLocaleTimeString('id-ID', {
+                          hour: '2-digit', minute: '2-digit',
+                        })} WIB
+                      </span>
+                    </div>
+                    {schedule.lastSentAt && (
+                      <p className="text-[11px] text-slate-500 font-mono">
+                        Terkirim: {formatSentDateTime(schedule.lastSentAt)}
+                      </p>
+                    )}
+                  </div>
+
+                  {schedule.emailStatus === 'pending' && (
+                    <button
+                      type="button"
+                      onClick={handleCancelSchedule}
+                      disabled={isCancellingSchedule}
+                      className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-xl border border-rose-200 transition-colors disabled:opacity-50 cursor-pointer"
+                    >
+                      <XCircle size={14} className={isCancellingSchedule ? 'animate-spin' : ''} />
+                      <span>{isCancellingSchedule ? 'Membatalkan...' : 'Batalkan Jadwal Email'}</span>
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Card Info Alur Persetujuan 3 Tahap */}
+              <div className="bg-gradient-to-br from-indigo-50/70 via-white to-purple-50/40 rounded-3xl border border-indigo-100/90 shadow-xs p-6 space-y-3">
+                <h4 className="text-xs font-bold text-indigo-950 uppercase tracking-wide flex items-center gap-1.5">
+                  <ShieldAlert size={14} className="text-indigo-600" />
+                  Alur Persetujuan (QMS)
+                </h4>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Dokumen prosedur melalui 3 tahap persetujuan berjenjang:
+                </p>
+                <div className="space-y-2 text-xs">
+                  <div className="flex items-center gap-2 text-slate-700">
+                    <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 font-bold text-[10px] flex items-center justify-center flex-shrink-0">1</span>
+                    <span><strong>Prepared</strong> &bull; Pembuat Dokumen</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-slate-700">
+                    <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-700 font-bold text-[10px] flex items-center justify-center flex-shrink-0">2</span>
+                    <span><strong>Checked</strong> &bull; Pemeriksa / Supervisor</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-slate-700">
+                    <span className="w-5 h-5 rounded-full bg-purple-100 text-purple-700 font-bold text-[10px] flex items-center justify-center flex-shrink-0">3</span>
+                    <span><strong>Approved</strong> &bull; Pejabat Penyetujui Akhir</span>
+                  </div>
+                </div>
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsApprovalOpen(true)}
+                    className="w-full py-2 bg-white hover:bg-slate-50 text-indigo-700 text-xs font-bold rounded-xl border border-indigo-200/90 shadow-2xs transition-all cursor-pointer text-center"
+                  >
+                    Buka Detail Approver &rarr;
+                  </button>
+                </div>
+              </div>
+
             </div>
+
           </div>
 
-          {/* 🆕 Diskusi dengan approver (Prepared / Checked / Approved).
-              Percakapan menempel ke nomor dokumen, jadi tetap utuh lintas
-              tahap approval maupun lintas siklus revisi. */}
-          <DocumentChat
-            nomorDokumen={doc.nomorDokumen}
-            adminNama={user?.fullName ?? 'Administrator'}
-            adminEmail={user?.email ?? 'admin'}
-            myEmail={user?.email ?? 'admin'}
-            subtitle={doc.namaDokumen}
-          />
         </div>
 
         {/* Modals */}
@@ -561,14 +865,6 @@ export default function DocumentDetailPage() {
           onClose={() => setIsApprovalOpen(false)}
           nomorDokumen={doc.nomorDokumen}
           namaDokumen={doc.namaDokumen}
-        />
-
-        <RevisionNotesModal
-          isOpen={isRevisionOpen}
-          onClose={() => setIsRevisionOpen(false)}
-          nomorDokumen={doc.nomorDokumen}
-          namaDokumen={doc.namaDokumen}
-          currentRevisi={doc.revisi}
         />
 
         <EditProcedureModal

@@ -8,8 +8,8 @@
 
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import React, { useEffect, useState, Suspense } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import PDFViewer from '@/components/documents/PDFViewer';
 import VersionToggleBar from '@/components/documents/VersionToggleBar';
@@ -224,9 +224,28 @@ function ErrorState({ message }: { message: string }) {
   );
 }
 
-export default function AccPage() {
+function RedirectingState({ targetName }: { targetName?: string }) {
+  return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl shadow-xl border border-slate-200 max-w-sm w-full p-8 text-center space-y-4">
+        <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto shadow-sm animate-pulse">
+          <ShieldCheck size={32} />
+        </div>
+        <div>
+          <h1 className="text-base font-bold text-slate-900 mb-1">Mengautentikasi Akun PIC...</h1>
+          <p className="text-xs text-slate-500">Mengarahkan ke {targetName || 'halaman PIC Approval'}...</p>
+        </div>
+        <div className="w-7 h-7 border-3 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mt-2" />
+      </div>
+    </div>
+  );
+}
+
+function AccPageContent() {
   const params = useParams<{ token: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectParam = searchParams?.get('redirect');
   const token  = params?.token ?? '';
 
   const { user, isAuthenticated, setAuthUser, logout } = useAuth();
@@ -271,13 +290,20 @@ export default function AccPage() {
           if (data.picUser && typeof setAuthUser === 'function') {
             setAuthUser(data.picUser);
           }
+          // 🆕 Jika ada query redirect (misal dari tombol email: Halaman PIC Approval)
+          if (redirectParam) {
+            const cleanTarget = redirectParam.startsWith('/review-prosedur')
+              ? redirectParam.replace(/^\/review-prosedur/, '')
+              : redirectParam;
+            router.replace(cleanTarget || '/pic-approval');
+          }
         }
       })
       .catch(err => { if (!cancelled) setLoadError(err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
-  }, [token, setAuthUser]);
+  }, [token, setAuthUser, redirectParam, router]);
 
   // Fetch riwayat versi file untuk nomor dokumen ini
   useEffect(() => {
@@ -335,6 +361,10 @@ export default function AccPage() {
       setSubmittingAction(null);
     }
   };
+
+  if (redirectParam && !loadError) {
+    return <RedirectingState targetName="Halaman PIC Approval" />;
+  }
 
   if (loading) return <LoadingState />;
   if (loadError || !info) return <ErrorState message={loadError || 'Data persetujuan tidak ditemukan.'} />;
@@ -421,8 +451,17 @@ export default function AccPage() {
             </div>
           </div>
 
-          {/* Action Navigation: PIC Dashboard & Logout */}
+          {/* Action Navigation: PIC Approval, PIC Dashboard & Logout */}
           <div className="flex items-center gap-1.5 sm:gap-2 pl-2 sm:pl-3 border-l border-slate-200/80">
+            <Link
+              href="/pic-approval"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-50 text-indigo-700 hover:bg-indigo-100/90 hover:text-indigo-800 border border-indigo-200/80 transition-all shadow-2xs active:scale-[0.98]"
+              title="Buka Halaman Persetujuan Dokumen PIC"
+            >
+              <FileCheck2 size={14} className="text-indigo-600" />
+              <span className="hidden sm:inline">PIC Approval</span>
+            </Link>
+
             <Link
               href="/pic-dashboard"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-50 text-blue-700 hover:bg-blue-100/90 hover:text-blue-800 border border-blue-200/80 transition-all shadow-2xs active:scale-[0.98]"
@@ -803,12 +842,19 @@ export default function AccPage() {
                 </div>
               )}
 
-              {/* Tombol Cepat Menuju Dashboard PIC jika dokumen sudah diproses atau selesai */}
+              {/* Tombol Cepat Menuju Halaman PIC Approval & Dashboard PIC */}
               {(result || cycleRejected || alreadyAcc) && (
-                <div className="pt-2 animate-in fade-in">
+                <div className="pt-2 space-y-2 animate-in fade-in">
+                  <Link
+                    href="/pic-approval"
+                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white text-xs font-bold rounded-2xl transition-all shadow-md shadow-indigo-500/20 active:scale-[0.99]"
+                  >
+                    <FileCheck2 size={15} />
+                    <span>Buka Halaman PIC Approval</span>
+                  </Link>
                   <Link
                     href="/pic-dashboard"
-                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold rounded-2xl transition-all shadow-md shadow-blue-500/20 active:scale-[0.99]"
+                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-2xl transition-all active:scale-[0.99]"
                   >
                     <LayoutDashboard size={15} />
                     <span>Kembali ke Halaman PIC Dashboard</span>
@@ -860,11 +906,18 @@ export default function AccPage() {
 
                     <div className="flex gap-2">
                       <Link
+                        href="/pic-approval"
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all"
+                      >
+                        <FileCheck2 size={14} />
+                        <span>PIC Approval</span>
+                      </Link>
+                      <Link
                         href="/pic-dashboard"
-                        className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all"
+                        className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl shadow-xs transition-all"
                       >
                         <LayoutDashboard size={14} />
-                        <span>Dashboard PIC</span>
+                        <span className="hidden sm:inline">Dashboard</span>
                       </Link>
                       <button
                         type="button"
@@ -1006,5 +1059,13 @@ export default function AccPage() {
         inline={false}
       />
     </div>
+  );
+}
+
+export default function AccPage() {
+  return (
+    <Suspense fallback={<LoadingState />}>
+      <AccPageContent />
+    </Suspense>
   );
 }

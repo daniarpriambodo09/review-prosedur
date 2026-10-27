@@ -26,31 +26,32 @@ export async function GET(
       });
     }
 
-    // 🆕 Ambil detail penolakan TERBARU untuk dokumen ini (kalau ada cycle
-    // approval yang berakhir 'rejected'). Dipakai ApprovalCard di halaman
-    // admin untuk menampilkan siapa & kenapa dokumen ini ditolak.
+    // 🆕 Ambil SELURUH riwayat penolakan untuk dokumen ini dari siklus-siklus
+    // sebelumnya maupun saat ini.
     const rejectResult = await client.query(
-      `SELECT ra.role, ra.nama, ra.email, ra.reject_reason, ra.acc_at
-       FROM procedure_approval_cycles pac
-       JOIN procedure_approval_actions ra
-         ON ra.cycle_id = pac.id AND ra.acc_status = 'rejected'
-       WHERE pac.nomor_dokumen = $1 AND pac.status = 'rejected'
-       ORDER BY pac.id DESC
-       LIMIT 1`,
+      `SELECT ra.id, ra.cycle_id, ra.role, ra.nama, ra.email, ra.reject_reason, ra.acc_at,
+              pac.created_at AS cycle_created_at
+       FROM procedure_approval_actions ra
+       JOIN procedure_approval_cycles pac
+         ON pac.id = ra.cycle_id
+       WHERE pac.nomor_dokumen = $1 AND ra.acc_status = 'rejected'
+       ORDER BY ra.acc_at DESC, ra.id DESC`,
       [nomorDokumen]
     );
 
-    const rejection = rejectResult.rows.length > 0
-      ? {
-          role:       rejectResult.rows[0].role,
-          nama:       rejectResult.rows[0].nama,
-          email:      rejectResult.rows[0].email,
-          reason:     rejectResult.rows[0].reject_reason,
-          rejectedAt: rejectResult.rows[0].acc_at,
-        }
-      : null;
+    const rejectionHistory = rejectResult.rows.map(r => ({
+      id:         r.id,
+      cycleId:    r.cycle_id,
+      role:       r.role,
+      nama:       r.nama,
+      email:      r.email,
+      reason:     r.reject_reason,
+      rejectedAt: r.acc_at,
+    }));
 
-    return NextResponse.json({ ...grouped, rejection });
+    const rejection = rejectionHistory.length > 0 ? rejectionHistory[0] : null;
+
+    return NextResponse.json({ ...grouped, rejection, rejectionHistory });
   } catch (error) {
     console.error('Error fetching approvers:', error);
     return NextResponse.json({ error: 'Failed to fetch approvers' }, { status: 500 });
