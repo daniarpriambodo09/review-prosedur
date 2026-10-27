@@ -54,6 +54,7 @@ interface TimelineItem {
   email: string;
   accStatus: 'acc' | 'pending' | 'rejected' | 'waiting';
   accAt: string | null;
+  isCurrentUser?: boolean;
 }
 
 interface AccInfo {
@@ -693,32 +694,43 @@ function AccPageContent() {
                     3 Tahap Berjenjang
                   </span>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {rolesList.map(({ key, label, stepNo }) => {
-                    const timelineAction = info.timeline?.find(t => t.role === key);
+                    const stageApprovers = (info.timeline || []).filter(t => t.role === key);
                     const isCurrentRole = info.role === key;
                     const isPast =
                       (info.role === 'checked' && key === 'prepared') ||
                       (info.role === 'approved' && (key === 'prepared' || key === 'checked'));
                     
-                    const isDone = timelineAction?.accStatus === 'acc' || (isPast && !cycleRejected) || (isCurrentRole && (alreadyAcc || result?.rejected === false));
-                    const isRejected = timelineAction?.accStatus === 'rejected' || (isCurrentRole && (info.accStatus === 'rejected' || result?.rejected === true));
+                    const hasRejected =
+                      stageApprovers.some(a => a.accStatus === 'rejected') ||
+                      (isCurrentRole && (info.accStatus === 'rejected' || result?.rejected === true));
+
+                    const allApproved =
+                      stageApprovers.length > 0 &&
+                      stageApprovers.every(a => {
+                        const isThisUser = a.isCurrentUser || (a.email?.toLowerCase() === info.email?.toLowerCase() && a.role === info.role);
+                        if (isThisUser && (alreadyAcc || result?.rejected === false)) return true;
+                        return a.accStatus === 'acc';
+                      });
+
+                    const isDone = allApproved || (isPast && !cycleRejected) || info.cycleStatus === 'completed';
 
                     let statusText = 'Menunggu';
                     let badgeBg = 'bg-slate-100 text-slate-500 border border-slate-200/60';
                     let StatusIcon = Clock;
-                    let iconColor = 'text-slate-300';
+                    let iconColor = 'text-slate-400';
 
-                    if (isDone) {
-                      statusText = 'Disetujui';
-                      badgeBg = 'bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold';
-                      StatusIcon = CheckCircle2;
-                      iconColor = 'text-emerald-600';
-                    } else if (isRejected) {
+                    if (hasRejected) {
                       statusText = 'Ditolak';
                       badgeBg = 'bg-rose-50 text-rose-700 border border-rose-200 font-bold';
                       StatusIcon = XCircle;
                       iconColor = 'text-rose-600';
+                    } else if (isDone) {
+                      statusText = 'Selesai';
+                      badgeBg = 'bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold';
+                      StatusIcon = CheckCircle2;
+                      iconColor = 'text-emerald-600';
                     } else if (isCurrentRole) {
                       statusText = 'Tahap Anda';
                       badgeBg = 'bg-blue-600 text-white font-bold shadow-xs';
@@ -729,28 +741,104 @@ function AccPageContent() {
                     return (
                       <div
                         key={key}
-                        className={`flex items-center justify-between p-2.5 rounded-xl border text-xs transition-all ${
+                        className={`p-3 rounded-xl border text-xs transition-all ${
                           isCurrentRole
                             ? 'bg-white border-blue-300 shadow-xs ring-1 ring-blue-100'
                             : 'bg-white/80 border-slate-200/70'
                         }`}
                       >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <StatusIcon size={16} className={`flex-shrink-0 ${iconColor}`} />
-                          <div className="min-w-0">
+                        {/* Header Tahap */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <StatusIcon size={16} className={`flex-shrink-0 ${iconColor}`} />
                             <p className="font-bold text-slate-800 leading-tight">
                               {stepNo}. {label}
                             </p>
-                            {timelineAction?.nama && (
-                              <p className="text-[10px] text-slate-500 truncate mt-0.5">
-                                {timelineAction.nama}
-                              </p>
-                            )}
                           </div>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-md flex-shrink-0 ${badgeBg}`}>
+                            {statusText}
+                          </span>
                         </div>
-                        <span className={`text-[10px] px-2 py-0.5 rounded-md flex-shrink-0 ${badgeBg}`}>
-                          {statusText}
-                        </span>
+
+                        {/* Daftar Semua Approver di Tahap Ini */}
+                        <div className="mt-2.5 pt-2 border-t border-slate-100 space-y-1.5">
+                          {stageApprovers.length === 0 ? (
+                            <p className="text-[11px] text-slate-400 italic">
+                              Belum ada approver ditentukan
+                            </p>
+                          ) : (
+                            stageApprovers.map((app, idx) => {
+                              const isThisCurrentUser =
+                                Boolean(app.isCurrentUser) ||
+                                (app.email?.toLowerCase() === info.email?.toLowerCase() && app.role === info.role);
+
+                              const isAppDone =
+                                app.accStatus === 'acc' ||
+                                (isThisCurrentUser && (alreadyAcc || result?.rejected === false)) ||
+                                (isPast && !cycleRejected) ||
+                                info.cycleStatus === 'completed';
+
+                              const isAppRejected =
+                                app.accStatus === 'rejected' ||
+                                (isThisCurrentUser && (info.accStatus === 'rejected' || result?.rejected === true));
+
+                              return (
+                                <div
+                                  key={`${app.email}-${idx}`}
+                                  className={`flex items-center justify-between p-1.5 px-2 rounded-lg text-[11px] transition-colors ${
+                                    isThisCurrentUser
+                                      ? 'bg-blue-50/80 border border-blue-200 font-medium'
+                                      : 'bg-slate-50/70 border border-slate-100'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-1.5 min-w-0 pr-2">
+                                    {isAppDone ? (
+                                      <CheckCircle2 size={13} className="text-emerald-600 flex-shrink-0" />
+                                    ) : isAppRejected ? (
+                                      <XCircle size={13} className="text-rose-600 flex-shrink-0" />
+                                    ) : isThisCurrentUser ? (
+                                      <Clock size={13} className="text-blue-600 flex-shrink-0" />
+                                    ) : (
+                                      <Clock size={13} className="text-slate-400 flex-shrink-0" />
+                                    )}
+
+                                    <span className="truncate text-slate-800">
+                                      {app.nama || app.email}
+                                    </span>
+
+                                    {isThisCurrentUser && (
+                                      <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-blue-600 text-white flex-shrink-0">
+                                        Anda
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <span
+                                    className={`text-[10px] flex-shrink-0 font-medium ${
+                                      isAppDone
+                                        ? 'text-emerald-700'
+                                        : isAppRejected
+                                        ? 'text-rose-700'
+                                        : isThisCurrentUser
+                                        ? 'text-blue-700 font-semibold'
+                                        : 'text-slate-400'
+                                    }`}
+                                  >
+                                    {isAppDone
+                                      ? 'Disetujui'
+                                      : isAppRejected
+                                      ? 'Ditolak'
+                                      : isThisCurrentUser
+                                      ? 'Perlu ACC'
+                                      : app.accStatus === 'pending'
+                                      ? 'Menunggu'
+                                      : 'Menunggu Giliran'}
+                                  </span>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
                       </div>
                     );
                   })}

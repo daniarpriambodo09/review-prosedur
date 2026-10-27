@@ -65,23 +65,117 @@ export async function GET(
       );
     }
 
-    // Detail timeline persetujuan semua approver di cycle ini
-    const timelineResult = await client.query(
-      `SELECT role, nama, email, acc_status, acc_at
+    // Detail approver terdaftar dan aksi di siklus approval ini
+    const approversResult = await client.query(
+      `SELECT id, role, nama, email, urutan
+       FROM procedure_approvers
+       WHERE nomor_dokumen = $1
+       ORDER BY role, urutan, id`,
+      [row.nomor_dokumen]
+    );
+
+    const actionsResult = await client.query(
+      `SELECT id, approver_id, role, nama, email, acc_status, acc_at
        FROM procedure_approval_actions
        WHERE cycle_id = $1
        ORDER BY id ASC`,
       [row.cycle_id]
     );
 
-    const timeline = timelineResult.rows.map(t => ({
-      role: t.role,
-      roleLabel: STAGE_DISPLAY[t.role as ApprovalRole] || t.role,
-      nama: t.nama,
-      email: t.email,
-      accStatus: t.acc_status,
-      accAt: t.acc_at,
-    }));
+    const stageOrder: Record<string, number> = {
+      prepared: 1,
+      checked: 2,
+      approved: 3,
+    };
+    const currentOrder = stageOrder[row.current_stage || row.role] || 1;
+
+    // Susun timeline lengkap per approver per stage
+    const roles: ApprovalRole[] = ['prepared', 'checked', 'approved'];
+    const timeline: Array<{
+      role: string;
+      roleLabel: string;
+      nama: string | null;
+      email: string;
+      accStatus: 'acc' | 'pending' | 'rejected' | 'waiting';
+      accAt: string | null;
+      isCurrentUser: boolean;
+    }> = [];
+
+    const matchedActionIds = new Set<number>();
+
+    for (const role of roles) {
+      const targetOrder = stageOrder[role];
+      const registeredInRole = approversResult.rows.filter(a => a.role === role);
+      const actionsInRole = actionsResult.rows.filter(a => a.role === role);
+
+      // 1. Petakan approver yang terdaftar di master
+      for (const approver of registeredInRole) {
+        // Cari action yang cocok berdasarkan approver_id atau email
+        const matchedAction = actionsInRole.find(
+          a => (a.approver_id && a.approver_id === approver.id) ||
+               (a.email && approver.email && a.email.toLowerCase() === approver.email.toLowerCase())
+        );
+
+        let accStatus: 'acc' | 'pending' | 'rejected' | 'waiting' = 'waiting';
+        let accAt: string | null = null;
+        let displayName = approver.nama;
+        let displayEmail = approver.email;
+
+        if (matchedAction) {
+          matchedActionIds.add(matchedAction.id);
+          accStatus = matchedAction.acc_status;
+          accAt = matchedAction.acc_at;
+          displayName = matchedAction.nama || approver.nama;
+          displayEmail = matchedAction.email || approver.email;
+        } else {
+          // Jika belum ada action di db
+          if (row.cycle_status === 'completed') {
+            accStatus = 'acc';
+          } else if (row.cycle_status === 'rejected') {
+            accStatus = targetOrder < currentOrder ? 'acc' : 'waiting';
+          } else if (targetOrder < currentOrder) {
+            accStatus = 'acc';
+          } else if (targetOrder === currentOrder) {
+            accStatus = 'pending';
+          } else {
+            accStatus = 'waiting';
+          }
+        }
+
+        const isCurrent =
+          Boolean(displayEmail && row.email && displayEmail.toLowerCase() === row.email.toLowerCase()) &&
+          role === row.role;
+
+        timeline.push({
+          role,
+          roleLabel: STAGE_DISPLAY[role] || role,
+          nama: displayName,
+          email: displayEmail,
+          accStatus,
+          accAt,
+          isCurrentUser: isCurrent,
+        });
+      }
+
+      // 2. Sertakan action historis jika ada yang tidak terdaftar lagi di master approver
+      for (const act of actionsInRole) {
+        if (!matchedActionIds.has(act.id)) {
+          const isCurrent =
+            Boolean(act.email && row.email && act.email.toLowerCase() === row.email.toLowerCase()) &&
+            role === row.role;
+
+          timeline.push({
+            role,
+            roleLabel: STAGE_DISPLAY[role] || role,
+            nama: act.nama,
+            email: act.email,
+            accStatus: act.acc_status,
+            accAt: act.acc_at,
+            isCurrentUser: isCurrent,
+          });
+        }
+      }
+    }
 
     // 🆕 Kalau cycle-nya sudah 'rejected', ambil detail siapa & kenapa
     let rejection = null;
