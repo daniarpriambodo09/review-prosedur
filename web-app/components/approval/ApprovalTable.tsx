@@ -82,6 +82,15 @@ export interface ApprovalDocumentItem {
   completedAt: string | null;
   tanggalSelesaiApproval?: string | null;
   isDateStamped?: boolean;
+  dateStampMeta?: {
+    pageNumber: number;
+    box: { x: number; y: number; width: number; height: number };
+    canvasSize?: { width: number; height: number };
+    text: string;
+    isEdit?: boolean;
+    stampedAt?: string;
+  } | null;
+  cleanFilePath?: string | null;
   fileName: string | null;
   filePath: string | null;
   stages: {
@@ -277,15 +286,28 @@ export default function ApprovalTable({
                     <div className="space-y-1 w-full max-w-[175px]">
                       {/* Highlight Badge jika dokumen telah SELESAI seluruh tahap approval */}
                       {isCompleted && (
-                        <div className="flex items-center justify-between gap-1 px-2 py-1 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-900 text-[11px] font-bold shadow-2xs">
-                          <div className="flex items-center gap-1 min-w-0">
-                            <CheckCircle2 size={12} className="text-emerald-600 flex-shrink-0" />
-                            <span className="truncate">Selesai (ACC)</span>
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between gap-1 px-2 py-1 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-900 text-[11px] font-bold shadow-2xs">
+                            <div className="flex items-center gap-1 min-w-0">
+                              <CheckCircle2 size={12} className="text-emerald-600 flex-shrink-0" />
+                              <span className="truncate">Selesai (ACC)</span>
+                            </div>
+                            {doc.completedAt && (
+                              <span className="text-[10px] text-emerald-700/90 font-mono font-medium flex-shrink-0" title="Waktu selesai approval">
+                                {formatCompletedDate(doc.completedAt)}
+                              </span>
+                            )}
                           </div>
-                          {doc.completedAt && (
-                            <span className="text-[10px] text-emerald-700/90 font-mono font-medium flex-shrink-0" title="Waktu selesai approval">
-                              {formatCompletedDate(doc.completedAt)}
-                            </span>
+                          {doc.isDateStamped ? (
+                            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-slate-100 text-slate-600 border border-slate-200/80 font-medium">
+                              <Calendar size={10} className="text-emerald-600 flex-shrink-0" />
+                              <span className="truncate">Tanggal dicap</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-50 text-amber-800 border border-amber-200 font-medium">
+                              <AlertCircle size={10} className="text-amber-600 flex-shrink-0" />
+                              <span className="truncate">Belum isi tanggal</span>
+                            </div>
                           )}
                         </div>
                       )}
@@ -504,17 +526,31 @@ export default function ApprovalTable({
                         })()
                       ) : isCompleted ? (
                         <>
-                          {/* Tombol Khusus Dokumen Selesai: Isi Tanggal Approval ke Catatan Perubahan (hanya jika belum ditempatkan) */}
+                          {/* Tombol Khusus Dokumen Selesai: Isi Tanggal (belum dicap) */}
                           {onOpenStampDate && !doc.isDateStamped && (
                             <button
                               onClick={() => onOpenStampDate(doc)}
                               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold
                                          bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs
                                          transition-all active:scale-95"
-                              title="Tarik kotak pada halaman Catatan Perubahan untuk men-generate tanggal selesai approval"
+                              title="Tarik kotak pada halaman Catatan Perubahan untuk menempatkan tanggal selesai approval"
                             >
                               <Calendar size={12} />
                               <span>Isi Tanggal</span>
+                            </button>
+                          )}
+
+                          {/* Tombol Khusus Dokumen Selesai: Edit Tanggal (sudah pernah dicap) */}
+                          {onOpenStampDate && doc.isDateStamped && (
+                            <button
+                              onClick={() => onOpenStampDate(doc)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold
+                                         bg-amber-500 hover:bg-amber-600 text-white shadow-2xs
+                                         transition-all active:scale-95"
+                              title="Edit atau ubah posisi tanggal selesai approval yang telah dibubuhkan pada dokumen"
+                            >
+                              <Pencil size={11} />
+                              <span>Edit Tanggal</span>
                             </button>
                           )}
 
