@@ -2,8 +2,8 @@
 //
 // Modal interaktif untuk membubuhkan teks Tanggal Selesai Approval
 // pada tabel 'CATATAN PERUBAHAN' di dokumen PDF dengan drag kotak (bounding box).
+// Mendukung mode Edit jika admin keliru meletakkan posisi tanggal atau ingin mengubah tanggal.
 // Font: Arial Narrow, ukuran 11 pt (tetap).
-// Desain: Bersih, lega (full-width), dan nyaman di-scroll hingga ke bagian paling bawah.
 //
 
 'use client';
@@ -22,6 +22,8 @@ import {
   ZoomOut,
   Type,
   CheckCircle2,
+  Pencil,
+  Info,
 } from 'lucide-react';
 import { ApprovalDocumentItem } from './ApprovalTable';
 
@@ -45,7 +47,7 @@ const MONTH_NAMES_ID = [
 ];
 
 /**
- * Format tanggal ke gaya contoh gambar: "28 Apr 2025" atau "18 Okt 2021"
+ * Format tanggal ke gaya contoh gambar: "28 Apr 2025" atau "3 Nov 2026"
  */
 function formatIndonesianApprovalDate(rawDate?: string | null): string {
   if (!rawDate) {
@@ -77,6 +79,9 @@ export default function ApprovalDateStamperModal({
   const [pageInput, setPageInput] = useState('1');
   const [scale, setScale] = useState(1.3);
 
+  // Status apakah ini mode edit (dokumen sudah pernah dicap sebelumnya)
+  const isEdit = Boolean(doc?.isDateStamped);
+
   // Tanggal approval yang akan dicap
   const [stampText, setStampText] = useState('');
 
@@ -100,11 +105,27 @@ export default function ApprovalDateStamperModal({
   // Inisialisasi teks tanggal saat modal dibuka atau dokumen berganti
   useEffect(() => {
     if (isOpen && doc) {
-      const initialDate = doc.tanggalSelesaiApproval || doc.completedAt || new Date().toISOString();
-      setStampText(formatIndonesianApprovalDate(initialDate));
+      // 1. Teks tanggal yang akan dicap:
+      // - Jika mode edit dan ada teks yang tersimpan di dateStampMeta: prioritaskan teks tersebut
+      // - Jika dokumen baru selesai approval: otomatis gunakan completedAt (tanggal seluruh approval selesai)
+      // - Fallback: tanggalSelesaiApproval atau hari ini
+      if (doc.isDateStamped && doc.dateStampMeta?.text) {
+        setStampText(doc.dateStampMeta.text);
+      } else {
+        const initialDate = doc.completedAt || doc.tanggalSelesaiApproval || new Date().toISOString();
+        setStampText(formatIndonesianApprovalDate(initialDate));
+      }
+
+      // 2. Halaman default:
+      // - Jika mode edit dan ada riwayat pageNumber: buka halaman tersebut langsung
+      // - Jika tidak: buka halaman 1
+      const initialPage = (doc.isDateStamped && doc.dateStampMeta?.pageNumber && doc.dateStampMeta.pageNumber >= 1)
+        ? doc.dateStampMeta.pageNumber
+        : 1;
+
+      setCurrentPage(initialPage);
+      setPageInput(String(initialPage));
       setSelectionBox(null);
-      setCurrentPage(1);
-      setPageInput('1');
       setErrorMsg(null);
       setSuccessMsg(null);
     }
@@ -117,7 +138,12 @@ export default function ApprovalDateStamperModal({
 
   // Load file PDF via pdfjs-dist
   useEffect(() => {
-    if (!isOpen || !doc?.filePath) return;
+    if (!isOpen || !doc) return;
+
+    // PENTING: Saat mode edit, utamakan file bersih (cleanFilePath) agar kanvas tidak menampilkan
+    // cap lama yang salah letak, sehingga admin dapat menempatkan kotak baru di PDF yang bersih!
+    const rawPath = (doc.isDateStamped && doc.cleanFilePath) ? doc.cleanFilePath : (doc.filePath || doc.cleanFilePath);
+    if (!rawPath) return;
 
     let cancelled = false;
     setLoading(true);
@@ -130,8 +156,7 @@ export default function ApprovalDateStamperModal({
         const pdfjsLib: any = await import('pdfjs-dist');
         pdfjsLib.GlobalWorkerOptions.workerSrc = '/review-prosedur/pdf.worker.min.mjs';
 
-        const rawPath = doc!.filePath!;
-        const cleanPath = rawPath.startsWith('/') ? rawPath.slice(1) : rawPath;
+        const cleanPath = rawPath!.startsWith('/') ? rawPath!.slice(1) : rawPath!;
         const res = await fetch(`/review-prosedur/api/files/serve?path=${encodeURIComponent(cleanPath)}`);
         if (!res.ok) throw new Error(`Gagal mengambil file PDF (${res.status})`);
         const buf = await res.arrayBuffer();
@@ -159,7 +184,7 @@ export default function ApprovalDateStamperModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, doc?.filePath]);
+  }, [isOpen, doc?.filePath, doc?.cleanFilePath, doc?.isDateStamped]);
 
   // Render halaman aktif ke canvas
   const renderPage = useCallback(async (pageNum: number) => {
@@ -188,12 +213,30 @@ export default function ApprovalDateStamperModal({
         }).promise;
       }
 
+      // Jika dalam mode edit dan ada posisi kotak sebelumnya yang tersimpan di halaman ini:
+      // Tampilkan kotak tersebut agar admin bisa melihat letak sebelumnya dan bisa menarik ulang jika keliru
+      if (doc?.isDateStamped && doc.dateStampMeta?.box && doc.dateStampMeta.pageNumber === pageNum) {
+        setSelectionBox(prev => {
+          if (prev) return prev; // User sudah drag kotak baru
+          const prevBox = doc.dateStampMeta!.box;
+          const prevCanvas = doc.dateStampMeta!.canvasSize || { width: viewport.width, height: viewport.height };
+          const rx = viewport.width / (prevCanvas.width || viewport.width);
+          const ry = viewport.height / (prevCanvas.height || viewport.height);
+          return {
+            x: Math.round(prevBox.x * rx),
+            y: Math.round(prevBox.y * ry),
+            width: Math.round(prevBox.width * rx),
+            height: Math.round(prevBox.height * ry),
+          };
+        });
+      }
+
       // Re-draw overlay box jika sudah ada di halaman ini
       redrawOverlay();
     } catch (err) {
       console.error('Error rendering page:', err);
     }
-  }, [scale]);
+  }, [scale, doc]);
 
   useEffect(() => {
     if (numPages > 0 && currentPage <= numPages) {
@@ -214,7 +257,7 @@ export default function ApprovalDateStamperModal({
     if (mousePos && !isDrawing) {
       ctx.save();
       ctx.setLineDash([3, 3]);
-      ctx.strokeStyle = 'rgba(59, 130, 246, 0.4)';
+      ctx.strokeStyle = isEdit ? 'rgba(217, 119, 6, 0.45)' : 'rgba(59, 130, 246, 0.4)';
       ctx.lineWidth = 1;
 
       // Garis horizontal
@@ -235,17 +278,17 @@ export default function ApprovalDateStamperModal({
 
     const { x, y, width, height } = selectionBox;
 
-    // 2. Gambar Area Seleksi Kotak (Background semi-transparan & Border biru elegan)
-    ctx.fillStyle = 'rgba(37, 99, 235, 0.12)';
+    // 2. Gambar Area Seleksi Kotak (Background semi-transparan & Border elegan)
+    ctx.fillStyle = isEdit ? 'rgba(245, 158, 11, 0.15)' : 'rgba(37, 99, 235, 0.12)';
     ctx.fillRect(x, y, width, height);
 
-    ctx.strokeStyle = '#2563eb';
+    ctx.strokeStyle = isEdit ? '#d97706' : '#2563eb';
     ctx.lineWidth = 2;
     ctx.strokeRect(x, y, width, height);
 
     // Corner handles
     const handleSize = 4;
-    ctx.fillStyle = '#1d4ed8';
+    ctx.fillStyle = isEdit ? '#b45309' : '#1d4ed8';
     ctx.fillRect(x - handleSize / 2, y - handleSize / 2, handleSize, handleSize);
     ctx.fillRect(x + width - handleSize / 2, y - handleSize / 2, handleSize, handleSize);
     ctx.fillRect(x - handleSize / 2, y + height - handleSize / 2, handleSize, handleSize);
@@ -269,7 +312,7 @@ export default function ApprovalDateStamperModal({
       ctx.fillText(stampText.trim(), centerX, centerY);
       ctx.restore();
     }
-  }, [selectionBox, stampText, scale, mousePos, isDrawing]);
+  }, [selectionBox, stampText, scale, mousePos, isDrawing, isEdit]);
 
   useEffect(() => {
     redrawOverlay();
@@ -374,6 +417,7 @@ export default function ApprovalDateStamperModal({
           box: selectionBox,
           canvasSize: canvasDimensions,
           text: stampText.trim(),
+          isEdit: Boolean(doc.isDateStamped),
         }),
       });
 
@@ -382,7 +426,11 @@ export default function ApprovalDateStamperModal({
         throw new Error(data.error || 'Gagal menyimpan tanggal ke dokumen PDF.');
       }
 
-      setSuccessMsg('Tanggal approval berhasil dicapkan ke dokumen PDF!');
+      setSuccessMsg(
+        isEdit
+          ? 'Posisi & tanggal approval berhasil disesuaikan di dokumen PDF!'
+          : 'Tanggal approval berhasil dicapkan ke dokumen PDF!'
+      );
       setTimeout(() => {
         if (onSuccess) onSuccess();
         onClose();
@@ -403,14 +451,27 @@ export default function ApprovalDateStamperModal({
         {/* ── 1. Header Minimalis & Ramping ── */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-white">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-200/60 shadow-2xs flex-shrink-0">
-              <Calendar size={18} />
+            <div
+              className={`w-9 h-9 rounded-xl flex items-center justify-center border shadow-2xs flex-shrink-0 ${
+                isEdit
+                  ? 'bg-amber-50 text-amber-600 border-amber-200/60'
+                  : 'bg-blue-50 text-blue-600 border-blue-200/60'
+              }`}
+            >
+              {isEdit ? <Pencil size={18} /> : <Calendar size={18} />}
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-sm font-bold text-slate-800 truncate">
-                  Isi Tanggal Selesai Approval ke Catatan Perubahan
+                  {isEdit
+                    ? 'Edit Tanggal Selesai Approval ke Catatan Perubahan'
+                    : 'Isi Tanggal Selesai Approval ke Catatan Perubahan'}
                 </h2>
+                {isEdit && (
+                  <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1">
+                    <Pencil size={11} className="text-amber-700" /> Mode Edit
+                  </span>
+                )}
                 <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200 flex items-center gap-1">
                   <Type size={11} className="text-slate-500" /> Arial Narrow 11pt
                 </span>
@@ -474,14 +535,14 @@ export default function ApprovalDateStamperModal({
               </button>
             </div>
 
-            {/* Input Tanggal */}
+            {/* Input Tanggal (Otomatis tanggal seluruh approval selesai) */}
             <div className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-lg border border-slate-300 shadow-2xs">
               <span className="text-slate-500 font-medium text-[11px]">Tanggal:</span>
               <input
                 type="text"
                 value={stampText}
                 onChange={e => setStampText(e.target.value)}
-                placeholder="28 Apr 2025"
+                placeholder="3 Nov 2026"
                 className="w-28 sm:w-32 font-bold text-slate-800 text-xs focus:outline-none bg-transparent"
                 title="Teks tanggal selesai approval yang akan dicap"
               />
@@ -489,21 +550,46 @@ export default function ApprovalDateStamperModal({
 
             {/* Indikator Kotak */}
             {selectionBox ? (
-              <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 text-emerald-800 px-2.5 py-1 rounded-lg">
-                <CheckCircle2 size={13} className="text-emerald-600" />
-                <span className="font-semibold text-[11px]">Kotak Siap</span>
+              <div
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border ${
+                  isEdit
+                    ? 'bg-amber-50 border-amber-300 text-amber-900'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                }`}
+              >
+                <CheckCircle2 size={13} className={isEdit ? 'text-amber-600' : 'text-emerald-600'} />
+                <span className="font-semibold text-[11px]">
+                  {isEdit ? 'Posisi Kotak Terpilih' : 'Kotak Siap'}
+                </span>
                 <button
                   onClick={() => setSelectionBox(null)}
-                  className="p-0.5 hover:bg-emerald-100 rounded text-emerald-700 transition-colors ml-0.5"
-                  title="Tarik ulang kotak"
+                  className={`p-0.5 rounded transition-colors ml-0.5 ${
+                    isEdit
+                      ? 'hover:bg-amber-100 text-amber-800'
+                      : 'hover:bg-emerald-100 text-emerald-700'
+                  }`}
+                  title="Tarik ulang kotak di posisi lain"
                 >
                   <RotateCcw size={12} />
                 </button>
               </div>
             ) : (
-              <div className="flex items-center gap-1.5 text-blue-700 bg-blue-50/80 border border-blue-200/80 px-2.5 py-1 rounded-lg">
-                <MousePointer size={13} className="text-blue-600 animate-pulse" />
-                <span className="text-[11px] font-medium">Klik & tarik kotak pada kolom tabel</span>
+              <div
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border ${
+                  isEdit
+                    ? 'text-amber-800 bg-amber-50/90 border-amber-300'
+                    : 'text-blue-700 bg-blue-50/80 border-blue-200/80'
+                }`}
+              >
+                <MousePointer
+                  size={13}
+                  className={`${isEdit ? 'text-amber-600' : 'text-blue-600'} animate-pulse`}
+                />
+                <span className="text-[11px] font-medium">
+                  {isEdit
+                    ? 'Klik & tarik kotak baru pada tabel untuk memindahkan posisi tanggal'
+                    : 'Klik & tarik kotak pada kolom tabel'}
+                </span>
               </div>
             )}
           </div>
@@ -542,7 +628,11 @@ export default function ApprovalDateStamperModal({
             <button
               onClick={handleSaveStamp}
               disabled={!selectionBox || saving || !stampText.trim()}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 text-white font-bold transition-all shadow-sm active:scale-95 shadow-blue-500/25"
+              className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-white font-bold transition-all shadow-sm active:scale-95 disabled:opacity-40 ${
+                isEdit
+                  ? 'bg-amber-600 hover:bg-amber-700 disabled:hover:bg-amber-600 shadow-amber-500/25'
+                  : 'bg-blue-600 hover:bg-blue-700 disabled:hover:bg-blue-600 shadow-blue-500/25'
+              }`}
             >
               {saving ? (
                 <>
@@ -552,12 +642,22 @@ export default function ApprovalDateStamperModal({
               ) : (
                 <>
                   <Check size={14} />
-                  <span>Terapkan ke PDF</span>
+                  <span>{isEdit ? 'Simpan Perubahan' : 'Terapkan ke PDF'}</span>
                 </>
               )}
             </button>
           </div>
         </div>
+
+        {/* Panduan Ringkas Mode Edit */}
+        {isEdit && (
+          <div className="px-5 py-2 bg-amber-50/70 border-b border-amber-200/80 flex items-center gap-2 text-xs text-amber-900">
+            <Info size={14} className="text-amber-600 flex-shrink-0" />
+            <span>
+              <strong>Mode Edit:</strong> Posisi cap sebelumnya ditampilkan di atas dokumen bersih. Anda dapat menarik kotak baru di posisi yang benar atau menyesuaikan tanggal, lalu klik <strong>Simpan Perubahan</strong>.
+            </span>
+          </div>
+        )}
 
         {/* Notifikasi Error / Sukses jika ada */}
         {errorMsg && (

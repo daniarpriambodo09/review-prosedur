@@ -1,6 +1,6 @@
 // app/api/approval-dokumen/stamp-date/route.ts
 //
-// Endpoint API untuk membubuhkan teks tanggal selesai approval ke posisi bounding box
+// Endpoint API untuk membubuhkan / mengedit teks tanggal selesai approval ke posisi bounding box
 // yang di-drag oleh admin pada halaman dokumen PDF (misalnya kolom Tanggal Selesai Approval
 // pada tabel Catatan Perubahan).
 //
@@ -19,6 +19,48 @@ export const dynamic = 'force-dynamic';
 
 const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads', 'documents');
 
+/**
+ * Parsing teks tanggal yang dicap admin (mis. "3 Nov 2026", "28 Apr 2025", "2026-11-03")
+ * ke format standar database YYYY-MM-DD
+ */
+function parseDateFromStampText(raw: string): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+
+  // Cek jika sudah ISO: YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  // Cek format Indonesia atau Inggris, contoh: "3 Nov 2026", "28 Apr 2025", "03 November 2026"
+  const match = trimmed.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
+  if (!match) return null;
+
+  const day = parseInt(match[1], 10);
+  const monthStr = match[2].toLowerCase();
+  const year = parseInt(match[3], 10);
+
+  const monthMap: Record<string, string> = {
+    jan: '01', januari: '01', january: '01',
+    feb: '02', februari: '02', february: '02',
+    mar: '03', maret: '03', march: '03',
+    apr: '04', april: '04',
+    mei: '05', may: '05',
+    jun: '06', juni: '06', june: '06',
+    jul: '07', juli: '07', july: '07',
+    agu: '08', agt: '08', agustus: '08', aug: '08', august: '08',
+    sep: '09', september: '09',
+    okt: '10', oktober: '10', oct: '10', october: '10',
+    nov: '11', november: '11',
+    des: '12', desember: '12', dec: '12', december: '12',
+  };
+
+  const month = monthMap[monthStr];
+  if (!month || isNaN(day) || isNaN(year) || day < 1 || day > 31) return null;
+
+  return `${year}-${month}-${String(day).padStart(2, '0')}`;
+}
+
 export async function POST(request: NextRequest) {
   const client = await pool.connect();
   try {
@@ -29,6 +71,7 @@ export async function POST(request: NextRequest) {
       box,          // { x, y, width, height } koordinat bounding box pada canvas browser
       canvasSize,   // { width, height } dimensi canvas saat di-drag
       text,         // teks tanggal yang akan dicetak, mis. "28 Apr 2025"
+      isEdit,       // boolean: true jika mengedit cap yang sudah pernah disimpan
       fontSize,     // opsional: ukuran font yang diinginkan
     } = body;
 
@@ -52,22 +95,59 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Teks tanggal selesai approval tidak boleh kosong.' }, { status: 400 });
     }
 
-    // 1. Ambil file aktif saat ini
-    const fileResult = await client.query(
-      `SELECT id, file_name, file_path, version
-       FROM active_procedure_files
-       WHERE nomor_dokumen = $1 LIMIT 1`,
+    // 1. Cari base file PDF yang bersih (tanpa cap lama)
+    // Jika dokumen sudah pernah dicap sebelumnya atau sedang diedit, kita utamakan file final bersih
+    // (bukan file _stamped) agar cap lama tidak bertumpuk / berbayang di file PDF baru.
+    let baseFile = null;
+
+    // Prioritas 1: Ambil file dari final_file_id pada cycle completed terbaru
+    const cycleFileRes = await client.query(
+      `SELECT pf.id, pf.file_name, pf.file_path, pf.version
+       FROM procedure_approval_cycles pac
+       JOIN procedure_files pf ON pf.id = pac.final_file_id
+       WHERE pac.nomor_dokumen = $1 AND pac.status = 'completed'
+       ORDER BY pac.id DESC LIMIT 1`,
       [nomorDokumen]
     );
+    if (cycleFileRes.rows.length > 0) {
+      baseFile = cycleFileRes.rows[0];
+    }
 
-    if (fileResult.rows.length === 0) {
+    // Prioritas 2: Ambil file terbaru yang bukan _stamped.pdf
+    if (!baseFile) {
+      const nonStampedRes = await client.query(
+        `SELECT id, file_name, file_path, version
+         FROM procedure_files
+         WHERE nomor_dokumen = $1 AND file_path NOT LIKE '%_stamped.pdf%'
+         ORDER BY version DESC, id DESC LIMIT 1`,
+        [nomorDokumen]
+      );
+      if (nonStampedRes.rows.length > 0) {
+        baseFile = nonStampedRes.rows[0];
+      }
+    }
+
+    // Prioritas 3: Fallback ke active file jika tidak ditemukan
+    if (!baseFile) {
+      const activeRes = await client.query(
+        `SELECT id, file_name, file_path, version
+         FROM active_procedure_files
+         WHERE nomor_dokumen = $1 LIMIT 1`,
+        [nomorDokumen]
+      );
+      if (activeRes.rows.length > 0) {
+        baseFile = activeRes.rows[0];
+      }
+    }
+
+    if (!baseFile) {
       return NextResponse.json({ error: 'Dokumen tidak memiliki file PDF aktif.' }, { status: 404 });
     }
 
-    const activeFile = fileResult.rows[0];
-    const relativePath = activeFile.file_path.startsWith('/')
-      ? activeFile.file_path.slice(1)
-      : activeFile.file_path;
+    const targetFile = baseFile;
+    const relativePath = targetFile.file_path.startsWith('/')
+      ? targetFile.file_path.slice(1)
+      : targetFile.file_path;
     const absolutePath = path.join(process.cwd(), 'public', relativePath);
 
     if (!existsSync(absolutePath)) {
@@ -156,7 +236,7 @@ export async function POST(request: NextRequest) {
     );
 
     const timestamp = new Date().toISOString().split('T')[0].replace(/-/g, '');
-    const sanitizedName = (activeFile.file_name as string)
+    const sanitizedName = (targetFile.file_name as string)
       .replace(/[^a-zA-Z0-9.-]/g, '-')
       .replace(/\.pdf$/i, '');
     const diskFileName = `v${nextVersion}_${nomorDokumen}_${sanitizedName}_${timestamp}_stamped.pdf`;
@@ -176,29 +256,69 @@ export async function POST(request: NextRequest) {
          (nomor_dokumen, file_name, file_path, file_size, mime_type, version, uploaded_by)
        VALUES ($1, $2, $3, $4, 'application/pdf', $5, 'admin')
        RETURNING id, file_name, file_path, version, uploaded_at`,
-      [nomorDokumen, activeFile.file_name, dbPath, stampedPdfBytes.length, nextVersion]
+      [nomorDokumen, targetFile.file_name, dbPath, stampedPdfBytes.length, nextVersion]
     );
 
-    // Tandai bahwa dokumen ini sudah ditempatkan tanggal approval pada catatan perubahan
-    await client.query(
-      `UPDATE procedure_documents SET is_date_stamped = TRUE WHERE nomor_dokumen = $1`,
-      [nomorDokumen]
-    );
+    const parsedDate = parseDateFromStampText(text);
+
+    const stampMeta = {
+      pageNumber,
+      box,
+      canvasSize,
+      text: textToDraw,
+      isEdit: Boolean(isEdit),
+      stampedAt: new Date().toISOString(),
+    };
+
+    if (parsedDate) {
+      await client.query(
+        `UPDATE procedure_documents
+         SET is_date_stamped = TRUE,
+             date_stamp_meta = $1,
+             tanggal_selesai_approval = $2,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE nomor_dokumen = $3`,
+        [JSON.stringify(stampMeta), parsedDate, nomorDokumen]
+      );
+
+      // Sinkronkan ke procedure_revision_notes jika ada record revisi aktif dokumen ini
+      await client.query(
+        `UPDATE procedure_revision_notes
+         SET tanggal_selesai_approval = $1
+         WHERE nomor_dokumen = $2 AND rev_no = (SELECT revisi FROM procedure_documents WHERE nomor_dokumen = $2)`,
+        [parsedDate, nomorDokumen]
+      );
+    } else {
+      await client.query(
+        `UPDATE procedure_documents
+         SET is_date_stamped = TRUE,
+             date_stamp_meta = $1,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE nomor_dokumen = $2`,
+        [JSON.stringify(stampMeta), nomorDokumen]
+      );
+    }
 
     await client.query('COMMIT');
 
     // Catat log aktivitas
+    const activityDesc = isEdit
+      ? `Mengedit letak tanggal approval "${textToDraw}" pada halaman ${pageNumber} untuk dokumen ${nomorDokumen} — versi ${nextVersion}`
+      : `Membubuhkan tanggal approval "${textToDraw}" ke halaman ${pageNumber} untuk dokumen ${nomorDokumen} — versi ${nextVersion}`;
+
     await logActivity({
       username: 'admin',
       activityType: 'update',
-      activityDescription: `Membubuhkan tanggal approval "${textToDraw}" ke halaman ${pageNumber} untuk dokumen ${nomorDokumen} — versi ${nextVersion}`,
+      activityDescription: activityDesc,
       targetType: 'file',
       targetId: nomorDokumen,
     });
 
     return NextResponse.json({
       success: true,
-      message: `Tanggal selesai approval "${textToDraw}" berhasil dibubuhkan ke halaman ${pageNumber}.`,
+      message: isEdit
+        ? `Tanggal selesai approval "${textToDraw}" berhasil diperbarui ke halaman ${pageNumber}.`
+        : `Tanggal selesai approval "${textToDraw}" berhasil dibubuhkan ke halaman ${pageNumber}.`,
       file: insertResult.rows[0],
     });
   } catch (error: any) {

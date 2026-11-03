@@ -46,7 +46,9 @@ async function syncRelevanStatus(
     `UPDATE procedure_documents
      SET status = 'Relevan',
          revisi = $1,
-         tanggal_selesai_approval = COALESCE(tanggal_selesai_approval, CURRENT_DATE),
+         tanggal_selesai_approval = CURRENT_DATE,
+         is_date_stamped = FALSE,
+         date_stamp_meta = NULL,
          last_reviewed_at = NOW(),
          review_seen_at = NOW(),
          updated_at = CURRENT_TIMESTAMP
@@ -82,7 +84,7 @@ async function syncRelevanStatus(
   // Update tanggal_selesai_approval pada catatan revisi jika belum ada
   await client.query(
     `UPDATE procedure_revision_notes
-     SET tanggal_selesai_approval = COALESCE(tanggal_selesai_approval, CURRENT_DATE)
+     SET tanggal_selesai_approval = CURRENT_DATE
      WHERE nomor_dokumen = $1 AND (rev_no = $2 OR rev_no = '0') AND tanggal_selesai_approval IS NULL`,
     [nomorDokumen, revisiValue]
   );
@@ -141,7 +143,9 @@ export async function finalizeApprovalCycle(
 
   await client.query(
     `UPDATE procedure_documents
-     SET tanggal_selesai_approval = COALESCE(tanggal_selesai_approval, CURRENT_DATE)
+     SET tanggal_selesai_approval = CURRENT_DATE,
+         is_date_stamped = FALSE,
+         date_stamp_meta = NULL
      WHERE nomor_dokumen = $1`,
     [nomorDokumen]
   );

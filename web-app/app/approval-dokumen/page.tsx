@@ -351,6 +351,7 @@ export default function ApprovalDokumenPage() {
           isOpen={!!detailDoc}
           onClose={() => setDetailDoc(null)}
           document={detailDoc}
+          onOpenStampDate={doc => setStampDateDoc(doc)}
         />
 
         <ApprovalEditModal

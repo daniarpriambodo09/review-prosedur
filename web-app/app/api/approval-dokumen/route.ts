@@ -104,7 +104,8 @@ export async function GET(request: NextRequest) {
           c.current_stage,
           c.status AS cycle_status,
           c.started_at,
-          c.completed_at
+          c.completed_at,
+          c.final_file_id
         FROM procedure_approval_cycles c
         ORDER BY c.nomor_dokumen, c.id DESC
       ),
@@ -154,17 +155,28 @@ export async function GET(request: NextRequest) {
           pd.status AS document_status,
           CASE
             WHEN lc.cycle_status = 'completed' AND pd.status != 'Relevan' THEN NULL
-            ELSE pd.tanggal_selesai_approval
+            WHEN lc.cycle_status = 'completed' AND pd.status = 'Relevan' AND lc.completed_at IS NOT NULL THEN
+              COALESCE(lc.completed_at::text, pd.tanggal_selesai_approval::text)
+            ELSE pd.tanggal_selesai_approval::text
           END AS tanggal_selesai_approval,
           CASE
             WHEN lc.cycle_status = 'completed' AND pd.status != 'Relevan' THEN FALSE
             ELSE COALESCE(pd.is_date_stamped, FALSE)
           END AS is_date_stamped,
+          pd.date_stamp_meta,
+          COALESCE(ff.file_path, clean_f.file_path, af.file_path) AS clean_file_path,
           af.file_name,
           af.file_path
         FROM procedure_documents pd
         LEFT JOIN LatestCycles lc ON lc.nomor_dokumen = pd.nomor_dokumen
         LEFT JOIN active_procedure_files af ON af.nomor_dokumen = pd.nomor_dokumen
+        LEFT JOIN procedure_files ff ON ff.id = lc.final_file_id
+        LEFT JOIN LATERAL (
+          SELECT file_path, file_name FROM procedure_files
+          WHERE nomor_dokumen = pd.nomor_dokumen AND file_path NOT LIKE '%_stamped.pdf%'
+          ORDER BY version DESC, id DESC
+          LIMIT 1
+        ) clean_f ON true
         WHERE
           (lc.cycle_id IS NOT NULL AND lc.cycle_status != 'completed')
           OR (lc.cycle_id IS NOT NULL AND lc.cycle_status = 'completed' AND lc.completed_at >= NOW() - INTERVAL '7 days' AND pd.status = 'Relevan')
@@ -527,8 +539,12 @@ export async function GET(request: NextRequest) {
         currentStage: row.current_stage,
         startedAt: row.started_at,
         completedAt: row.completed_at,
-        tanggalSelesaiApproval: row.tanggal_selesai_approval || row.completed_at || null,
+        tanggalSelesaiApproval: (row.cycle_status === 'completed' && row.completed_at)
+          ? row.completed_at
+          : (row.tanggal_selesai_approval || row.completed_at || null),
         isDateStamped: Boolean(row.is_date_stamped),
+        dateStampMeta: row.date_stamp_meta || null,
+        cleanFilePath: row.clean_file_path || row.file_path || null,
         fileName: row.file_name,
         filePath: row.file_path,
         stages,

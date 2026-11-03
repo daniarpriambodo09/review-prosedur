@@ -17,6 +17,7 @@ import {
   Building2,
   Mail,
   AlertTriangle,
+  Pencil,
 } from 'lucide-react';
 import { ApprovalDocumentItem } from './ApprovalTable';
 
@@ -24,6 +25,7 @@ interface ApprovalDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   document: ApprovalDocumentItem | null;
+  onOpenStampDate?: (doc: ApprovalDocumentItem) => void;
 }
 
 function formatDate(iso: string | null | undefined): string {
@@ -48,6 +50,7 @@ export default function ApprovalDetailModal({
   isOpen,
   onClose,
   document: doc,
+  onOpenStampDate,
 }: ApprovalDetailModalProps) {
   // Tutup dengan Escape
   useEffect(() => {
@@ -423,8 +426,8 @@ export default function ApprovalDetailModal({
         </div>
 
         {/* ── Modal Footer ── */}
-        <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
-          <div>
+        <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
             <Link
               href={`/status-review/${encodeURIComponent(doc.nomorDokumen)}`}
               className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline"
@@ -432,6 +435,37 @@ export default function ApprovalDetailModal({
               <ExternalLink size={13} />
               <span>Buka Halaman Lengkap Prosedur</span>
             </Link>
+
+            {/* Tombol Isi / Edit Tanggal langsung dari Modal Detail jika selesai */}
+            {(doc.documentStatus === 'Relevan' || doc.cycleStatus === 'completed') && onOpenStampDate && (
+              doc.isDateStamped ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenStampDate(doc);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-2xs transition-all active:scale-95"
+                  title="Edit letak atau teks tanggal selesai approval pada dokumen ini"
+                >
+                  <Pencil size={12} />
+                  <span>Edit Tanggal</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenStampDate(doc);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition-all active:scale-95"
+                  title="Isi tanggal selesai approval pada tabel catatan perubahan"
+                >
+                  <Calendar size={12} />
+                  <span>Isi Tanggal</span>
+                </button>
+              )
+            )}
           </div>
           <button
             onClick={onClose}
