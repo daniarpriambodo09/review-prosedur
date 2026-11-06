@@ -18,7 +18,7 @@ import EditProcedureModal from '@/components/status-review/EditProcedureModal';
 import ApprovalCard from '@/components/status-review/ApprovalCard';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import {
-  Search, X, Plus, Calendar, Download, Archive,
+  Search, X, Plus, Calendar, Archive,
   ChevronUp, ChevronDown, FileText, CheckCircle2,
   RefreshCw, Clock, Eye, Pencil, Trash2, Users,
   CalendarX, FileSpreadsheet, Upload,
@@ -1198,43 +1198,6 @@ export default function StatusReviewPage() {
     }
   };
 
-  const handleDownloadExcel = async () => {
-    try {
-      const exportData = filteredData.map(doc => ({
-        'Nama Dokumen':             doc.namaDokumen,
-        'Nomor Dokumen':            doc.nomorDokumen,
-        'Level Dokumen':            doc.levelDokumen,
-        'Tanggal Selesai Approval': formatToDDMonYYYY(doc.tanggalSelesaiApproval),
-        'Revisi':                   doc.revisi ?? '0',
-        'Owner':                    doc.owner,
-        'PIC':                      doc.pic,
-        'Email':                    doc.email ?? '',
-        'Status':                   doc.status,
-      }));
-      const response = await fetch('/review-prosedur/api/download-excel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: exportData }),
-      });
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.error || `Server error: ${response.status}`);
-      }
-      const blob = await response.blob();
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href     = url;
-      a.download = `dokumen-prosedur-${new Date().toISOString().slice(0, 10)}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Download Excel gagal:', err);
-      showError('Gagal membuat file Excel. Silakan coba lagi.');
-    }
-  };
-
   const handleDownloadAuditExcel = async () => {
     try {
       setIsExportingAudit(true);
@@ -1247,7 +1210,7 @@ export default function StatusReviewPage() {
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement('a');
       a.href     = url;
-      a.download = `Rekap-Matriks-Audit-Prosedur-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.download = `DAFTAR_INDUK_DOKUMEN_${new Date().toISOString().slice(0, 10)}.xlsx`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1457,12 +1420,6 @@ export default function StatusReviewPage() {
                 className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-blue-600 bg-white border border-blue-200 hover:bg-blue-50 transition-all active:scale-95"
               >
                 <Calendar size={14} /> Atur Jadwal
-              </button>
-              <button
-                onClick={handleDownloadExcel}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 transition-all shadow-sm hover:shadow active:scale-95"
-              >
-                <Download size={14} /> Excel
               </button>
               <button
                 onClick={handleDownloadAuditExcel}
