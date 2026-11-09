@@ -1,7 +1,7 @@
 // components/status-review/EditProcedureModal.tsx
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { ProcedureDocument } from '@/data/procedures/all-procedures';
 
 interface EditProcedureModalProps {
@@ -32,6 +32,14 @@ interface ApproverState {
   prepared: ApproverRow[];
   checked:  ApproverRow[];
   approved: ApproverRow[];
+}
+
+interface StaffOption {
+  kode: string;
+  nama: string;
+  email: string;
+  jabatan: string | null;
+  isManager: boolean;
 }
 
 const emptyApproverRow = (): ApproverRow => ({ nama: '', email: '' });
@@ -124,6 +132,255 @@ const fieldCls =
 const fieldClsFlex = fieldCls.replace('w-full ', '');
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ApproverCombobox — Autocomplete Dropdown Nama Approver
+// Bisa ketik langsung, dropdown otomatis memfilter nama sesuai awalan,
+// dan saat dipilih email otomatis terisi berdasarkan data staff/manager.
+// ─────────────────────────────────────────────────────────────────────────────
+interface ApproverComboboxProps {
+  value: string;
+  email: string;
+  staffList: StaffOption[];
+  disabled?: boolean;
+  placeholder?: string;
+  onChange: (name: string, email: string) => void;
+}
+
+function ApproverCombobox({
+  value,
+  email,
+  staffList,
+  disabled,
+  placeholder = 'Ketik nama approver...',
+  onChange,
+}: ApproverComboboxProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState(value || '');
+  const [highlightIndex, setHighlightIndex] = useState(-1);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // Sync internal query saat value dari luar berubah
+  useEffect(() => {
+    setQuery(value || '');
+  }, [value]);
+
+  // Tutup dropdown saat klik di luar
+  useEffect(() => {
+    const handleOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, []);
+
+  // Filter daftar staff berdasarkan input: utamakan awalan (prefix), lalu yang mengandung kata
+  const filteredStaff = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) {
+      return [...staffList].sort((a, b) => {
+        if (a.isManager && !b.isManager) return -1;
+        if (!a.isManager && b.isManager) return 1;
+        return a.nama.localeCompare(b.nama);
+      });
+    }
+
+    const startsWith: StaffOption[] = [];
+    const wordStarts: StaffOption[] = [];
+    const contains: StaffOption[] = [];
+
+    staffList.forEach(s => {
+      const namaLow = s.nama.toLowerCase();
+      const kodeLow = (s.kode || '').toLowerCase();
+      const words = namaLow.split(/\s+/);
+      const isWordStart = words.some(w => w.startsWith(q));
+
+      if (namaLow.startsWith(q) || kodeLow.startsWith(q)) {
+        startsWith.push(s);
+      } else if (isWordStart) {
+        wordStarts.push(s);
+      } else if (namaLow.includes(q) || (s.email && s.email.toLowerCase().includes(q))) {
+        contains.push(s);
+      }
+    });
+
+    if (startsWith.length > 0 || wordStarts.length > 0) {
+      return [...startsWith, ...wordStarts];
+    }
+    return contains;
+  }, [staffList, query]);
+
+  const handleSelect = (staff: StaffOption) => {
+    setQuery(staff.nama);
+    setIsOpen(false);
+    setHighlightIndex(-1);
+    onChange(staff.nama, staff.email);
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newName = e.target.value;
+    setQuery(newName);
+    setIsOpen(true);
+    setHighlightIndex(-1);
+
+    // Cek jika yang diketik persis sama dengan nama salah satu staff
+    const exact = staffList.find(s => s.nama.toLowerCase().trim() === newName.toLowerCase().trim());
+    if (exact) {
+      onChange(newName, exact.email);
+    } else if (!newName.trim()) {
+      onChange('', '');
+    } else {
+      onChange(newName, email);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!isOpen) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        setIsOpen(true);
+        e.preventDefault();
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightIndex(prev => {
+        const next = prev < filteredStaff.length - 1 ? prev + 1 : 0;
+        scrollIntoView(next);
+        return next;
+      });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightIndex(prev => {
+        const next = prev > 0 ? prev - 1 : filteredStaff.length - 1;
+        scrollIntoView(next);
+        return next;
+      });
+    } else if (e.key === 'Enter') {
+      if (highlightIndex >= 0 && highlightIndex < filteredStaff.length) {
+        e.preventDefault();
+        handleSelect(filteredStaff[highlightIndex]);
+      }
+    } else if (e.key === 'Escape') {
+      setIsOpen(false);
+    }
+  };
+
+  const scrollIntoView = (index: number) => {
+    if (!listRef.current) return;
+    const items = listRef.current.querySelectorAll('[data-combobox-item]');
+    if (items[index]) {
+      (items[index] as HTMLElement).scrollIntoView({ block: 'nearest' });
+    }
+  };
+
+  return (
+    <div className={`relative w-1/2 ${isOpen ? 'z-30' : 'z-10'}`} ref={containerRef}>
+      <div className="relative flex items-center">
+        <input
+          type="text"
+          value={query}
+          disabled={disabled}
+          placeholder={placeholder}
+          onChange={handleInputChange}
+          onFocus={() => setIsOpen(true)}
+          onKeyDown={handleKeyDown}
+          className={`${fieldClsFlex} w-full pr-8 text-slate-900 font-medium`}
+        />
+        <button
+          type="button"
+          tabIndex={-1}
+          disabled={disabled}
+          onClick={() => setIsOpen(prev => !prev)}
+          className="absolute right-2 p-1 text-slate-400 hover:text-slate-600 rounded transition-colors"
+          title="Tampilkan daftar staff & manager"
+        >
+          <svg
+            className={`w-4 h-4 transition-transform duration-200 ${isOpen ? 'rotate-180 text-blue-600' : ''}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+      </div>
+
+      {isOpen && (
+        <div
+          className="absolute left-0 top-full mt-1.5 w-full min-w-[280px] max-w-[360px] bg-white border border-slate-200 rounded-xl shadow-2xl z-50 overflow-hidden divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-100"
+        >
+          {/* Header indicator */}
+          <div className="px-3 py-1.5 bg-slate-50 text-[10px] text-slate-500 font-semibold flex items-center justify-between">
+            <span>
+              {query.trim()
+                ? `Cocok awalan: ${filteredStaff.length} orang`
+                : `Semua Staff & Manager (${staffList.length})`}
+            </span>
+            <span className="text-blue-600 font-bold">Pilih untuk isi email</span>
+          </div>
+
+          {/* List options */}
+          <div className="max-h-52 overflow-y-auto divide-y divide-slate-50" ref={listRef}>
+            {filteredStaff.length === 0 ? (
+              <div className="px-3 py-3 text-center text-xs text-slate-500">
+                Tidak ada nama berawalan &quot;{query}&quot;
+                <div className="text-[11px] text-slate-400 mt-0.5">Nama yang Anda ketik tetap dapat digunakan</div>
+              </div>
+            ) : (
+              filteredStaff.map((s, i) => {
+                const isSelected = value.toLowerCase().trim() === s.nama.toLowerCase().trim();
+                const isHighlighted = i === highlightIndex;
+                return (
+                  <button
+                    key={`${s.kode || s.email}-${i}`}
+                    type="button"
+                    data-combobox-item
+                    onMouseDown={e => {
+                      // Gunakan onMouseDown agar klik tidak didahului blur / click outside
+                      e.preventDefault();
+                      handleSelect(s);
+                    }}
+                    onMouseEnter={() => setHighlightIndex(i)}
+                    className={`w-full text-left px-3 py-2 text-xs transition-colors flex items-center justify-between gap-2 ${
+                      isHighlighted
+                        ? 'bg-blue-50 text-blue-900'
+                        : isSelected
+                        ? 'bg-slate-100 text-slate-900 font-semibold border-l-4 border-blue-600'
+                        : 'hover:bg-slate-50 text-slate-800'
+                    }`}
+                  >
+                    <div className="truncate min-w-0">
+                      <div className="font-medium text-slate-900 truncate">
+                        {s.nama}
+                        {s.jabatan && (
+                          <span className="ml-1.5 text-[10px] font-normal px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">
+                            {s.jabatan}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[10px] text-slate-400 truncate">{s.email}</div>
+                    </div>
+                    {s.isManager && (
+                      <span className="text-[10px] px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded font-bold flex-shrink-0">
+                        Manager
+                      </span>
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // EditProcedureModal
 // ─────────────────────────────────────────────────────────────────────────────
 export default function EditProcedureModal({
@@ -145,7 +402,32 @@ export default function EditProcedureModal({
   const [approvers,        setApprovers]        = useState<ApproverState>(emptyApproverState());
   const [approversLoading, setApproversLoading]  = useState(false);
 
+  // 🆕 Data staff & manager dari kelola-departemen untuk dropdown nama approver
+  const [staffList,        setStaffList]        = useState<StaffOption[]>([]);
+  const [staffLoading,     setStaffLoading]     = useState(false);
+
   const firstFieldRef = useRef<HTMLTextAreaElement>(null);
+
+  // Load data staff & manager dari kelola-departemen saat modal dibuka
+  useEffect(() => {
+    if (!isOpen) return;
+    let active = true;
+    setStaffLoading(true);
+    fetch('/review-prosedur/api/staff')
+      .then(res => res.json())
+      .then((data: StaffOption[]) => {
+        if (active && Array.isArray(data)) {
+          setStaffList(data);
+        }
+      })
+      .catch(err => {
+        console.error('Gagal memuat daftar staff untuk approvers:', err);
+      })
+      .finally(() => {
+        if (active) setStaffLoading(false);
+      });
+    return () => { active = false; };
+  }, [isOpen]);
 
   // Prefill form saat procedure berubah
   useEffect(() => {
@@ -191,7 +473,7 @@ export default function EditProcedureModal({
     return () => { cancelled = true; };
   }, [procedure]);
 
-  // 🆕 BARU: helper untuk manipulasi baris approver
+  // 🆕 Helper untuk manipulasi baris approver
   const updateApprover = (role: ApproverRole, idx: number, field: keyof ApproverRow, val: string) => {
     setApprovers(prev => {
       const list = [...prev[role]];
@@ -199,9 +481,11 @@ export default function EditProcedureModal({
       return { ...prev, [role]: list };
     });
   };
+
   const addApproverRow = (role: ApproverRole) => {
     setApprovers(prev => ({ ...prev, [role]: [...prev[role], emptyApproverRow()] }));
   };
+
   const removeApproverRow = (role: ApproverRole, idx: number) => {
     setApprovers(prev => {
       const list = prev[role].filter((_, i) => i !== idx);
@@ -539,41 +823,54 @@ export default function EditProcedureModal({
 
               {/* ── Prepared / Checked / Approved — 🆕 BARU ────────────────── */}
               <div className="col-span-2 border-t border-slate-200 pt-5 mt-1">
-                <div className="flex items-center gap-2 mb-3">
-                  <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <h4 className="text-sm font-semibold text-slate-700">Prepared / Checked / Approved</h4>
-                  {approversLoading && (
-                    <span className="text-xs text-slate-400">memuat...</span>
-                  )}
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <h4 className="text-sm font-semibold text-slate-700">Prepared / Checked / Approved</h4>
+                    {(approversLoading || staffLoading) && (
+                      <span className="text-xs text-slate-400">memuat data staff...</span>
+                    )}
+                  </div>
+                  <span className="text-[11px] text-slate-400">Nama dari data Staff & Manager (email terisi otomatis)</span>
                 </div>
 
-                <div className="space-y-5">
+                <div className="space-y-5 pb-8">
                   {(['prepared', 'checked', 'approved'] as ApproverRole[]).map(role => (
                     <div key={role}>
-                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
-                        {APPROVER_ROLE_LABEL[role]}
-                      </label>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                          {APPROVER_ROLE_LABEL[role]}
+                        </label>
+                      </div>
                       <div className="space-y-2">
                         {approvers[role].map((row, idx) => (
                           <div key={idx} className="flex gap-2 items-start">
-                            <input
-                              type="text"
+                            <ApproverCombobox
                               value={row.nama}
-                              placeholder="Nama (opsional)"
+                              email={row.email}
+                              staffList={staffList}
                               disabled={isSaving || approversLoading}
-                              onChange={e => updateApprover(role, idx, 'nama', e.target.value)}
-                              className={`${fieldClsFlex} w-2/5`}
+                              placeholder="Ketik nama approver..."
+                              onChange={(newName, newEmail) => {
+                                setApprovers(prev => {
+                                  const list = [...prev[role]];
+                                  list[idx] = { nama: newName, email: newEmail };
+                                  return { ...prev, [role]: list };
+                                });
+                              }}
                             />
+
                             <input
                               type="email"
                               value={row.email}
-                              placeholder="Masukkan email"
+                              placeholder="Email approver (otomatis terisi)"
                               disabled={isSaving || approversLoading}
                               onChange={e => updateApprover(role, idx, 'email', e.target.value)}
                               className={`${fieldClsFlex} flex-1 min-w-0`}
                             />
+
                             <button
                               type="button"
                               onClick={() => removeApproverRow(role, idx)}
