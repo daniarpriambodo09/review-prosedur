@@ -19,28 +19,36 @@ function cleanDocumentNumber(docNum: string | null | undefined): string {
  */
 function formatDateExcel(dateStr: string | Date | null | undefined): string {
   if (!dateStr) return '-';
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+    const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
+    const month = months[m - 1];
+    const year = String(y).slice(-2);
+    return `${d}-${month}-${year}`;
+  }
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return '-';
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const day = d.getDate();
-  const month = months[d.getMonth()];
-  const year = String(d.getFullYear()).slice(-2);
+  const wib = new Date(d.getTime() + 7 * 60 * 60 * 1000);
+  const day = wib.getUTCDate();
+  const month = months[wib.getUTCMonth()];
+  const year = String(wib.getUTCFullYear()).slice(-2);
   return `${day}-${month}-${year}`;
 }
 
 /**
  * Format tanggal dan waktu untuk rincian log approver (contoh: 03-Nov-2026 05:34).
  */
-function formatDateTime(dateStr: string | null | undefined): string {
+function formatDateTime(dateStr: string | Date | null | undefined): string {
   if (!dateStr) return '-';
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return '-';
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const day = d.getDate();
-  const month = months[d.getMonth()];
-  const year = d.getFullYear();
-  const hours = String(d.getHours()).padStart(2, '0');
-  const mins = String(d.getMinutes()).padStart(2, '0');
+  const wib = new Date(d.getTime() + 7 * 60 * 60 * 1000);
+  const day = String(wib.getUTCDate()).padStart(2, '0');
+  const month = months[wib.getUTCMonth()];
+  const year = wib.getUTCFullYear();
+  const hours = String(wib.getUTCHours()).padStart(2, '0');
+  const mins = String(wib.getUTCMinutes()).padStart(2, '0');
   return `${day}-${month}-${year} ${hours}:${mins}`;
 }
 
@@ -59,13 +67,25 @@ export async function GET(request: NextRequest) {
           pd.nomor_dokumen,
           pd.nama_dokumen,
           pd.level_dokumen,
+          pd.tanggal_selesai_approval::text as tanggal_selesai_approval_text,
           pd.tanggal_selesai_approval,
           pd.revisi,
           pd.owner,
           pd.pic,
           pd.email,
           pd.block_activity,
-          COALESCE(dr.status, 'Menunggu') as status_review,
+          pd.status as pd_status,
+          CASE
+            WHEN c_latest.cycle_status = 'in_progress' AND c_latest.current_stage = 'prepared' THEN 'Menunggu ACC Prepared'
+            WHEN c_latest.cycle_status = 'in_progress' AND c_latest.current_stage = 'checked'  THEN 'Menunggu ACC Checked'
+            WHEN c_latest.cycle_status = 'in_progress' AND c_latest.current_stage = 'approved' THEN 'Menunggu ACC Approved'
+            WHEN pd.status IN ('Relevan', 'Revisi', 'Obsolete', 'Menunggu ACC Prepared', 'Menunggu ACC Checked', 'Menunggu ACC Approved', 'Ditolak') THEN pd.status
+            WHEN dr.status IN ('Relevan', 'Revisi', 'Obsolete') THEN dr.status
+            WHEN es.email_status = 'pending' THEN 'Belum dikirim'
+            WHEN es.email_status = 'sent' AND (es.last_sent_at IS NOT NULL AND es.last_sent_at >= NOW() - INTERVAL '2 months') THEN 'Telah terkirim'
+            WHEN pd.status IS NOT NULL AND pd.status != '' THEN pd.status
+            ELSE 'Menunggu'
+          END AS status_review,
           COALESCE(pd.last_reviewed_at, dr.updated_at, dr.created_at) as terakhir_direview,
           es.last_sent_at,
           es.email_status,
@@ -82,8 +102,8 @@ export async function GET(request: NextRequest) {
           c_latest.started_at as mulai_approval_at,
           CASE 
             WHEN c_latest.cycle_status = 'completed' AND c_latest.completed_at IS NOT NULL THEN c_latest.completed_at
-            WHEN pd.status = 'Relevan' AND c_latest.cycle_status = 'completed' THEN COALESCE(c_latest.completed_at, pd.tanggal_selesai_approval::timestamp)
-            ELSE NULL
+            WHEN c_latest.cycle_status = 'in_progress' THEN NULL
+            ELSE pd.tanggal_selesai_approval::timestamp
           END as selesai_approval_at
         FROM procedure_documents pd
         LEFT JOIN LATERAL (
@@ -105,7 +125,7 @@ export async function GET(request: NextRequest) {
           ORDER BY updated_at DESC LIMIT 1
         ) dr_rev ON TRUE
         LEFT JOIN LATERAL (
-          SELECT id, started_at, completed_at, triggered_by_file_id, status AS cycle_status
+          SELECT id, started_at, completed_at, triggered_by_file_id, status AS cycle_status, current_stage
           FROM procedure_approval_cycles
           WHERE nomor_dokumen = pd.nomor_dokumen AND status != 'cancelled'
           ORDER BY id DESC LIMIT 1
@@ -351,7 +371,7 @@ export async function GET(request: NextRequest) {
       const approvedText = formatRoleApprovers(doc.nomor_dokumen, 'approved');
 
       // Tanggal linimasa
-      const tglSelesai = doc.selesai_approval_at || (doc.status === 'Relevan' ? doc.tanggal_selesai_approval : null);
+      const tglSelesai = doc.selesai_approval_at || (doc.status_review === 'Relevan' ? (doc.tanggal_selesai_approval_text || doc.tanggal_selesai_approval) : null);
       const tglIntranet = tglSelesai;
       const tglImplementasi = tglSelesai;
       const tglObsolete = doc.status_review === 'Obsolete' ? doc.terakhir_direview : null;
@@ -372,7 +392,7 @@ export async function GET(request: NextRequest) {
         formatDateExcel(doc.request_revisi_at),
         formatDateExcel(doc.upload_dokumen_at),
         formatDateExcel(doc.mulai_approval_at),
-        formatDateExcel(doc.selesai_approval_at),
+        formatDateExcel(tglSelesai),
         formatDateExcel(tglIntranet),
         formatDateExcel(tglImplementasi),
         formatDateExcel(doc.last_sent_at),
@@ -426,9 +446,27 @@ export async function GET(request: NextRequest) {
           } else if (val === 'obsolete') {
             cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
             cell.font = { name: 'Arial Narrow', size: 9.5, bold: true, color: { argb: 'FF991B1B' } };
+          } else if (val.startsWith('menunggu acc')) {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3E8FF' } };
+            cell.font = { name: 'Arial Narrow', size: 9.5, bold: true, color: { argb: 'FF6B21A8' } };
+          } else if (val === 'ditolak') {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE4E6' } };
+            cell.font = { name: 'Arial Narrow', size: 9.5, bold: true, color: { argb: 'FF9F1239' } };
+          } else if (val === 'telah terkirim') {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0F2FE' } };
+            cell.font = { name: 'Arial Narrow', size: 9.5, bold: true, color: { argb: 'FF0369A1' } };
+          } else if (val === 'belum dikirim') {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+            cell.font = { name: 'Arial Narrow', size: 9.5, bold: true, color: { argb: 'FF475569' } };
+          } else if (val === 'telah dibaca') {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } };
+            cell.font = { name: 'Arial Narrow', size: 9.5, bold: true, color: { argb: 'FF1E40AF' } };
           } else if (val === 'menunggu') {
             cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0F2FE' } };
             cell.font = { name: 'Arial Narrow', size: 9.5, bold: true, color: { argb: 'FF0369A1' } };
+          } else {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
+            cell.font = { name: 'Arial Narrow', size: 9.5, color: { argb: 'FF64748B' } };
           }
         } else if (colNumber >= 18) {
           // Kolom Approver (Prepared, Checked, Approved)
@@ -490,10 +528,11 @@ export async function GET(request: NextRequest) {
     ws2.getColumn(4).width = 16;
     ws2.getColumn(5).width = 16;
     ws2.getColumn(6).width = 16;
-    ws2.getColumn(7).width = 20;
+    ws2.getColumn(7).width = 16;
+    ws2.getColumn(8).width = 20;
 
     // Header Summary
-    ws2.mergeCells('B2:G2');
+    ws2.mergeCells('B2:H2');
     const sumTitle = ws2.getCell('B2');
     sumTitle.value = 'RINGKASAN STATUS KEPATUHAN REVIEW PROSEDUR (ISO/IATF AUDIT)';
     sumTitle.font = { name: 'Arial Narrow', size: 13, bold: true, color: { argb: 'FFFFFFFF' } };
@@ -506,7 +545,8 @@ export async function GET(request: NextRequest) {
     const countRelevan = procedures.filter(p => p.status_review === 'Relevan').length;
     const countRevisi = procedures.filter(p => p.status_review === 'Revisi').length;
     const countObsolete = procedures.filter(p => p.status_review === 'Obsolete').length;
-    const countMenunggu = procedures.filter(p => ['Menunggu', 'Belum dikirim', '-'].includes(p.status_review)).length;
+    const countApproval = procedures.filter(p => String(p.status_review).startsWith('Menunggu ACC')).length;
+    const countMenunggu = procedures.filter(p => ['Menunggu', 'Belum dikirim', 'Telah terkirim', 'Telah dibaca', '-'].includes(p.status_review)).length;
     const complianceRate = totalDocs > 0 ? Math.round((countRelevan / totalDocs) * 100) : 0;
 
     // Tabel KPI Utama
@@ -514,6 +554,7 @@ export async function GET(request: NextRequest) {
       ['Total Dokumen Terdaftar', totalDocs, 'FF0F172A'],
       ['Dokumen Berstatus Relevan (Lolos Review)', countRelevan, 'FF166534'],
       ['Dokumen Sedang Dalam Revisi', countRevisi, 'FFB45309'],
+      ['Dokumen Dalam Alur Approval (Prepared/Checked/Approved)', countApproval, 'FF6B21A8'],
       ['Dokumen Obsolete (Kadaluarsa/Diganti)', countObsolete, 'FF991B1B'],
       ['Dokumen Belum Direview / Menunggu PIC', countMenunggu, 'FF475569'],
       ['Tingkat Kepatuhan Review (% Compliance)', `${complianceRate}%`, 'FF1D4ED8'],
@@ -541,28 +582,30 @@ export async function GET(request: NextRequest) {
     });
 
     // Breakdown Departemen
-    const deptMap: Record<string, { total: number; relevan: number; revisi: number; obsolete: number; menunggu: number }> = {};
+    const deptMap: Record<string, { total: number; relevan: number; revisi: number; approval: number; obsolete: number; menunggu: number }> = {};
     procedures.forEach(p => {
       const dept = p.owner || 'UNKNOWN';
       if (!deptMap[dept]) {
-        deptMap[dept] = { total: 0, relevan: 0, revisi: 0, obsolete: 0, menunggu: 0 };
+        deptMap[dept] = { total: 0, relevan: 0, revisi: 0, approval: 0, obsolete: 0, menunggu: 0 };
       }
       deptMap[dept].total++;
       if (p.status_review === 'Relevan') deptMap[dept].relevan++;
       else if (p.status_review === 'Revisi') deptMap[dept].revisi++;
+      else if (String(p.status_review).startsWith('Menunggu ACC')) deptMap[dept].approval++;
       else if (p.status_review === 'Obsolete') deptMap[dept].obsolete++;
       else deptMap[dept].menunggu++;
     });
 
-    const deptStartRow = 13;
+    const deptStartRow = 14;
     ws2.getCell(`B${deptStartRow}`).value = 'Departemen (Owner)';
     ws2.getCell(`C${deptStartRow}`).value = 'Total Dokumen';
     ws2.getCell(`D${deptStartRow}`).value = 'Relevan';
     ws2.getCell(`E${deptStartRow}`).value = 'Revisi';
-    ws2.getCell(`F${deptStartRow}`).value = 'Menunggu';
-    ws2.getCell(`G${deptStartRow}`).value = '% Kepatuhan';
+    ws2.getCell(`F${deptStartRow}`).value = 'Dalam Approval';
+    ws2.getCell(`G${deptStartRow}`).value = 'Menunggu';
+    ws2.getCell(`H${deptStartRow}`).value = '% Kepatuhan';
 
-    ['B', 'C', 'D', 'E', 'F', 'G'].forEach(col => {
+    ['B', 'C', 'D', 'E', 'F', 'G', 'H'].forEach(col => {
       const c = ws2.getCell(`${col}${deptStartRow}`);
       c.font = { name: 'Arial Narrow', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
       c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
@@ -582,12 +625,14 @@ export async function GET(request: NextRequest) {
       ws2.getCell(`D${curRow}`).font = { name: 'Arial Narrow', size: 9.5 };
       ws2.getCell(`E${curRow}`).value = data.revisi;
       ws2.getCell(`E${curRow}`).font = { name: 'Arial Narrow', size: 9.5 };
-      ws2.getCell(`F${curRow}`).value = data.menunggu;
+      ws2.getCell(`F${curRow}`).value = data.approval;
       ws2.getCell(`F${curRow}`).font = { name: 'Arial Narrow', size: 9.5 };
-      ws2.getCell(`G${curRow}`).value = `${deptRate}%`;
-      ws2.getCell(`G${curRow}`).font = { name: 'Arial Narrow', size: 9.5, bold: true };
+      ws2.getCell(`G${curRow}`).value = data.menunggu;
+      ws2.getCell(`G${curRow}`).font = { name: 'Arial Narrow', size: 9.5 };
+      ws2.getCell(`H${curRow}`).value = `${deptRate}%`;
+      ws2.getCell(`H${curRow}`).font = { name: 'Arial Narrow', size: 9.5, bold: true };
 
-      ['C', 'D', 'E', 'F', 'G'].forEach(col => {
+      ['C', 'D', 'E', 'F', 'G', 'H'].forEach(col => {
         ws2.getCell(`${col}${curRow}`).alignment = { horizontal: 'center', vertical: 'middle' };
       });
       ws2.getRow(curRow).height = 22;
