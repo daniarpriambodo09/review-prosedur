@@ -52,6 +52,67 @@ function formatDateTime(dateStr: string | Date | null | undefined): string {
   return `${day}-${month}-${year} ${hours}:${mins}`;
 }
 
+/**
+ * Format tanggal dan waktu untuk badge status review di Excel (contoh: 10 Nov 2026, 07:32 WIB)
+ * Selaras 100% dengan tampilan status di web UI.
+ */
+function formatStatusDateTime(dateStr: string | Date | null | undefined): string | null {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return null;
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+  const wib = new Date(d.getTime() + 7 * 60 * 60 * 1000);
+  const day = String(wib.getUTCDate()).padStart(2, '0');
+  const month = months[wib.getUTCMonth()];
+  const year = wib.getUTCFullYear();
+  const hours = String(wib.getUTCHours()).padStart(2, '0');
+  const mins = String(wib.getUTCMinutes()).padStart(2, '0');
+  return `${day} ${month} ${year}, ${hours}:${mins} WIB`;
+}
+
+/**
+ * Mendapatkan timestamp status review yang relevan sesuai jenis status dokumen.
+ */
+function getStatusDateTime(status: string, doc: any): string | null {
+  let targetDate: any = null;
+  const effectiveLastReviewedAt = doc.last_reviewed_at || doc.dr_updated_at || doc.dr_created_at;
+  const effectiveUpdatedAt = doc.dr_updated_at || doc.updated_at;
+
+  switch (status) {
+    case 'Telah terkirim':
+      targetDate = doc.last_sent_at || effectiveUpdatedAt;
+      break;
+    case 'Relevan':
+      targetDate = effectiveLastReviewedAt || effectiveUpdatedAt || doc.created_at;
+      break;
+    case 'Revisi':
+      targetDate = doc.request_revisi_at || effectiveLastReviewedAt || effectiveUpdatedAt;
+      break;
+    case 'Obsolete':
+      targetDate = effectiveLastReviewedAt || effectiveUpdatedAt;
+      break;
+    case 'Telah dibaca':
+      targetDate = effectiveUpdatedAt;
+      break;
+    case 'Menunggu':
+    case 'Belum dikirim':
+      targetDate = doc.scheduled_email_at || effectiveUpdatedAt || doc.created_at;
+      break;
+    case 'Menunggu ACC Prepared':
+    case 'Menunggu ACC Checked':
+    case 'Menunggu ACC Approved':
+      targetDate = doc.mulai_approval_at || effectiveUpdatedAt || doc.created_at;
+      break;
+    case 'Ditolak':
+      targetDate = effectiveUpdatedAt;
+      break;
+    default:
+      targetDate = effectiveUpdatedAt || doc.created_at;
+      break;
+  }
+  return formatStatusDateTime(targetDate);
+}
+
 export async function GET(request: NextRequest) {
   try {
     const client = await pool.connect();
@@ -75,6 +136,11 @@ export async function GET(request: NextRequest) {
           pd.email,
           pd.block_activity,
           pd.status as pd_status,
+          pd.created_at,
+          pd.updated_at,
+          pd.last_reviewed_at,
+          dr.updated_at as dr_updated_at,
+          dr.created_at as dr_created_at,
           CASE
             WHEN c_latest.cycle_status = 'in_progress' AND c_latest.current_stage = 'prepared' THEN 'Menunggu ACC Prepared'
             WHEN c_latest.cycle_status = 'in_progress' AND c_latest.current_stage = 'checked'  THEN 'Menunggu ACC Checked'
@@ -196,6 +262,57 @@ export async function GET(request: NextRequest) {
       client.release();
     }
 
+    // 4. Sinkronisasi Filter: Ambil parameter filter dari request URL (Status, Bulan, Search)
+    const { searchParams } = new URL(request.url);
+    const statusParam = searchParams.get('status') || '';
+    const monthParam  = searchParams.get('month');
+    const searchParam = searchParams.get('search') || '';
+
+    // Filter status
+    if (statusParam) {
+      procedures = procedures.filter(p => {
+        if (statusParam === '-') {
+          return p.status_review === '-' || p.status_review === 'Menunggu';
+        }
+        return p.status_review === statusParam;
+      });
+    }
+
+    // Filter bulan (0-indexed: 0 = Januari, 10 = November, dst.)
+    if (monthParam !== null && monthParam !== '' && !isNaN(Number(monthParam))) {
+      const targetMonth = parseInt(monthParam, 10);
+      procedures = procedures.filter(p => {
+        const rawDate = p.tanggal_selesai_approval_text || p.tanggal_selesai_approval;
+        if (!rawDate) return false;
+        const d = new Date(rawDate);
+        if (isNaN(d.getTime())) return false;
+        return d.getMonth() === targetMonth;
+      });
+    }
+
+    // Filter pencarian teks
+    if (searchParam) {
+      const q = searchParam.toLowerCase().trim();
+      procedures = procedures.filter(p => {
+        const docNum = (p.nomor_dokumen || '').toLowerCase();
+        const docName = (p.nama_dokumen || '').toLowerCase();
+        const owner = (p.owner || '').toLowerCase();
+        const pic = (p.pic || '').toLowerCase();
+        const email = (p.email || '').toLowerCase();
+        const status = (p.status_review || '').toLowerCase();
+        const block = (p.block_activity || '').toLowerCase();
+        return (
+          docNum.includes(q) ||
+          docName.includes(q) ||
+          owner.includes(q) ||
+          pic.includes(q) ||
+          email.includes(q) ||
+          status.includes(q) ||
+          block.includes(q)
+        );
+      });
+    }
+
     // Helper untuk memformat nama approver per role
     const formatRoleApprovers = (docNum: string, role: string): string => {
       const registered = approversByDoc[docNum]?.[role] || [];
@@ -296,9 +413,26 @@ export async function GET(request: NextRequest) {
     ws1.getRow(2).height = 34;
 
     // 3. Sub-header informasi tanggal cetak & sistem
+    const monthNames = [
+      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+    ];
+    const filterLabels: string[] = [];
+    if (monthParam !== null && monthParam !== '' && !isNaN(Number(monthParam))) {
+      const mIdx = parseInt(monthParam, 10);
+      filterLabels.push(`Bulan: ${monthNames[mIdx] || monthParam}`);
+    }
+    if (statusParam) {
+      filterLabels.push(`Status: ${statusParam}`);
+    }
+    if (searchParam) {
+      filterLabels.push(`Pencarian: "${searchParam}"`);
+    }
+    const filterText = filterLabels.length > 0 ? ` [Filter Aktif: ${filterLabels.join(' | ')}]` : '';
+
     ws1.mergeCells('A3:D3');
     const c3 = ws1.getCell('A3');
-    c3.value = `Tanggal Ekspor: ${new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })} WIB | Total Dokumen Terdaftar: ${procedures.length}`;
+    c3.value = `Tanggal Ekspor: ${new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })} WIB | Total Dokumen Ditampilkan: ${procedures.length}${filterText}`;
     c3.font = { name: 'Arial Narrow', size: 9.5, italic: true, color: { argb: 'FF475569' } };
     c3.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } };
     c3.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
@@ -329,7 +463,7 @@ export async function GET(request: NextRequest) {
       { header: 'LEVEL', key: 'level', width: 7 },
       { header: 'OWNER', key: 'owner', width: 12 },
       { header: 'PIC', key: 'pic', width: 8 },
-      { header: 'STATUS REVIEW', key: 'status_review', width: 15 },
+      { header: 'STATUS REVIEW', key: 'status_review', width: 26 },
       { header: 'TANGGAL PENGAJUAN', key: 'tgl_pengajuan', width: 15 },
       { header: 'TANGGAL SELESAI REVISI', key: 'tgl_selesai_revisi', width: 15 },
       { header: 'TANGGAL MULAI APPROVAL', key: 'tgl_mulai_approval', width: 15 },
@@ -404,16 +538,17 @@ export async function GET(request: NextRequest) {
 
       const row = ws1.addRow(rowValues);
 
-      // Hitung tinggi baris dinamis agar approver multi-line tidak terpotong
+      // Hitung tinggi baris dinamis agar approver multi-line & tanggal status tidak terpotong
+      const statusTimeStr = getStatusDateTime(doc.status_review, doc);
       const countLines = (str: string) => (str ? (str.match(/\n/g) || []).length + 1 : 1);
       const maxLines = Math.max(
-        1,
+        statusTimeStr ? 2 : 1,
         countLines(preparedText),
         countLines(checkedText),
         countLines(approvedText),
         Math.ceil((doc.nama_dokumen || '').length / 44)
       );
-      row.height = Math.max(22, maxLines * 16);
+      row.height = Math.max(30, maxLines * 16);
 
       // Styling per cell
       row.eachCell((cell, colNumber) => {
@@ -434,39 +569,62 @@ export async function GET(request: NextRequest) {
           cell.alignment = { vertical: 'middle', horizontal: 'center' };
           cell.font = { name: 'Arial Narrow', size: 9.5, bold: true, color: { argb: 'FF0F172A' } };
         } else if (colNumber === 9) {
-          // Status Review Badge
-          cell.alignment = { vertical: 'middle', horizontal: 'center' };
-          const val = String(cell.value || '').toLowerCase();
+          // Status Review Badge dengan Tanggal Status Sesuai Web UI
+          cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+          const val = String(doc.status_review || '').toLowerCase();
+          let fontColor = { argb: 'FF166534' };
+          let bgColor = { argb: 'FFDCFCE7' };
+
           if (val === 'relevan') {
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
-            cell.font = { name: 'Arial Narrow', size: 9.5, bold: true, color: { argb: 'FF166534' } };
+            bgColor = { argb: 'FFDCFCE7' };
+            fontColor = { argb: 'FF166534' };
           } else if (val === 'revisi') {
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
-            cell.font = { name: 'Arial Narrow', size: 9.5, bold: true, color: { argb: 'FF92400E' } };
+            bgColor = { argb: 'FFFEF3C7' };
+            fontColor = { argb: 'FF92400E' };
           } else if (val === 'obsolete') {
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
-            cell.font = { name: 'Arial Narrow', size: 9.5, bold: true, color: { argb: 'FF991B1B' } };
+            bgColor = { argb: 'FFFEE2E2' };
+            fontColor = { argb: 'FF991B1B' };
           } else if (val.startsWith('menunggu acc')) {
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3E8FF' } };
-            cell.font = { name: 'Arial Narrow', size: 9.5, bold: true, color: { argb: 'FF6B21A8' } };
+            bgColor = { argb: 'FFF3E8FF' };
+            fontColor = { argb: 'FF6B21A8' };
           } else if (val === 'ditolak') {
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE4E6' } };
-            cell.font = { name: 'Arial Narrow', size: 9.5, bold: true, color: { argb: 'FF9F1239' } };
+            bgColor = { argb: 'FFFFE4E6' };
+            fontColor = { argb: 'FF9F1239' };
           } else if (val === 'telah terkirim') {
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0F2FE' } };
-            cell.font = { name: 'Arial Narrow', size: 9.5, bold: true, color: { argb: 'FF0369A1' } };
+            bgColor = { argb: 'FFE0F2FE' };
+            fontColor = { argb: 'FF0369A1' };
           } else if (val === 'belum dikirim') {
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
-            cell.font = { name: 'Arial Narrow', size: 9.5, bold: true, color: { argb: 'FF475569' } };
+            bgColor = { argb: 'FFF1F5F9' };
+            fontColor = { argb: 'FF475569' };
           } else if (val === 'telah dibaca') {
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } };
-            cell.font = { name: 'Arial Narrow', size: 9.5, bold: true, color: { argb: 'FF1E40AF' } };
+            bgColor = { argb: 'FFDBEAFE' };
+            fontColor = { argb: 'FF1E40AF' };
           } else if (val === 'menunggu') {
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0F2FE' } };
-            cell.font = { name: 'Arial Narrow', size: 9.5, bold: true, color: { argb: 'FF0369A1' } };
+            bgColor = { argb: 'FFE0F2FE' };
+            fontColor = { argb: 'FF0369A1' };
           } else {
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
-            cell.font = { name: 'Arial Narrow', size: 9.5, color: { argb: 'FF64748B' } };
+            bgColor = { argb: 'FFF8FAFC' };
+            fontColor = { argb: 'FF64748B' };
+          }
+
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: bgColor };
+
+          if (statusTimeStr) {
+            cell.value = {
+              richText: [
+                {
+                  text: doc.status_review + '\n',
+                  font: { name: 'Arial Narrow', size: 9.5, bold: true, color: fontColor },
+                },
+                {
+                  text: `(${statusTimeStr})`,
+                  font: { name: 'Arial Narrow', size: 8, italic: true, color: fontColor },
+                },
+              ],
+            };
+          } else {
+            cell.value = doc.status_review;
+            cell.font = { name: 'Arial Narrow', size: 9.5, bold: true, color: fontColor };
           }
         } else if (colNumber >= 18) {
           // Kolom Approver (Prepared, Checked, Approved)
@@ -534,7 +692,7 @@ export async function GET(request: NextRequest) {
     // Header Summary
     ws2.mergeCells('B2:H2');
     const sumTitle = ws2.getCell('B2');
-    sumTitle.value = 'RINGKASAN STATUS KEPATUHAN REVIEW PROSEDUR (ISO/IATF AUDIT)';
+    sumTitle.value = `RINGKASAN STATUS KEPATUHAN REVIEW PROSEDUR (ISO/IATF AUDIT)${filterLabels.length > 0 ? ` - ${filterLabels.join(' | ')}` : ''}`;
     sumTitle.font = { name: 'Arial Narrow', size: 13, bold: true, color: { argb: 'FFFFFFFF' } };
     sumTitle.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A8A' } }; // Navy Blue
     sumTitle.alignment = { vertical: 'middle', horizontal: 'center' };
@@ -642,11 +800,14 @@ export async function GET(request: NextRequest) {
     // Generate buffer
     const buffer = await workbook.xlsx.writeBuffer();
     const dateFormatted = new Date().toISOString().slice(0, 10);
+    const monthLabel = (monthParam !== null && monthParam !== '' && !isNaN(Number(monthParam))) ? `_${monthNames[parseInt(monthParam, 10)] || monthParam}` : '';
+    const statusLabel = statusParam ? `_${statusParam.replace(/\s+/g, '_')}` : '';
+    const filename = `DAFTAR_INDUK_DOKUMEN_${dateFormatted}${monthLabel}${statusLabel}.xlsx`;
 
     return new NextResponse(buffer, {
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'Content-Disposition': `attachment; filename="DAFTAR_INDUK_DOKUMEN_${dateFormatted}.xlsx"`,
+        'Content-Disposition': `attachment; filename="${filename}"`,
       },
     });
   } catch (error: any) {

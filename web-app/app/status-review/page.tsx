@@ -1201,7 +1201,13 @@ export default function StatusReviewPage() {
   const handleDownloadAuditExcel = async () => {
     try {
       setIsExportingAudit(true);
-      const response = await fetch('/review-prosedur/api/audit/export-excel');
+      const params = new URLSearchParams();
+      if (filterValue) params.set('status', filterValue);
+      if (monthFilter !== '') params.set('month', monthFilter);
+      if (debouncedSearch) params.set('search', debouncedSearch);
+
+      const qs = params.toString() ? `?${params.toString()}` : '';
+      const response = await fetch(`/review-prosedur/api/audit/export-excel${qs}`);
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
         throw new Error(err.error || `Server error: ${response.status}`);
@@ -1210,7 +1216,12 @@ export default function StatusReviewPage() {
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement('a');
       a.href     = url;
-      a.download = `DAFTAR_INDUK_DOKUMEN_${new Date().toISOString().slice(0, 10)}.xlsx`;
+
+      const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+      const monthLabel = monthFilter !== '' ? `_${monthNames[parseInt(monthFilter)] || monthFilter}` : '';
+      const statusLabel = filterValue ? `_${filterValue.replace(/\s+/g, '_')}` : '';
+
+      a.download = `DAFTAR_INDUK_DOKUMEN_${new Date().toISOString().slice(0, 10)}${monthLabel}${statusLabel}.xlsx`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1424,7 +1435,7 @@ export default function StatusReviewPage() {
               <button
                 onClick={handleDownloadAuditExcel}
                 disabled={isExportingAudit}
-                title="Unduh Rekap Matriks Status Review & Approval untuk Audit Mutu ISO 9001 / IATF 16949"
+                title={hasFilter ? 'Unduh Rekap Audit sesuai filter yang aktif (Status/Bulan/Pencarian)' : 'Unduh Rekap Matriks Status Review & Approval untuk Audit Mutu ISO 9001 / IATF 16949'}
                 className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 hover:border-indigo-300 transition-all shadow-sm active:scale-95 disabled:opacity-60"
               >
                 <FileSpreadsheet size={14} className={isExportingAudit ? 'animate-spin' : ''} />
