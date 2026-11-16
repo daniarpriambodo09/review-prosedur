@@ -184,11 +184,12 @@ export async function PATCH(request: NextRequest) {
   const client = await pool.connect();
   try {
     const body = await request.json();
-    const kode      = (body.kode || '').trim().toUpperCase();
-    const email     = body.email !== undefined ? String(body.email).trim() : undefined;
-    const nama      = body.nama !== undefined ? String(body.nama).trim() : undefined;
-    const jabatan   = body.jabatan !== undefined ? (body.jabatan ? String(body.jabatan).trim() : null) : undefined;
-    const isManager = typeof body.isManager === 'boolean' ? body.isManager : undefined;
+    const originalKode = (body.originalKode || body.oldKode || body.kode || '').trim().toUpperCase();
+    const targetKode   = (body.newKode || body.kode || '').trim().toUpperCase();
+    const email        = body.email !== undefined ? String(body.email).trim() : undefined;
+    const nama         = body.nama !== undefined ? String(body.nama).trim() : undefined;
+    const jabatan      = body.jabatan !== undefined ? (body.jabatan ? String(body.jabatan).trim() : null) : undefined;
+    const isManager    = typeof body.isManager === 'boolean' ? body.isManager : undefined;
 
     const sectionIds: number[] | undefined = Array.isArray(body.sectionIds)
       ? body.sectionIds.map((id: any) => Number(id)).filter((n: number) => !isNaN(n))
@@ -200,15 +201,32 @@ export async function PATCH(request: NextRequest) {
     let unitType = body.unitType; // 'department' | 'section' | null
     let unitId = body.unitId !== undefined ? body.unitId : undefined;
 
-    if (!kode) {
-      return NextResponse.json({ error: 'Kode staff wajib diisi' }, { status: 400 });
+    if (!originalKode) {
+      return NextResponse.json({ error: 'Kode staff awal wajib diisi' }, { status: 400 });
+    }
+    if (!targetKode) {
+      return NextResponse.json({ error: 'Kode staff baru tidak boleh kosong' }, { status: 400 });
     }
 
-    const existing = await client.query(`SELECT * FROM staff_directory WHERE kode = $1`, [kode]);
+    const existing = await client.query(`SELECT * FROM staff_directory WHERE kode = $1`, [originalKode]);
     if (existing.rows.length === 0) {
       return NextResponse.json({ error: 'Staff tidak ditemukan' }, { status: 404 });
     }
     const current = existing.rows[0];
+
+    // Jika kode diubah, periksa apakah targetKode sudah dipakai oleh orang lain
+    if (targetKode !== originalKode) {
+      const duplicateCheck = await client.query(
+        `SELECT kode, nama FROM staff_directory WHERE kode = $1`,
+        [targetKode]
+      );
+      if (duplicateCheck.rows.length > 0) {
+        return NextResponse.json(
+          { error: `Kode staff '${targetKode}' sudah digunakan oleh ${duplicateCheck.rows[0].nama}` },
+          { status: 409 }
+        );
+      }
+    }
 
     // Determine unit_type & unit_id if sectionIds or departmentId were provided
     if (departmentId !== undefined || sectionIds !== undefined) {
@@ -235,35 +253,100 @@ export async function PATCH(request: NextRequest) {
 
     const result = await client.query(
       `UPDATE staff_directory
-       SET email       = $1,
-           nama        = $2,
-           jabatan     = $3,
-           unit_type   = $4,
-           unit_id     = $5,
-           is_manager  = $6,
+       SET kode        = $1,
+           email       = $2,
+           nama        = $3,
+           jabatan     = $4,
+           unit_type   = $5,
+           unit_id     = $6,
+           is_manager  = $7,
            updated_at  = CURRENT_TIMESTAMP
-       WHERE kode = $7
+       WHERE kode = $8
        RETURNING *`,
       [
+        targetKode,
         email !== undefined ? email : current.email,
         nama !== undefined ? nama : current.nama,
         jabatan !== undefined ? jabatan : current.jabatan,
         unitType !== undefined ? unitType : current.unit_type,
         unitType !== undefined ? unitId   : current.unit_id,
         isManager !== undefined ? isManager : current.is_manager,
-        kode,
+        originalKode,
       ]
     );
 
+    // Jika kode staff berubah, sinkronkan juga penugasan PIC di procedure_documents dan arsip_prosedur
+    if (targetKode !== originalKode) {
+      await client.query(`
+        UPDATE procedure_documents
+        SET pic = array_to_string(
+          ARRAY(
+            SELECT CASE WHEN UPPER(trim(x)) = $1 THEN $2 ELSE trim(x) END
+            FROM unnest(string_to_array(pic, ',')) AS x
+          ),
+          ', '
+        )
+        WHERE $1 = ANY(string_to_array(REPLACE(UPPER(pic), ' ', ''), ','));
+      `, [originalKode, targetKode]);
+
+      await client.query(`
+        UPDATE arsip_prosedur
+        SET pic = array_to_string(
+          ARRAY(
+            SELECT CASE WHEN UPPER(trim(x)) = $1 THEN $2 ELSE trim(x) END
+            FROM unnest(string_to_array(pic, ',')) AS x
+          ),
+          ', '
+        )
+        WHERE $1 = ANY(string_to_array(REPLACE(UPPER(pic), ' ', ''), ','));
+      `, [originalKode, targetKode]);
+
+      await client.query(`
+        UPDATE pic_otp
+        SET pic = $2
+        WHERE UPPER(pic) = $1
+      `, [originalKode, targetKode]);
+    }
+
+    // Jika isManager diubah secara eksplisit
+    if (isManager !== undefined) {
+      const activeDeptId = departmentId !== undefined ? departmentId : (current.unit_type === 'department' ? current.unit_id : null);
+      if (isManager && activeDeptId) {
+        await client.query(
+          `INSERT INTO department_managers (department_id, manager_kode)
+           VALUES ($1, $2)
+           ON CONFLICT (department_id, manager_kode) DO NOTHING`,
+          [activeDeptId, targetKode]
+        );
+      } else if (!isManager) {
+        await client.query(
+          `DELETE FROM department_managers WHERE manager_kode = $1`,
+          [targetKode]
+        );
+      }
+    }
+
+    // Update nama/email di pic_users jika ada user terdaftar dengan email ini
+    if ((nama !== undefined || email !== undefined) && current.email) {
+      const newNama = nama !== undefined ? nama : current.nama;
+      const newEmail = email !== undefined ? email : current.email;
+      await client.query(
+        `UPDATE pic_users
+         SET full_name = $1, email = $2, updated_at = NOW()
+         WHERE LOWER(email) = LOWER($3)`,
+        [newNama, newEmail, current.email]
+      );
+    }
+
     // Sync staff_sections if sectionIds was provided
     if (sectionIds !== undefined) {
-      await client.query(`DELETE FROM staff_sections WHERE staff_kode = $1`, [kode]);
+      await client.query(`DELETE FROM staff_sections WHERE staff_kode = $1`, [targetKode]);
       for (const sId of sectionIds) {
         await client.query(
           `INSERT INTO staff_sections (staff_kode, section_id)
            VALUES ($1, $2)
            ON CONFLICT (staff_kode, section_id) DO NOTHING`,
-          [kode, sId]
+          [targetKode, sId]
         );
       }
     } else if (unitType === 'section' && unitId) {
@@ -271,7 +354,7 @@ export async function PATCH(request: NextRequest) {
         `INSERT INTO staff_sections (staff_kode, section_id)
          VALUES ($1, $2)
          ON CONFLICT (staff_kode, section_id) DO NOTHING`,
-        [kode, unitId]
+        [targetKode, unitId]
       );
     }
 
@@ -286,10 +369,13 @@ export async function PATCH(request: NextRequest) {
       unitId:       result.rows[0].unit_id,
       isManager:    result.rows[0].is_manager,
     });
-  } catch (error) {
+  } catch (error: any) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('Error updating staff:', error);
-    return NextResponse.json({ error: 'Failed to update staff' }, { status: 500 });
+    if (error.code === '23505') {
+      return NextResponse.json({ error: 'Kode staff sudah dipakai' }, { status: 409 });
+    }
+    return NextResponse.json({ error: error.message || 'Failed to update staff' }, { status: 500 });
   } finally {
     client.release();
   }

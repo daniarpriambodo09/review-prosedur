@@ -1,0 +1,250 @@
+<mxfile host="app.diagrams.net" modified="2026-11-12T05:00:00.000Z" agent="Antigravity" version="24.0.0" type="device">
+  <diagram id="workflow-qms-diagram" name="Workflow Review Prosedur">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title Header -->
+        <mxCell id="title" value="&lt;b style=&quot;font-size: 20px;&quot;&gt;FLOWCHART WORKFLOW SISTEM REVIEW PROSEDUR (QMS)&lt;/b&gt;&lt;br&gt;PT JAI - Quality Management System Procedure Workflow" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+          <mxGeometry x="380" y="20" width="760" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- SWIMLANE 1: PIC & MONITORING -->
+        <mxCell id="lane1" value="FASE 1: MONITORING &amp; REVIEW BERKALA (PIC)" style="swimlane;whiteSpace=wrap;html=1;startSize=36;fillColor=#F0F9FF;strokeColor=#0284C7;fontStyle=1;fontSize=13;fontColor=#0369A1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="440" height="960" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node_start" value="Mulai Siklus Tahunan" style="rounded=1;whiteSpace=wrap;html=1;arcSize=50;fillColor=#E0F2FE;strokeColor=#0284C7;fontStyle=1;fontColor=#0369A1;" vertex="1" parent="lane1">
+          <mxGeometry x="140" y="55" width="160" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node_cron" value="Cron Job / Background Scheduler&#xa;(APScheduler memeriksa jatuh tempo)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#0284C7;fontSize=11;" vertex="1" parent="lane1">
+          <mxGeometry x="110" y="125" width="220" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node_email" value="Kirim Notifikasi Email ke PIC&#xa;(SMTP Email Service)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#0284C7;fontSize=11;" vertex="1" parent="lane1">
+          <mxGeometry x="110" y="205" width="220" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node_pic_login" value="PIC Login ke Dashboard&#xa;Buka PDF Prosedur di Viewer" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#0284C7;fontSize=11;" vertex="1" parent="lane1">
+          <mxGeometry x="110" y="285" width="220" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node_eval_pic" value="Evaluasi Status&#xa;Prosedur?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FEF3C7;strokeColor=#D97706;fontStyle=1;fontColor=#92400E;fontSize=11;" vertex="1" parent="lane1">
+          <mxGeometry x="145" y="365" width="150" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node_relevan" value="Status: TETAP RELEVAN&#xa;(Update tanggal masa berlaku)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#DCFCE7;strokeColor=#16A34A;fontColor=#166534;fontSize=11;" vertex="1" parent="lane1">
+          <mxGeometry x="20" y="475" width="160" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node_obsolete" value="Status: OBSOLETE&#xa;(Pindahkan ke Arsip Prosedur)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FEE2E2;strokeColor=#DC2626;fontColor=#991B1B;fontSize=11;" vertex="1" parent="lane1">
+          <mxGeometry x="260" y="475" width="160" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node_revisi" value="Status: PERLU REVISI&#xa;PIC Unggah Draf Revisi Baru&#xa;&amp; Catatan Perubahan" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FEF9C3;strokeColor=#CA8A04;fontColor=#854D0E;fontSize=11;" vertex="1" parent="lane1">
+          <mxGeometry x="110" y="565" width="220" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node_req_submit" value="Kirim Request Revisi ke Admin&#xa;(Status: Waiting Admin Setup)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#0284C7;fontSize=11;" vertex="1" parent="lane1">
+          <mxGeometry x="110" y="655" width="220" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Edges in Lane 1 -->
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0.5;entryY=0;strokeColor=#0284C7;" edge="1" parent="lane1" source="node_start" target="node_cron">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0.5;entryY=0;strokeColor=#0284C7;" edge="1" parent="lane1" source="node_cron" target="node_email">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0.5;entryY=0;strokeColor=#0284C7;" edge="1" parent="lane1" source="node_email" target="node_pic_login">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0.5;entryY=0;strokeColor=#0284C7;" edge="1" parent="lane1" source="node_pic_login" target="node_eval_pic">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="Relevan" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0.5;entryY=0;strokeColor=#16A34A;fontColor=#16A34A;fontSize=10;" edge="1" parent="lane1" source="node_eval_pic" target="node_relevan">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" value="Obsolete" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0.5;entryY=0;strokeColor=#DC2626;fontColor=#DC2626;fontSize=10;" edge="1" parent="lane1" source="node_eval_pic" target="node_obsolete">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" value="Revisi" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0.5;entryY=0;strokeColor=#CA8A04;fontColor=#CA8A04;fontSize=10;" edge="1" parent="lane1" source="node_eval_pic" target="node_revisi">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0.5;entryY=0;strokeColor=#0284C7;" edge="1" parent="lane1" source="node_revisi" target="node_req_submit">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- SWIMLANE 2: ADMIN & APPROVAL MATRIX -->
+        <mxCell id="lane2" value="FASE 2: MATRIKS APPROVAL BERJENJANG (APPROVAL CYCLE)" style="swimlane;whiteSpace=wrap;html=1;startSize=36;fillColor=#FAF5FF;strokeColor=#7E22CE;fontStyle=1;fontSize=13;fontColor=#6B21A8;" vertex="1" parent="1">
+          <mxGeometry x="510" y="80" width="500" height="960" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node_admin_setup" value="Admin Menetapkan Approver&#xa;&amp; Upload Dokumen Draf Final" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#7E22CE;fontSize=11;" vertex="1" parent="lane2">
+          <mxGeometry x="135" y="55" width="230" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node_start_approval" value="Admin Inisiasi Siklus Approval&#xa;(Sistem Buat Token Unik Tiap Role)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#7E22CE;fontSize=11;" vertex="1" parent="lane2">
+          <mxGeometry x="135" y="135" width="230" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node_appr1" value="Approver 1: PREPARED&#xa;Buka Link /acc/[token] via Email" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F3E8FF;strokeColor=#9333EA;fontStyle=1;fontColor=#581C87;fontSize=11;" vertex="1" parent="lane2">
+          <mxGeometry x="135" y="215" width="230" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node_dec1" value="Keputusan&#xa;Prepared?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FEF3C7;strokeColor=#D97706;fontStyle=1;fontSize=11;" vertex="1" parent="lane2">
+          <mxGeometry x="180" y="295" width="140" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node_appr2" value="Approver 2: CHECKED&#xa;Notifikasi Email Token Aktif" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F3E8FF;strokeColor=#9333EA;fontStyle=1;fontColor=#581C87;fontSize=11;" vertex="1" parent="lane2">
+          <mxGeometry x="135" y="395" width="230" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node_dec2" value="Keputusan&#xa;Checked?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FEF3C7;strokeColor=#D97706;fontStyle=1;fontSize=11;" vertex="1" parent="lane2">
+          <mxGeometry x="180" y="475" width="140" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node_appr3" value="Approver 3: APPROVED&#xa;Pengesahan Top Management" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F3E8FF;strokeColor=#9333EA;fontStyle=1;fontColor=#581C87;fontSize=11;" vertex="1" parent="lane2">
+          <mxGeometry x="135" y="575" width="230" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node_dec3" value="Keputusan&#xa;Approved?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FEF3C7;strokeColor=#D97706;fontStyle=1;fontSize=11;" vertex="1" parent="lane2">
+          <mxGeometry x="180" y="655" width="140" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node_rejected" value="DITOLAK (REJECT)&#xa;Status Dokumen = Revisi&#xa;Alasan Penolakan Dikirim ke PIC" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FEE2E2;strokeColor=#DC2626;fontColor=#991B1B;fontStyle=1;fontSize=11;" vertex="1" parent="lane2">
+          <mxGeometry x="135" y="780" width="230" height="55" as="geometry" />
+        </mxCell>
+
+        <!-- Edges in Lane 2 -->
+        <mxCell id="e9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0.5;entryY=0;strokeColor=#7E22CE;" edge="1" parent="lane2" source="node_admin_setup" target="node_start_approval">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0.5;entryY=0;strokeColor=#7E22CE;" edge="1" parent="lane2" source="node_start_approval" target="node_appr1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0.5;entryY=0;strokeColor=#7E22CE;" edge="1" parent="lane2" source="node_appr1" target="node_dec1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e12" value="ACC" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0.5;entryY=0;strokeColor=#16A34A;fontColor=#16A34A;fontStyle=1;fontSize=10;" edge="1" parent="lane2" source="node_dec1" target="node_appr2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0.5;entryY=0;strokeColor=#7E22CE;" edge="1" parent="lane2" source="node_appr2" target="node_dec2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e14" value="ACC" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0.5;entryY=0;strokeColor=#16A34A;fontColor=#16A34A;fontStyle=1;fontSize=10;" edge="1" parent="lane2" source="node_dec2" target="node_appr3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e15" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0.5;entryY=0;strokeColor=#7E22CE;" edge="1" parent="lane2" source="node_appr3" target="node_dec3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Reject Edges to node_rejected -->
+        <mxCell id="e_rej1" value="Tolak" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=1;entryY=0.25;strokeColor=#DC2626;fontColor=#DC2626;fontSize=10;" edge="1" parent="lane2" source="node_dec1" target="node_rejected">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="430" y="330" />
+              <mxPoint x="430" y="794" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_rej2" value="Tolak" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=1;entryY=0.5;strokeColor=#DC2626;fontColor=#DC2626;fontSize=10;" edge="1" parent="lane2" source="node_dec2" target="node_rejected">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="400" y="510" />
+              <mxPoint x="400" y="808" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_rej3" value="Tolak" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=1;entryY=0.75;strokeColor=#DC2626;fontColor=#DC2626;fontSize=10;" edge="1" parent="lane2" source="node_dec3" target="node_rejected">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="370" y="690" />
+              <mxPoint x="370" y="821" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- SWIMLANE 3: FINALISASI & VERIFIKASI -->
+        <mxCell id="lane3" value="FASE 3: STEMPEL &amp; VERIFIKASI DOKUMEN" style="swimlane;whiteSpace=wrap;html=1;startSize=36;fillColor=#F0FDF4;strokeColor=#16A34A;fontStyle=1;fontSize=13;fontColor=#166534;" vertex="1" parent="1">
+          <mxGeometry x="1040" y="80" width="440" height="960" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node_complete" value="Semua Stage Telah Di-ACC&#xa;(Status: Completed)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DCFCE7;strokeColor=#16A34A;fontColor=#166534;fontStyle=1;fontSize=11;" vertex="1" parent="lane3">
+          <mxGeometry x="110" y="215" width="220" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node_stamp" value="Admin Melakukan Date Stamping&#xa;Tetapkan Tanggal Selesai Approval" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#16A34A;fontSize=11;" vertex="1" parent="lane3">
+          <mxGeometry x="110" y="305" width="220" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node_qr" value="Generate QR Code Verifikasi Unik&#xa;&amp; Terbitkan PDF Resmi Baru" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#16A34A;fontSize=11;" vertex="1" parent="lane3">
+          <mxGeometry x="110" y="395" width="220" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node_archive" value="Arsipkan Versi Dokumen Lama&#xa;(Tabel: arsip_prosedur)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#16A34A;fontSize=11;" vertex="1" parent="lane3">
+          <mxGeometry x="110" y="485" width="220" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node_verify_portal" value="Portal Verifikasi Publik&#xa;/verify/[code]&#xa;(Scan QR Dokumen Tanpa Perlu Login)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#DCFCE7;strokeColor=#16A34A;fontColor=#166534;fontStyle=1;fontSize=11;" vertex="1" parent="lane3">
+          <mxGeometry x="100" y="575" width="240" height="65" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node_end" value="Selesai &amp; Jadwalkan&#xa;Siklus Review Tahun Depan" style="rounded=1;whiteSpace=wrap;html=1;arcSize=50;fillColor=#E0F2FE;strokeColor=#0284C7;fontStyle=1;fontColor=#0369A1;" vertex="1" parent="lane3">
+          <mxGeometry x="120" y="685" width="200" height="45" as="geometry" />
+        </mxCell>
+
+        <!-- Edges in Lane 3 -->
+        <mxCell id="e16" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0.5;entryY=0;strokeColor=#16A34A;" edge="1" parent="lane3" source="node_complete" target="node_stamp">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e17" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0.5;entryY=0;strokeColor=#16A34A;" edge="1" parent="lane3" source="node_stamp" target="node_qr">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e18" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0.5;entryY=0;strokeColor=#16A34A;" edge="1" parent="lane3" source="node_qr" target="node_archive">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e19" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0.5;entryY=0;strokeColor=#16A34A;" edge="1" parent="lane3" source="node_archive" target="node_verify_portal">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e20" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0.5;entryY=0;strokeColor=#16A34A;" edge="1" parent="lane3" source="node_verify_portal" target="node_end">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- INTER-LANE EDGES -->
+        <!-- Lane 1 Request to Lane 2 Setup -->
+        <mxCell id="cross1" value="Upload Dokumen Baru" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0;entryY=0.5;strokeColor=#0284C7;fontColor=#0284C7;fontSize=10;" edge="1" parent="1" source="node_req_submit" target="node_admin_setup">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="490" y="760" />
+              <mxPoint x="490" y="160" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Lane 2 Approved to Lane 3 Complete -->
+        <mxCell id="cross2" value="Semua Stage Di-ACC" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0;entryY=0.5;strokeColor=#16A34A;fontColor=#16A34A;fontStyle=1;fontSize=10;" edge="1" parent="1" source="node_dec3" target="node_complete">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1025" y="770" />
+              <mxPoint x="1025" y="320" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Lane 2 Rejected back to Lane 1 Revisi -->
+        <mxCell id="cross3" value="Reset &amp; Draf Kembali ke PIC" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0.5;entryY=1;strokeColor=#DC2626;fontColor=#DC2626;fontSize=10;" edge="1" parent="1" source="node_rejected" target="node_revisi">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="760" y="930" />
+              <mxPoint x="260" y="930" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

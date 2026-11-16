@@ -857,45 +857,63 @@ function StaffTab({
   const [searchQuery, setSearchQuery] = useState('');
   const [editingKode, setEditingKode] = useState<string | null>(null);
   const [deletingKode, setDeletingKode] = useState<string | null>(null);
+  const [editNama, setEditNama] = useState('');
+  const [editNewKode, setEditNewKode] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editJabatan, setEditJabatan] = useState('');
   const [editSectionIds, setEditSectionIds] = useState<number[]>([]);
   const [editDepartmentId, setEditDepartmentId] = useState<number | ''>('');
   const [editIsManager, setEditIsManager] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [filterUnassigned, setFilterUnassigned] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
 
   const startEdit = (s: Staff) => {
     setEditingKode(s.kode);
-    setEditEmail(s.email);
+    setEditNama(s.nama || '');
+    setEditNewKode(s.kode || '');
+    setEditEmail(s.email || '');
     setEditJabatan(s.jabatan || '');
     setEditSectionIds((s.sections ?? []).map(sec => sec.id));
     setEditDepartmentId(s.departmentId ?? '');
     setEditIsManager(s.isManager);
   };
 
-  const handleSave = async (kode: string) => {
+  const handleSave = async (originalKode: string) => {
+    if (!editNama.trim()) { showWarning('Nama lengkap tidak boleh kosong'); return; }
+    if (!editNewKode.trim()) { showWarning('Kode staff tidak boleh kosong'); return; }
     if (!editEmail.trim()) { showWarning('Email tidak boleh kosong'); return; }
-    const res = await fetch('/review-prosedur/api/staff', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        kode,
-        email: editEmail.trim(),
-        jabatan: editJabatan.trim() || null,
-        sectionIds: editSectionIds,
-        departmentId: editDepartmentId || null,
-        isManager: editIsManager,
-      }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      showError(err.error || 'Gagal menyimpan');
-      return;
+
+    setIsSaving(true);
+    try {
+      const res = await fetch('/review-prosedur/api/staff', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          originalKode,
+          newKode: editNewKode.trim().toUpperCase(),
+          nama: editNama.trim(),
+          email: editEmail.trim(),
+          jabatan: editJabatan.trim() || null,
+          sectionIds: editSectionIds,
+          departmentId: editDepartmentId || null,
+          isManager: editIsManager,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showError(err.error || 'Gagal menyimpan perubahan');
+        return;
+      }
+      setEditingKode(null);
+      showSuccess('Data staff & manager berhasil diperbarui!');
+      onRefresh();
+    } catch (err: any) {
+      console.error('Error updating staff:', err);
+      showError('Terjadi kesalahan saat menyimpan perubahan: ' + (err.message || 'Error'));
+    } finally {
+      setIsSaving(false);
     }
-    setEditingKode(null);
-    showSuccess('Data staff berhasil diperbarui!');
-    onRefresh();
   };
 
   const handleDelete = async (s: Staff) => {
@@ -1020,11 +1038,11 @@ function StaffTab({
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-x-auto">
-        <table className="w-full min-w-[820px]">
+        <table className="w-full min-w-[880px]">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
-              <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider">Nama</th>
-              <th className="px-2 py-2.5 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider w-16">Kode</th>
+              <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider min-w-[170px]">Nama</th>
+              <th className="px-3 py-2.5 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider w-36 min-w-[120px]">Kode</th>
               <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider w-48">Email</th>
               <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider w-28">Jabatan</th>
               <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider w-44">Section</th>
@@ -1036,20 +1054,59 @@ function StaffTab({
           <tbody className="divide-y divide-slate-100">
             {displayedStaff.map(s => {
               const needsCheck = (s.sections ?? []).length === 0 && !s.departmentId;
+              const isEditing = editingKode === s.kode;
               return (
-                <tr key={s.kode} className={needsCheck ? 'bg-amber-50/40' : ''}>
-                  <td className="px-3.5 py-2 text-xs font-medium text-slate-800">{s.nama}</td>
-                  <td className="px-2 py-2 text-xs font-mono text-slate-500">{s.kode}</td>
+                <tr key={s.kode} className={isEditing ? 'bg-blue-50/40' : (needsCheck ? 'bg-amber-50/40' : '')}>
                   <td className="px-3.5 py-2 text-xs">
-                    {editingKode === s.kode ? (
-                      <input type="email" value={editEmail} onChange={e => setEditEmail(e.target.value)} className={fieldCls} />
+                    {isEditing ? (
+                      <input
+                        type="text"
+                        value={editNama}
+                        onChange={e => setEditNama(e.target.value)}
+                        placeholder="Nama lengkap"
+                        className={fieldCls}
+                        disabled={isSaving}
+                      />
+                    ) : (
+                      <span className="font-medium text-slate-800">{s.nama}</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-xs">
+                    {isEditing ? (
+                      <input
+                        type="text"
+                        value={editNewKode}
+                        onChange={e => setEditNewKode(e.target.value.toUpperCase())}
+                        placeholder="Kode"
+                        className={fieldCls + ' font-mono uppercase text-center w-full min-w-[110px] font-semibold tracking-wider px-2.5'}
+                        disabled={isSaving}
+                      />
+                    ) : (
+                      <span className="font-mono text-slate-500">{s.kode}</span>
+                    )}
+                  </td>
+                  <td className="px-3.5 py-2 text-xs">
+                    {isEditing ? (
+                      <input
+                        type="email"
+                        value={editEmail}
+                        onChange={e => setEditEmail(e.target.value)}
+                        className={fieldCls}
+                        disabled={isSaving}
+                      />
                     ) : (
                       <span className="text-slate-600">{s.email}</span>
                     )}
                   </td>
                   <td className="px-3.5 py-2 text-xs">
-                    {editingKode === s.kode ? (
-                      <input value={editJabatan} onChange={e => setEditJabatan(e.target.value)} placeholder="mis. SPV" className={fieldCls} />
+                    {isEditing ? (
+                      <input
+                        value={editJabatan}
+                        onChange={e => setEditJabatan(e.target.value)}
+                        placeholder="mis. SPV"
+                        className={fieldCls}
+                        disabled={isSaving}
+                      />
                     ) : (
                       <span className="text-slate-600">{s.jabatan || <em className="text-slate-400">-</em>}</span>
                     )}
@@ -1058,7 +1115,7 @@ function StaffTab({
                     )}
                   </td>
                   <td className="px-3.5 py-2 text-xs">
-                    {editingKode === s.kode ? (
+                    {isEditing ? (
                       <SectionMultiPicker sections={sections} selectedIds={editSectionIds} onChange={setEditSectionIds} />
                     ) : (
                       <div className="flex items-start gap-1">
@@ -1078,8 +1135,13 @@ function StaffTab({
                     )}
                   </td>
                   <td className="px-3.5 py-2 text-xs">
-                    {editingKode === s.kode ? (
-                      <select value={editDepartmentId} onChange={e => setEditDepartmentId(e.target.value ? Number(e.target.value) : '')} className={selectCls + ' w-full'}>
+                    {isEditing ? (
+                      <select
+                        value={editDepartmentId}
+                        onChange={e => setEditDepartmentId(e.target.value ? Number(e.target.value) : '')}
+                        className={selectCls + ' w-full'}
+                        disabled={isSaving}
+                      >
                         <option value="">Tidak ada</option>
                         {departments.map(d => <option key={d.id} value={d.id}>{d.nama}</option>)}
                       </select>
@@ -1090,10 +1152,11 @@ function StaffTab({
                     )}
                   </td>
                   <td className="px-2 py-2 text-xs text-center">
-                    {editingKode === s.kode ? (
+                    {isEditing ? (
                       <button
                         type="button"
                         onClick={() => setEditIsManager(v => !v)}
+                        disabled={isSaving}
                         className="inline-flex items-center justify-center p-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
                         title={editIsManager ? 'Manager (Klik untuk ubah)' : 'Bukan Manager (Klik untuk ubah)'}
                       >
@@ -1108,19 +1171,22 @@ function StaffTab({
                     )}
                   </td>
                   <td className="px-3.5 py-2 whitespace-nowrap text-right">
-                    {editingKode === s.kode ? (
+                    {isEditing ? (
                       <div className="flex items-center justify-end gap-1.5">
                         <button
                           type="button"
                           onClick={() => handleSave(s.kode)}
-                          className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-all cursor-pointer"
+                          disabled={isSaving}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-xs transition-all cursor-pointer"
                         >
-                          Simpan
+                          {isSaving && <span className="animate-spin w-3 h-3 border-2 border-white/40 border-t-white rounded-full" />}
+                          {isSaving ? 'Menyimpan...' : 'Simpan'}
                         </button>
                         <button
                           type="button"
                           onClick={() => setEditingKode(null)}
-                          className="px-2 py-1 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg text-xs font-medium transition-all cursor-pointer"
+                          disabled={isSaving}
+                          className="px-2 py-1 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg text-xs font-medium transition-all cursor-pointer disabled:opacity-50"
                         >
                           Batal
                         </button>
@@ -1131,7 +1197,7 @@ function StaffTab({
                           type="button"
                           onClick={() => startEdit(s)}
                           className="w-7 h-7 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-all cursor-pointer"
-                          title="Edit staff"
+                          title="Edit staff & manager"
                         >
                           <Pencil size={13} />
                         </button>
