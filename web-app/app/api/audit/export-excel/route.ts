@@ -170,7 +170,9 @@ export async function GET(request: NextRequest) {
             WHEN c_latest.cycle_status = 'completed' AND c_latest.completed_at IS NOT NULL THEN c_latest.completed_at
             WHEN c_latest.cycle_status = 'in_progress' THEN NULL
             ELSE pd.tanggal_selesai_approval::timestamp
-          END as selesai_approval_at
+          END as selesai_approval_at,
+          pf_active.file_path,
+          pf_active.file_name
         FROM procedure_documents pd
         LEFT JOIN LATERAL (
           SELECT status, updated_at, created_at
@@ -202,6 +204,13 @@ export async function GET(request: NextRequest) {
           WHERE nomor_dokumen = pd.nomor_dokumen AND uploaded_by != 'system' AND file_path NOT LIKE '%_stamped.pdf%'
           ORDER BY version DESC, id DESC LIMIT 1
         ) pf_admin ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT file_path, file_name
+          FROM procedure_files
+          WHERE nomor_dokumen = pd.nomor_dokumen
+          ORDER BY (CASE WHEN is_active THEN 0 ELSE 1 END), version DESC, id DESC
+          LIMIT 1
+        ) pf_active ON TRUE
         ORDER BY 
           CASE WHEN pd.block_activity IS NULL OR pd.block_activity = '' THEN 0 ELSE 1 END,
           pd.block_activity ASC,
@@ -312,6 +321,22 @@ export async function GET(request: NextRequest) {
         );
       });
     }
+
+    // Tentukan base URL aplikasi untuk pembuatan hyperlink dokumen PDF
+    const hostHeader = request.headers.get('x-forwarded-host') || request.headers.get('host');
+    const protoHeader = request.headers.get('x-forwarded-proto') || (request.url.startsWith('https') ? 'https' : 'http');
+
+    let origin = hostHeader ? `${protoHeader}://${hostHeader}` : '';
+    if (!origin && process.env.NEXT_PUBLIC_APP_URL) {
+      try {
+        const envUrl = new URL(process.env.NEXT_PUBLIC_APP_URL);
+        origin = envUrl.origin;
+      } catch (e) {}
+    }
+    if (!origin) {
+      origin = request.nextUrl.origin || 'http://localhost:3090';
+    }
+    const appBase = `${origin}/review-prosedur`;
 
     // Helper untuk memformat nama approver per role
     const formatRoleApprovers = (docNum: string, role: string): string => {
@@ -561,9 +586,38 @@ export async function GET(request: NextRequest) {
         };
 
         if (colNumber === 3) {
-          // Kolom Dokumen (Nama Dokumen)
+          // Kolom Dokumen (Nama Dokumen) - Hyperlink untuk melihat dokumen PDF
           cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
-          cell.font = { name: 'Arial Narrow', size: 9.5, color: { argb: 'FF1D4ED8' } }; // Blue text seperti hyperlink
+
+          if (doc.file_path) {
+            const cleanPath = String(doc.file_path).replace(/^[/\\]+/, '');
+            const pdfUrl = `${appBase}/api/files/serve?path=${encodeURIComponent(cleanPath)}`;
+            cell.value = {
+              text: doc.nama_dokumen || cleanDocumentNumber(doc.nomor_dokumen),
+              hyperlink: pdfUrl,
+              tooltip: `Klik untuk membuka dokumen PDF: ${doc.nama_dokumen || cleanDocumentNumber(doc.nomor_dokumen)}`,
+            };
+            cell.font = {
+              name: 'Arial Narrow',
+              size: 9.5,
+              color: { argb: 'FF1D4ED8' },
+              underline: true,
+            };
+          } else {
+            // Jika file belum diunggah di sistem, arahkan ke halaman detail dokumen di aplikasi
+            const docPageUrl = `${appBase}/status-review/${encodeURIComponent(doc.nomor_dokumen)}`;
+            cell.value = {
+              text: doc.nama_dokumen || cleanDocumentNumber(doc.nomor_dokumen),
+              hyperlink: docPageUrl,
+              tooltip: `Buka halaman detail dokumen: ${doc.nama_dokumen || cleanDocumentNumber(doc.nomor_dokumen)} (File PDF belum tersedia)`,
+            };
+            cell.font = {
+              name: 'Arial Narrow',
+              size: 9.5,
+              color: { argb: 'FF2563EB' },
+              underline: true,
+            };
+          }
         } else if (colNumber === 4) {
           // Kolom Nomor Dokumen
           cell.alignment = { vertical: 'middle', horizontal: 'center' };
