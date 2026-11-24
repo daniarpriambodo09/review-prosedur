@@ -1,6 +1,6 @@
 // app/api/email-schedule-settings/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import pool from '@/lib/db';
+import pool, { formatTimestampLocal } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -224,7 +224,7 @@ export async function POST(request: NextRequest) {
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = $3;
             `,
-            [newPicDate.toISOString(), newMgrDate.toISOString(), row.id]
+            [formatTimestampLocal(newPicDate), formatTimestampLocal(newMgrDate), row.id]
           );
           updatedPendingCount++;
         }

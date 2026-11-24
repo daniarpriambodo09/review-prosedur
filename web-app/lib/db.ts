@@ -15,13 +15,19 @@ const pool = new Pool({
 });
 
 // Test connection
-pool.on('connect', () => {
-  console.log('✅ Connected to PostgreSQL database');
-});
+  pool.on('connect', (client) => {
+    client.query("SET TIME ZONE 'Asia/Jakarta'").catch(() => { });
+    console.log('✅ Connected to PostgreSQL database');
+  });
 
-pool.on('error', (err) => {
-  console.error('❌ Unexpected database error:', err);
-  process.exit(-1);
-});
+  pool.on('error', (err) => {
+    console.error('❌ Unexpected database error:', err);
+    process.exit(-1);
+  });
 
-export default pool;
+  export function formatTimestampLocal(d: Date): string {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  }
+
+  export default pool;

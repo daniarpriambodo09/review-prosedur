@@ -7,7 +7,7 @@ import {
   getAllProcedures,
   getDocumentReview,
   archiveProcedure,
-  markReviewAsSeen, 
+  markReviewAsSeen,
   hasUnseenReview,
 } from '@/data/procedures/all-procedures';
 import Link from 'next/link';
@@ -33,7 +33,7 @@ import { useDialog } from '@/contexts/DialogContext';
 function formatToDDMonYYYY(iso: string): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return iso;
-  const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const M = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   return `${d.getDate()}-${M[d.getMonth()]}-${d.getFullYear()}`;
 }
 
@@ -41,12 +41,12 @@ function isInReviewRange(tanggalApproval: string): boolean {
   if (!tanggalApproval) return false;
   const d = new Date(tanggalApproval);
   if (isNaN(d.getTime())) return false;
-  const now      = new Date();
-  const expiry   = new Date(d.getFullYear(), d.getMonth() + 2, d.getDate());
+  const now = new Date();
+  const expiry = new Date(d.getFullYear(), d.getMonth() + 2, d.getDate());
   if (now >= expiry) return false;
   const schedDate = new Date(d.getFullYear(), d.getMonth() - 2, 1);
-  const schedYM   = schedDate.getFullYear() * 12 + schedDate.getMonth();
-  const nowYM     = now.getFullYear() * 12 + now.getMonth();
+  const schedYM = schedDate.getFullYear() * 12 + schedDate.getMonth();
+  const nowYM = now.getFullYear() * 12 + now.getMonth();
   if (nowYM < schedYM) return false;
   return true;
 }
@@ -76,7 +76,7 @@ type SortDir = 'asc' | 'desc' | null;
 function isScheduleExpired(schedule: EmailSchedule): boolean {
   if (schedule.emailStatus !== 'sent') return false;
   if (!schedule.lastSentAt) return false;
-  const sentDate   = new Date(schedule.lastSentAt);
+  const sentDate = new Date(schedule.lastSentAt);
   const expiryDate = new Date(sentDate.getFullYear(), sentDate.getMonth() + 2, sentDate.getDate());
   return new Date() >= expiryDate;
 }
@@ -89,7 +89,7 @@ function resolveDisplayStatus(
   if (doc.status === 'Telah dibaca') return 'Telah dibaca';
   const schedule = emailSchedules[doc.nomorDokumen];
   if (schedule && schedule.emailStatus !== 'cancelled' && !isScheduleExpired(schedule)) {
-    if (schedule.emailStatus === 'sent')    return 'Telah terkirim';
+    if (schedule.emailStatus === 'sent') return 'Telah terkirim';
     if (schedule.emailStatus === 'pending') return 'Belum dikirim';
   }
   return doc.status;
@@ -100,15 +100,21 @@ function resolveDisplayStatus(
 // =============================================================================
 function formatSentDateTime(dateStr?: string | null): string | null {
   if (!dateStr) return null;
-  const d = new Date(dateStr);
+  let parsedDateStr = dateStr;
+  if (typeof dateStr === 'string' && !dateStr.endsWith('Z') && !dateStr.includes('+')) {
+    parsedDateStr = dateStr.replace(' ', 'T') + '+07:00';
+  }
+  const d = new Date(parsedDateStr);
   if (isNaN(d.getTime())) return null;
 
   const dateFormatted = d.toLocaleDateString('id-ID', {
+    timeZone: 'Asia/Jakarta',
     day: '2-digit',
     month: 'short',
     year: 'numeric',
   });
   const timeFormatted = d.toLocaleTimeString('id-ID', {
+    timeZone: 'Asia/Jakarta',
     hour: '2-digit',
     minute: '2-digit',
   }).replace('.', ':');
@@ -211,18 +217,18 @@ function StatusBadge({
   lastSentAt?: string | null;
 }) {
   const styles: Record<string, { bg: string; text: string; dot: string; clock: string }> = {
-    Revisi:           { bg: 'bg-amber-50',   text: 'text-amber-700',   dot: 'bg-amber-500',   clock: 'text-amber-600'   },
-    Relevan:          { bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-500', clock: 'text-emerald-600' },
-    Obsolete:         { bg: 'bg-red-50',     text: 'text-red-700',     dot: 'bg-red-500',     clock: 'text-red-600'     },
-    Menunggu:         { bg: 'bg-blue-50',    text: 'text-blue-700',    dot: 'bg-blue-500',    clock: 'text-blue-600'    },
-    'Belum dikirim':  { bg: 'bg-orange-50',  text: 'text-orange-700',  dot: 'bg-orange-500',  clock: 'text-orange-600'  },
-    'Telah terkirim': { bg: 'bg-cyan-50',    text: 'text-cyan-700',    dot: 'bg-cyan-500',    clock: 'text-cyan-600'    },
-    'Telah dibaca':   { bg: 'bg-purple-50',  text: 'text-purple-700',  dot: 'bg-purple-500',  clock: 'text-purple-600'  },
+    Revisi: { bg: 'bg-amber-50', text: 'text-amber-700', dot: 'bg-amber-500', clock: 'text-amber-600' },
+    Relevan: { bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-500', clock: 'text-emerald-600' },
+    Obsolete: { bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-500', clock: 'text-red-600' },
+    Menunggu: { bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-500', clock: 'text-blue-600' },
+    'Belum dikirim': { bg: 'bg-orange-50', text: 'text-orange-700', dot: 'bg-orange-500', clock: 'text-orange-600' },
+    'Telah terkirim': { bg: 'bg-cyan-50', text: 'text-cyan-700', dot: 'bg-cyan-500', clock: 'text-cyan-600' },
+    'Telah dibaca': { bg: 'bg-purple-50', text: 'text-purple-700', dot: 'bg-purple-500', clock: 'text-purple-600' },
     'Menunggu ACC Prepared': { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500', clock: 'text-violet-600' },
-    'Menunggu ACC Checked':  { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500', clock: 'text-violet-600' },
+    'Menunggu ACC Checked': { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500', clock: 'text-violet-600' },
     'Menunggu ACC Approved': { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500', clock: 'text-violet-600' },
-    'Ditolak':        { bg: 'bg-rose-50',     text: 'text-rose-700',    dot: 'bg-rose-500',    clock: 'text-rose-600'    },
-    '-':              { bg: 'bg-slate-50',   text: 'text-slate-500',   dot: 'bg-slate-400',   clock: 'text-slate-400'   },
+    'Ditolak': { bg: 'bg-rose-50', text: 'text-rose-700', dot: 'bg-rose-500', clock: 'text-rose-600' },
+    '-': { bg: 'bg-slate-50', text: 'text-slate-500', dot: 'bg-slate-400', clock: 'text-slate-400' },
   };
   const s = styles[status] ?? styles['-'];
   const timeInfo = getStatusTimeInfo(status, doc, lastSentAt);
@@ -251,10 +257,10 @@ function StatusBadge({
 // =============================================================================
 function EmailStatusBadge({ status }: { status: string }) {
   const styles: Record<string, { bg: string; text: string }> = {
-    pending:   { bg: 'bg-amber-50',   text: 'text-amber-700'   },
-    sent:      { bg: 'bg-emerald-50', text: 'text-emerald-700' },
-    failed:    { bg: 'bg-red-50',     text: 'text-red-700'     },
-    cancelled: { bg: 'bg-slate-50',   text: 'text-slate-600'   },
+    pending: { bg: 'bg-amber-50', text: 'text-amber-700' },
+    sent: { bg: 'bg-emerald-50', text: 'text-emerald-700' },
+    failed: { bg: 'bg-red-50', text: 'text-red-700' },
+    cancelled: { bg: 'bg-slate-50', text: 'text-slate-600' },
   };
   const s = styles[status] ?? styles['pending'];
   const label: Record<string, string> = {
@@ -281,9 +287,9 @@ function EmailScheduleDot({
 }) {
   if (schedule.emailStatus !== 'sent' || !schedule.lastSentAt) return null;
 
-  const sentDate   = new Date(schedule.lastSentAt);
+  const sentDate = new Date(schedule.lastSentAt);
   const expiryDate = new Date(sentDate.getFullYear(), sentDate.getMonth() + 2, sentDate.getDate());
-  const isExpired  = new Date() >= expiryDate;
+  const isExpired = new Date() >= expiryDate;
 
   return (
     <div className="relative inline-flex" data-email-schedule-dot>
@@ -316,10 +322,10 @@ function EmailScheduleDot({
             {isExpired
               ? '⚠ Sudah melewati masa berlaku'
               : <>Berlaku s/d:{' '}
-                  <span className="font-medium text-slate-700">
-                    {expiryDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
-                  </span>
-                </>}
+                <span className="font-medium text-slate-700">
+                  {expiryDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
+                </span>
+              </>}
           </p>
         </div>
       )}
@@ -340,13 +346,13 @@ function RecentlyReviewedBadge({
   const reviewedAt = new Date(lastReviewedAt);
 
   function formatRelative(date: Date): string {
-    const diffMs   = Date.now() - date.getTime();
+    const diffMs = Date.now() - date.getTime();
     const diffMins = Math.floor(diffMs / 60_000);
-    const diffHrs  = Math.floor(diffMs / 3_600_000);
+    const diffHrs = Math.floor(diffMs / 3_600_000);
     const diffDays = Math.floor(diffMs / 86_400_000);
-    if (diffMins < 1)  return 'baru saja';
+    if (diffMins < 1) return 'baru saja';
     if (diffMins < 60) return `${diffMins} mnt lalu`;
-    if (diffHrs  < 24) return `${diffHrs} jam lalu`;
+    if (diffHrs < 24) return `${diffHrs} jam lalu`;
     return `${diffDays} hari lalu`;
   }
 
@@ -464,13 +470,13 @@ function AutoResizeTextarea({
   const resize = useCallback(() => {
     const el = taRef.current; if (!el) return;
     el.style.height = 'auto';
-    const style      = getComputedStyle(el);
+    const style = getComputedStyle(el);
     const lineHeight = parseFloat(style.lineHeight) || 20;
-    const paddingY   = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
-    const minH       = lineHeight * minRows + paddingY;
-    const maxH       = lineHeight * maxRows + paddingY;
-    const newH       = Math.min(Math.max(el.scrollHeight, minH), maxH);
-    el.style.height    = `${newH}px`;
+    const paddingY = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+    const minH = lineHeight * minRows + paddingY;
+    const maxH = lineHeight * maxRows + paddingY;
+    const newH = Math.min(Math.max(el.scrollHeight, minH), maxH);
+    el.style.height = `${newH}px`;
     el.style.overflowY = el.scrollHeight > maxH ? 'auto' : 'hidden';
   }, [minRows, maxRows]);
   useEffect(() => { resize(); }, [value, resize]);
@@ -742,11 +748,10 @@ function AddProcedureModal({
                           key={`${s.kode}-${idx}`}
                           type="button"
                           onClick={() => handleSelectPic(s)}
-                          className={`w-full text-left px-3 py-2.5 transition-colors flex items-center justify-between gap-2.5 group ${
-                            isSelected
+                          className={`w-full text-left px-3 py-2.5 transition-colors flex items-center justify-between gap-2.5 group ${isSelected
                               ? 'bg-blue-50/90 text-blue-900 border-l-4 border-blue-600'
                               : 'hover:bg-slate-50/80 text-slate-800'
-                          }`}
+                            }`}
                         >
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
@@ -831,13 +836,12 @@ function AddProcedureModal({
                 setIsDragging(false);
                 handleFile(e.dataTransfer.files?.[0]);
               }}
-              className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all ${
-                file
+              className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all ${file
                   ? 'border-emerald-400 bg-emerald-50/40 hover:bg-emerald-50/60'
                   : isDragging
-                  ? 'border-blue-500 bg-blue-50/60 scale-[0.99]'
-                  : 'border-slate-300 hover:border-blue-400 hover:bg-slate-50/70 bg-slate-50/30'
-              }`}
+                    ? 'border-blue-500 bg-blue-50/60 scale-[0.99]'
+                    : 'border-slate-300 hover:border-blue-400 hover:bg-slate-50/70 bg-slate-50/30'
+                }`}
             >
               <input
                 ref={fileInputRef}
@@ -932,15 +936,15 @@ const ROWS_PER_PAGE = 10;
 // Main Page
 // =============================================================================
 export default function StatusReviewPage() {
-  const [searchValue,     setSearchValue]     = useState('');
+  const [searchValue, setSearchValue] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [filterValue,     setFilterValue]     = useState('');
-  const [monthFilter,     setMonthFilter]     = useState('');
-  const [currentPage,     setCurrentPage]     = useState(1);
-  const [dataWithStatus,  setDataWithStatus]  = useState<ProcedureDocument[]>([]);
-  const [loading,         setLoading]         = useState(true);
-  const [isAddModalOpen,  setIsAddModalOpen]  = useState(false);
-  const [isSaving,        setIsSaving]        = useState(false);
+  const [filterValue, setFilterValue] = useState('');
+  const [monthFilter, setMonthFilter] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [dataWithStatus, setDataWithStatus] = useState<ProcedureDocument[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [newProcedure, setNewProcedure] = useState<Omit<ProcedureDocument, 'status' | 'revisi' | 'id'>>({
     namaDokumen: '', nomorDokumen: '', levelDokumen: '',
     tanggalSelesaiApproval: '', owner: '', pic: '', email: '',
@@ -951,7 +955,7 @@ export default function StatusReviewPage() {
   const [isExportingAudit, setIsExportingAudit] = useState(false);
 
   const [editingProcedure, setEditingProcedure] = useState<ProcedureDocument | null>(null);
-  const [isEditModalOpen,  setIsEditModalOpen]  = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>(null);
@@ -959,9 +963,9 @@ export default function StatusReviewPage() {
   const { showAlert, showConfirm, showSuccess, showError, showWarning } = useDialog();
 
   // BUG FIX #3 & #4: selectedDocument untuk DocumentModal
-  const [selectedDocument,         setSelectedDocument]         = useState<{ nomorDokumen: string; namaDokumen: string; status: string } | null>(null);
+  const [selectedDocument, setSelectedDocument] = useState<{ nomorDokumen: string; namaDokumen: string; status: string } | null>(null);
   const [isEmailScheduleModalOpen, setIsEmailScheduleModalOpen] = useState(false);
-  const [emailSchedules,           setEmailSchedules]           = useState<Record<string, EmailSchedule>>({});
+  const [emailSchedules, setEmailSchedules] = useState<Record<string, EmailSchedule>>({});
 
   // nomorDokumen yang popover detail jadwal-nya sedang terbuka (titik hijau/merah)
   const [openScheduleDetail, setOpenScheduleDetail] = useState<string | null>(null);
@@ -1024,9 +1028,9 @@ export default function StatusReviewPage() {
       const withReviews = await Promise.all(
         procedures.map(async (doc) => {
           if (workflowStatuses.includes(doc.status)) return doc;
-          const docDate       = new Date(doc.tanggalSelesaiApproval);
+          const docDate = new Date(doc.tanggalSelesaiApproval);
           const approvalMonth = isNaN(docDate.getTime()) ? new Date().getMonth() : docDate.getMonth();
-          const review        = await getDocumentReview(doc.nomorDokumen, approvalMonth);
+          const review = await getDocumentReview(doc.nomorDokumen, approvalMonth);
           if (review && ['Relevan', 'Revisi', 'Obsolete'].includes(review.status)) {
             return {
               ...doc,
@@ -1213,11 +1217,11 @@ export default function StatusReviewPage() {
         throw new Error(err.error || `Server error: ${response.status}`);
       }
       const blob = await response.blob();
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href     = url;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
 
-      const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+      const monthNames = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
       const monthLabel = monthFilter !== '' ? `_${monthNames[parseInt(monthFilter)] || monthFilter}` : '';
       const statusLabel = filterValue ? `_${filterValue.replace(/\s+/g, '_')}` : '';
 
@@ -1236,7 +1240,7 @@ export default function StatusReviewPage() {
 
   const handleSaveNewProcedure = async () => {
     if (!newProcedure.namaDokumen || !newProcedure.nomorDokumen || !newProcedure.levelDokumen ||
-        !newProcedure.owner || !newProcedure.pic || !newProcedure.email) {
+      !newProcedure.owner || !newProcedure.pic || !newProcedure.email) {
       showWarning('Kolom bertanda * (Nama, Nomor, Level Dokumen, Owner, PIC, dan Email) wajib diisi.');
       return;
     }
@@ -1315,7 +1319,7 @@ export default function StatusReviewPage() {
   // ── Sort handler — 3-state: asc → desc → reset (TIDAK DIUBAH) ─────────────
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
-      if (sortDir === 'asc')       { setSortDir('desc'); }
+      if (sortDir === 'asc') { setSortDir('desc'); }
       else if (sortDir === 'desc') { setSortKey(null); setSortDir(null); }
     } else {
       setSortKey(key); setSortDir('asc');
@@ -1331,13 +1335,13 @@ export default function StatusReviewPage() {
       result = result.filter(row => {
         const tgl = formatToDDMonYYYY(row.tanggalSelesaiApproval).toLowerCase();
         return (
-          row.namaDokumen.toLowerCase().includes(q)           ||
-          row.nomorDokumen.toLowerCase().includes(q)          ||
-          tgl.includes(q)                                      ||
-          String(row.revisi ?? '').toLowerCase().includes(q)  ||
-          row.owner.toLowerCase().includes(q)                  ||
-          row.pic.toLowerCase().includes(q)                    ||
-          (row.email ?? '').toLowerCase().includes(q)          ||
+          row.namaDokumen.toLowerCase().includes(q) ||
+          row.nomorDokumen.toLowerCase().includes(q) ||
+          tgl.includes(q) ||
+          String(row.revisi ?? '').toLowerCase().includes(q) ||
+          row.owner.toLowerCase().includes(q) ||
+          row.pic.toLowerCase().includes(q) ||
+          (row.email ?? '').toLowerCase().includes(q) ||
           row.status.toLowerCase().includes(q)
         );
       });
@@ -1364,15 +1368,15 @@ export default function StatusReviewPage() {
 
   const totalPages = Math.ceil(filteredData.length / ROWS_PER_PAGE);
   const startIndex = filteredData.length === 0 ? 0 : (currentPage - 1) * ROWS_PER_PAGE + 1;
-  const endIndex   = Math.min(currentPage * ROWS_PER_PAGE, filteredData.length);
-  const pageData   = filteredData.slice((currentPage - 1) * ROWS_PER_PAGE, currentPage * ROWS_PER_PAGE);
+  const endIndex = Math.min(currentPage * ROWS_PER_PAGE, filteredData.length);
+  const pageData = filteredData.slice((currentPage - 1) * ROWS_PER_PAGE, currentPage * ROWS_PER_PAGE);
 
   // ── Derived stats ───────────────────────────────────────────────────────────
   const stats = useMemo(() => ({
-    total:       dataResolved.length,
-    relevan:     dataResolved.filter(p => p.status === 'Relevan').length,
-    revisi:      dataResolved.filter(p => p.status === 'Revisi').length,
-    belumReview: dataResolved.filter(p => ['Menunggu','Belum dikirim','-'].includes(p.status)).length,
+    total: dataResolved.length,
+    relevan: dataResolved.filter(p => p.status === 'Relevan').length,
+    revisi: dataResolved.filter(p => p.status === 'Revisi').length,
+    belumReview: dataResolved.filter(p => ['Menunggu', 'Belum dikirim', '-'].includes(p.status)).length,
   }), [dataResolved]);
 
   // ── Dropdown style ──────────────────────────────────────────────────────────
@@ -1506,7 +1510,7 @@ export default function StatusReviewPage() {
                 <select value={monthFilter} onChange={e => { setMonthFilter(e.target.value); setCurrentPage(1); }}
                   className={selectCls} style={dropdownBg}>
                   <option value="">Semua Bulan</option>
-                  {['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'].map((m, i) => (
+                  {['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'].map((m, i) => (
                     <option key={i} value={String(i)}>{m}</option>
                   ))}
                 </select>
@@ -1539,7 +1543,7 @@ export default function StatusReviewPage() {
               <table className="w-full">
                 <thead className="bg-slate-50/80 border-b border-slate-200">
                   <tr>
-                    {sTh('Nama Dokumen',  'namaDokumen')}
+                    {sTh('Nama Dokumen', 'namaDokumen')}
                     {sTh('Nomor Dokumen', 'nomorDokumen')}
                     {plainTh('Status')}
                     {plainTh('Aksi')}
@@ -1557,14 +1561,13 @@ export default function StatusReviewPage() {
                     ))
                   ) : pageData.length > 0 ? (
                     pageData.map((row, index) => {
-                      const schedule  = emailSchedules[row.nomorDokumen];
+                      const schedule = emailSchedules[row.nomorDokumen];
                       const showBadge = hasUnseenReview(row);
                       return (
                         <tr
                           key={`${row.nomorDokumen}-${index}`}
-                          className={`transition-colors hover:bg-blue-50/40 ${
-                            showBadge ? 'bg-violet-50/30' : index % 2 === 1 ? 'bg-slate-50/30' : ''
-                          }`}
+                          className={`transition-colors hover:bg-blue-50/40 ${showBadge ? 'bg-violet-50/30' : index % 2 === 1 ? 'bg-slate-50/30' : ''
+                            }`}
                         >
                           {/* 🆕 Nama dokumen sekarang mengarah ke halaman detail */}
                           <td className="px-4 py-2 max-w-[320px]">
@@ -1580,7 +1583,7 @@ export default function StatusReviewPage() {
                           <td className="px-4 py-2 text-xs text-slate-600 font-mono whitespace-nowrap">
                             <Highlight text={row.nomorDokumen} keyword={debouncedSearch} />
                           </td>
-                          
+
                           {/* Status + indikator jadwal email aktif + badge "Baru Direview" */}
                           <td className="px-4 py-2">
                             <div className="flex flex-col gap-1.5 items-start">
@@ -1597,9 +1600,8 @@ export default function StatusReviewPage() {
                                     className="inline-flex hover:scale-125 transition-transform mt-1"
                                   >
                                     <span
-                                      className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                                        schedule.emailStatus === 'sent' ? 'bg-emerald-500' : 'bg-amber-500'
-                                      }`}
+                                      className={`w-2 h-2 rounded-full flex-shrink-0 ${schedule.emailStatus === 'sent' ? 'bg-emerald-500' : 'bg-amber-500'
+                                        }`}
                                     />
                                   </Link>
                                 )}
@@ -1770,7 +1772,7 @@ export default function StatusReviewPage() {
           nomorDokumen={approvalDoc?.nomorDokumen || ''}
           namaDokumen={approvalDoc?.namaDokumen || ''}
         />
-        
+
         <RevisionNotesModal
           isOpen={revisionDoc !== null}
           onClose={() => setRevisionDoc(null)}

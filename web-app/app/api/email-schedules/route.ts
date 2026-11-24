@@ -1,6 +1,6 @@
 // app/api/email-schedules/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import pool from '@/lib/db';
+import pool, { formatTimestampLocal } from '@/lib/db';
 
 // GET
 export async function GET(request: NextRequest) {
@@ -95,11 +95,10 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // Validasi tanggal — bandingkan hanya bagian YYYY-MM-DD untuk menghindari
-    // bug timezone antara browser (WIB) dan server Node.js (UTC)
+    // Validasi tanggal — gunakan tanggal hari ini dalam timezone Asia/Jakarta (WIB)
     if (emailStatus !== 'sent') {
-      const scheduledDateOnly = scheduledEmailAt.split('T')[0];
-      const todayDateOnly = new Date().toISOString().split('T')[0];
+      const scheduledDateOnly = scheduledEmailAt.split('T')[0].split(' ')[0];
+      const todayDateOnly = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date());
       if (scheduledDateOnly < todayDateOnly) {
         return NextResponse.json(
           { error: 'Tanggal pengiriman tidak boleh sebelum hari ini' },
@@ -110,15 +109,23 @@ export async function PUT(request: NextRequest) {
 
     const currentScheduleStatus = emailStatus || 'pending';
 
+    // Normalisasi scheduledEmailAt menjadi string format lokal 'YYYY-MM-DD HH:mm:ss'
+    const scheduledEmailAtFormatted = typeof scheduledEmailAt === 'string'
+      ? scheduledEmailAt.replace('T', ' ')
+      : scheduledEmailAt;
+
     // Saat admin bikin/reset jadwal MANUAL (emailStatus 'pending'), hitung
     // cycle_deadline_at (T-0, 2 bulan dari tanggal ini) dan
     // manager_email_scheduled_at (T+1 bulan).
-    let cycleDeadlineAt: Date | null = null;
-    let managerScheduledAt: Date | null = null;
+    let cycleDeadlineAtStr: string | null = null;
+    let managerScheduledAtStr: string | null = null;
     if (currentScheduleStatus === 'pending') {
-      const base = new Date(scheduledEmailAt);
-      cycleDeadlineAt    = new Date(base.getFullYear(), base.getMonth() + 2, base.getDate(), base.getHours(), base.getMinutes());
-      managerScheduledAt = new Date(base.getFullYear(), base.getMonth() + 1, base.getDate(), base.getHours(), base.getMinutes());
+      const isoStr = scheduledEmailAt.includes('T') ? scheduledEmailAt : scheduledEmailAt.replace(' ', 'T');
+      const base = new Date(isoStr);
+      const cycleDeadlineAt = new Date(base.getFullYear(), base.getMonth() + 2, base.getDate(), base.getHours(), base.getMinutes(), 0);
+      const managerScheduledAt = new Date(base.getFullYear(), base.getMonth() + 1, base.getDate(), base.getHours(), base.getMinutes(), 0);
+      cycleDeadlineAtStr = formatTimestampLocal(cycleDeadlineAt);
+      managerScheduledAtStr = formatTimestampLocal(managerScheduledAt);
     }
 
     await client.query('BEGIN');
@@ -159,7 +166,7 @@ export async function PUT(request: NextRequest) {
            updated_at                  = CURRENT_TIMESTAMP
          WHERE nomor_dokumen = $6
          RETURNING *`,
-        [scheduledEmailAt, currentScheduleStatus, cycleDeadlineAt, managerScheduledAt, prevStatusToSave, nomorDokumen]
+        [scheduledEmailAtFormatted, currentScheduleStatus, cycleDeadlineAtStr, managerScheduledAtStr, prevStatusToSave, nomorDokumen]
       );
     } else {
       result = await client.query(
@@ -167,7 +174,7 @@ export async function PUT(request: NextRequest) {
            (nomor_dokumen, scheduled_email_at, email_status, cycle_deadline_at, manager_email_scheduled_at, manager_email_status, is_manual, previous_status)
          VALUES ($1, $2, $3, $4, $5, 'not_applicable', TRUE, $6)
          RETURNING *`,
-        [nomorDokumen, scheduledEmailAt, currentScheduleStatus, cycleDeadlineAt, managerScheduledAt, prevStatusToSave]
+        [nomorDokumen, scheduledEmailAtFormatted, currentScheduleStatus, cycleDeadlineAtStr, managerScheduledAtStr, prevStatusToSave]
       );
     }
 
@@ -213,15 +220,15 @@ export async function DELETE(request: NextRequest) {
     let bodyData: any = {};
     try {
       bodyData = await request.json();
-    } catch {}
+    } catch { }
 
     const docsToCancel: string[] = Array.isArray(bodyData.nomorDokumenList)
       ? bodyData.nomorDokumenList
       : bodyData.nomorDokumen
-      ? [bodyData.nomorDokumen]
-      : nomorDokumenParam
-      ? [nomorDokumenParam]
-      : [];
+        ? [bodyData.nomorDokumen]
+        : nomorDokumenParam
+          ? [nomorDokumenParam]
+          : [];
 
     if (docsToCancel.length === 0) {
       return NextResponse.json(

@@ -5,16 +5,21 @@ Mengirim reminder review dokumen secara terjadwal via SMTP.
 
 import html
 import io
+import os
 import smtplib
 import ssl
 import sys
 import psycopg2
+from pathlib import Path
 from email.message import EmailMessage
 from email.utils import make_msgid, formatdate
 from apscheduler.schedulers.blocking import BlockingScheduler
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 from urllib.parse import quote
+
+# ── Zone waktu aplikasi resmi: WIB (Asia/Jakarta, UTC+7) ─────────────────
+WIB = timezone(timedelta(hours=7))
 
 # ── Fix encoding Windows (PM2 / cp1252) ────────────────────────────────────
 if sys.stdout and hasattr(sys.stdout, "buffer"):
@@ -22,13 +27,47 @@ if sys.stdout and hasattr(sys.stdout, "buffer"):
 if sys.stderr and hasattr(sys.stderr, "buffer"):
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-DB_CONFIG = {
-    "dbname":   "procedure_management",
-    "user":     "postgres",
-    "password": "12345678",
-    "host":     "localhost",
-    "port":     "5432",
-}
+def load_db_config() -> dict:
+    # Baca .env.local atau .env jika ada agar sinkron dengan konfigurasi web-app
+    env_paths = [
+        Path(__file__).parent / ".env.local",
+        Path(__file__).parent / ".env",
+        Path(__file__).parent.parent / ".env.local",
+    ]
+    for p in env_paths:
+        if p.exists():
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            os.environ.setdefault(k.strip(), v.strip().strip("'\""))
+            except Exception:
+                pass
+
+    return {
+        "dbname":   os.getenv("DB_NAME", "procedure_management"),
+        "user":     os.getenv("DB_USER", "postgres"),
+        "password": os.getenv("DB_PASSWORD", "12345678"),
+        "host":     os.getenv("DB_HOST", "localhost"),
+        "port":     os.getenv("DB_PORT", "5432"),
+    }
+
+DB_CONFIG = load_db_config()
+
+def get_db_connection():
+    """
+    Membuka koneksi ke database dan SELALU mengunci session timezone ke 'Asia/Jakarta'.
+    Ini krusial agar perbandingan es.scheduled_email_at <= NOW() konsisten di server
+    maupun laptop terlepas dari timezone default OS / database server.
+    """
+    conn = psycopg2.connect(**DB_CONFIG)
+    cur = conn.cursor()
+    cur.execute("SET TIME ZONE 'Asia/Jakarta';")
+    cur.close()
+    conn.commit()
+    return conn
 
 # Toleransi maintenance server: berapa hari jadwal yang sudah lewat masih
 # boleh "susulan" terkirim (mis. server mati tepat di tanggal target, nyala
@@ -37,7 +76,7 @@ DB_CONFIG = {
 GRACE_DAYS = 1
 
 def log(level: str, message: str) -> None:
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ts = datetime.now(WIB).strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{level}] {ts} - {message}", flush=True)
 
 def log_info(msg: str)  -> None: log("INFO",  msg)
@@ -47,7 +86,7 @@ def log_warn(msg: str)  -> None: log("WARN",  msg)
 def update_heartbeat(status="RUNNING", error_msg=None) -> None:
     """Mencatat detak jantung (heartbeat) scheduler ke database agar dapat dipantau di web admin."""
     try:
-        conn = psycopg2.connect(**DB_CONFIG)
+        conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("""
             CREATE TABLE IF NOT EXISTS system_heartbeats (
@@ -94,7 +133,7 @@ def _ensure_scheme(url: str) -> str:
 
 def load_smtp_settings() -> dict | None:
     try:
-        conn = psycopg2.connect(**DB_CONFIG)
+        conn = get_db_connection()
         cur  = conn.cursor()
         cur.execute("""
             SELECT smtp_host, smtp_port, smtp_username, smtp_password,
@@ -859,7 +898,7 @@ def check_and_send_emails() -> None:
     log_info(f"SMTP loaded: {smtp_cfg['smtp_host']}:{smtp_cfg['smtp_port']}")
 
     try:
-        conn = psycopg2.connect(**DB_CONFIG)
+        conn = get_db_connection()
     except Exception as e:
         log_error(f"Cannot connect to database: {e}")
         return

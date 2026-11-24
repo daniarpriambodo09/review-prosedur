@@ -23,10 +23,10 @@ import AdminRequestsModal, { type AdminPICRequest } from '@/components/admin/Adm
 import AdminRevisiModal from '@/components/admin/AdminRevisiModal';
 
 const MONTH_NAMES_ID = [
-  'Januari','Februari','Maret','April','Mei','Juni',
-  'Juli','Agustus','September','Oktober','November','Desember',
+  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
 ];
-const MONTH_NAMES_SHORT = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+const MONTH_NAMES_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 
 interface ActivityLog {
   id: number;
@@ -42,15 +42,21 @@ interface ActivityLog {
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 function formatSentDateTime(dateStr?: string | null): string | null {
   if (!dateStr) return null;
-  const d = new Date(dateStr);
+  let parsedDateStr = dateStr;
+  if (typeof dateStr === 'string' && !dateStr.endsWith('Z') && !dateStr.includes('+')) {
+    parsedDateStr = dateStr.replace(' ', 'T') + '+07:00';
+  }
+  const d = new Date(parsedDateStr);
   if (isNaN(d.getTime())) return null;
 
   const dateFormatted = d.toLocaleDateString('id-ID', {
+    timeZone: 'Asia/Jakarta',
     day: '2-digit',
     month: 'short',
     year: 'numeric',
   });
   const timeFormatted = d.toLocaleTimeString('id-ID', {
+    timeZone: 'Asia/Jakarta',
     hour: '2-digit',
     minute: '2-digit',
   }).replace('.', ':');
@@ -66,17 +72,17 @@ function StatusBadge({
   lastSentAt?: string | null;
 }) {
   const styles: Partial<Record<StatusType, { bg: string; dot: string }>> = {
-    Relevan:          { bg: 'bg-emerald-50 text-emerald-700 border-emerald-200/80', dot: 'bg-emerald-500' },
-    Revisi:           { bg: 'bg-amber-50 text-amber-700 border-amber-200/80',       dot: 'bg-amber-500'   },
-    Obsolete:         { bg: 'bg-red-50 text-red-700 border-red-200/80',             dot: 'bg-red-500'     },
-    Menunggu:         { bg: 'bg-blue-50 text-blue-700 border-blue-200/80',          dot: 'bg-blue-500'    },
-    'Belum dikirim':  { bg: 'bg-orange-50 text-orange-700 border-orange-200/80',    dot: 'bg-orange-500'  },
-    'Telah terkirim': { bg: 'bg-cyan-50 text-cyan-700 border-cyan-200/80',          dot: 'bg-cyan-500'    },
-    'Telah dibaca':   { bg: 'bg-purple-50 text-purple-700 border-purple-200/80',    dot: 'bg-purple-500'  },
+    Relevan: { bg: 'bg-emerald-50 text-emerald-700 border-emerald-200/80', dot: 'bg-emerald-500' },
+    Revisi: { bg: 'bg-amber-50 text-amber-700 border-amber-200/80', dot: 'bg-amber-500' },
+    Obsolete: { bg: 'bg-red-50 text-red-700 border-red-200/80', dot: 'bg-red-500' },
+    Menunggu: { bg: 'bg-blue-50 text-blue-700 border-blue-200/80', dot: 'bg-blue-500' },
+    'Belum dikirim': { bg: 'bg-orange-50 text-orange-700 border-orange-200/80', dot: 'bg-orange-500' },
+    'Telah terkirim': { bg: 'bg-cyan-50 text-cyan-700 border-cyan-200/80', dot: 'bg-cyan-500' },
+    'Telah dibaca': { bg: 'bg-purple-50 text-purple-700 border-purple-200/80', dot: 'bg-purple-500' },
     'Menunggu ACC Prepared': { bg: 'bg-violet-50 text-violet-700 border-violet-200/80', dot: 'bg-violet-500' },
-    'Menunggu ACC Checked':  { bg: 'bg-violet-50 text-violet-700 border-violet-200/80', dot: 'bg-violet-500' },
+    'Menunggu ACC Checked': { bg: 'bg-violet-50 text-violet-700 border-violet-200/80', dot: 'bg-violet-500' },
     'Menunggu ACC Approved': { bg: 'bg-violet-50 text-violet-700 border-violet-200/80', dot: 'bg-violet-500' },
-    '-':              { bg: 'bg-slate-50 text-slate-600 border-slate-200/80',       dot: 'bg-slate-400'   },
+    '-': { bg: 'bg-slate-50 text-slate-600 border-slate-200/80', dot: 'bg-slate-400' },
   };
   const s = styles[status] ?? styles['-']!;
   const sentFormatted = status === 'Telah terkirim' ? formatSentDateTime(lastSentAt) : null;
@@ -134,11 +140,10 @@ function KpiCard({
       role={clickable ? 'button' : undefined}
       tabIndex={clickable ? 0 : undefined}
       onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.(); } } : undefined}
-      className={`relative bg-white rounded-2xl border border-slate-200 shadow-2xs p-5 transition-all duration-200 overflow-hidden flex flex-col justify-between ${
-        clickable
+      className={`relative bg-white rounded-2xl border border-slate-200 shadow-2xs p-5 transition-all duration-200 overflow-hidden flex flex-col justify-between ${clickable
           ? 'cursor-pointer hover:shadow-md hover:-translate-y-0.5 hover:border-slate-300 select-none group'
           : 'hover:shadow-md hover:-translate-y-0.5'
-      }`}
+        }`}
     >
       {/* Top Accent Strip */}
       <div className={`absolute top-0 left-0 right-0 h-1 ${accentBar}`} />
@@ -172,21 +177,21 @@ function KpiCard({
 
 // ─── Activity Type config ─────────────────────────────────────────────────────
 const ACTIVITY_TYPE_CONFIG: Record<string, { label: string; badgeCls: string; dot: string }> = {
-  login:            { label: 'Login',           badgeCls: 'bg-blue-50 text-blue-700 border-blue-200',         dot: 'bg-blue-500'    },
-  logout:           { label: 'Logout',          badgeCls: 'bg-slate-50 text-slate-600 border-slate-200',      dot: 'bg-slate-400'   },
-  upload:           { label: 'Upload Dokumen',  badgeCls: 'bg-emerald-50 text-emerald-700 border-emerald-200',dot: 'bg-emerald-500' },
-  download:         { label: 'Download',        badgeCls: 'bg-cyan-50 text-cyan-700 border-cyan-200',         dot: 'bg-cyan-500'    },
-  review:           { label: 'Review',          badgeCls: 'bg-purple-50 text-purple-700 border-purple-200',   dot: 'bg-purple-500'  },
-  review_relevan:   { label: 'Review: Relevan', badgeCls: 'bg-emerald-50 text-emerald-700 border-emerald-200',dot: 'bg-emerald-500'},
-  review_revisi:    { label: 'Review: Revisi',  badgeCls: 'bg-amber-50 text-amber-700 border-amber-200',     dot: 'bg-amber-500'   },
-  review_obsolete:  { label: 'Review: Obsolete',badgeCls: 'bg-rose-50 text-rose-700 border-rose-200',         dot: 'bg-rose-500'    },
-  archive:          { label: 'Arsip Dokumen',   badgeCls: 'bg-amber-50 text-amber-700 border-amber-200',     dot: 'bg-amber-500'   },
-  restore:          { label: 'Restore Dokumen', badgeCls: 'bg-teal-50 text-teal-700 border-teal-200',         dot: 'bg-teal-500'    },
-  delete:           { label: 'Hapus Data',      badgeCls: 'bg-red-50 text-red-700 border-red-200',            dot: 'bg-red-500'     },
-  create:           { label: 'Tambah Data',     badgeCls: 'bg-indigo-50 text-indigo-700 border-indigo-200',   dot: 'bg-indigo-500'  },
-  update:           { label: 'Update Data',     badgeCls: 'bg-orange-50 text-orange-700 border-orange-200',   dot: 'bg-orange-500'  },
-  request_review:   { label: 'Permintaan Review', badgeCls: 'bg-teal-50 text-teal-700 border-teal-200',       dot: 'bg-teal-500'    },
-  request_document: { label: 'Permintaan Dokumen', badgeCls: 'bg-sky-50 text-sky-700 border-sky-200',        dot: 'bg-sky-500'     },
+  login: { label: 'Login', badgeCls: 'bg-blue-50 text-blue-700 border-blue-200', dot: 'bg-blue-500' },
+  logout: { label: 'Logout', badgeCls: 'bg-slate-50 text-slate-600 border-slate-200', dot: 'bg-slate-400' },
+  upload: { label: 'Upload Dokumen', badgeCls: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
+  download: { label: 'Download', badgeCls: 'bg-cyan-50 text-cyan-700 border-cyan-200', dot: 'bg-cyan-500' },
+  review: { label: 'Review', badgeCls: 'bg-purple-50 text-purple-700 border-purple-200', dot: 'bg-purple-500' },
+  review_relevan: { label: 'Review: Relevan', badgeCls: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
+  review_revisi: { label: 'Review: Revisi', badgeCls: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500' },
+  review_obsolete: { label: 'Review: Obsolete', badgeCls: 'bg-rose-50 text-rose-700 border-rose-200', dot: 'bg-rose-500' },
+  archive: { label: 'Arsip Dokumen', badgeCls: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500' },
+  restore: { label: 'Restore Dokumen', badgeCls: 'bg-teal-50 text-teal-700 border-teal-200', dot: 'bg-teal-500' },
+  delete: { label: 'Hapus Data', badgeCls: 'bg-red-50 text-red-700 border-red-200', dot: 'bg-red-500' },
+  create: { label: 'Tambah Data', badgeCls: 'bg-indigo-50 text-indigo-700 border-indigo-200', dot: 'bg-indigo-500' },
+  update: { label: 'Update Data', badgeCls: 'bg-orange-50 text-orange-700 border-orange-200', dot: 'bg-orange-500' },
+  request_review: { label: 'Permintaan Review', badgeCls: 'bg-teal-50 text-teal-700 border-teal-200', dot: 'bg-teal-500' },
+  request_document: { label: 'Permintaan Dokumen', badgeCls: 'bg-sky-50 text-sky-700 border-sky-200', dot: 'bg-sky-500' },
 };
 
 function normalizeActivityType(t: string): string {
@@ -305,17 +310,17 @@ const dropdownStyle = {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function HomePage() {
   const { user } = useAuth();
-  const [procedures,         setProcedures]         = useState<ProcedureDocument[]>([]);
-  const [recentActivities,   setRecentActivities]   = useState<ActivityLog[]>([]);
-  const [loading,            setLoading]            = useState(true);
+  const [procedures, setProcedures] = useState<ProcedureDocument[]>([]);
+  const [recentActivities, setRecentActivities] = useState<ActivityLog[]>([]);
+  const [loading, setLoading] = useState(true);
   const currentYear = Math.max(2026, new Date().getFullYear());
-  const [selectedMonth,      setSelectedMonth]      = useState<number | 'all'>(new Date().getMonth());
-  const [selectedYear,       setSelectedYear]       = useState<number>(currentYear);
-  const [activityPage,       setActivityPage]       = useState(1);
+  const [selectedMonth, setSelectedMonth] = useState<number | 'all'>(new Date().getMonth());
+  const [selectedYear, setSelectedYear] = useState<number>(currentYear);
+  const [activityPage, setActivityPage] = useState(1);
   const [activityUserFilter, setActivityUserFilter] = useState('');
   const [activityTypeFilter, setActivityTypeFilter] = useState('');
   const [activitySearchQuery, setActivitySearchQuery] = useState('');
-  const [activityViewMode,   setActivityViewMode]   = useState<'timeline' | 'table'>('timeline');
+  const [activityViewMode, setActivityViewMode] = useState<'timeline' | 'table'>('timeline');
 
   // Document Explorer in Dashboard (Jadwal)
   const [docSearchQuery, setDocSearchQuery] = useState('');
@@ -324,9 +329,9 @@ export default function HomePage() {
   const SCHEDULES_PER_PAGE = 8;
 
   // Modal state
-  const [isAddModalOpen,           setIsAddModalOpen]           = useState(false);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEmailScheduleModalOpen, setIsEmailScheduleModalOpen] = useState(false);
-  const [emailSchedules,           setEmailSchedules]           = useState<Record<string, any>>({});
+  const [emailSchedules, setEmailSchedules] = useState<Record<string, any>>({});
   const [newProcedure, setNewProcedure] = useState({
     namaDokumen: '', nomorDokumen: '', levelDokumen: '',
     tanggalSelesaiApproval: '', owner: '', pic: '', email: '',
@@ -336,18 +341,18 @@ export default function HomePage() {
   const [isFileDragging, setIsFileDragging] = useState(false);
   const [fileUploadError, setFileUploadError] = useState<string | null>(null);
   const [needsReview, setNeedsReview] = useState<boolean | null>(null);
-  const [isSaving,    setIsSaving]    = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // State untuk Permintaan dari PIC
   const [isRequestsModalOpen, setIsRequestsModalOpen] = useState(false);
-  const [picRequests,        setPicRequests]        = useState<AdminPICRequest[]>([]);
+  const [picRequests, setPicRequests] = useState<AdminPICRequest[]>([]);
   const [picRequestsSummary, setPicRequestsSummary] = useState({ total: 0, revisionCount: 0, newDocCount: 0 });
-  const [loadingRequests,    setLoadingRequests]    = useState(false);
-  const [selectedDocModal,   setSelectedDocModal]   = useState<{ nomorDokumen: string; namaDokumen: string } | null>(null);
+  const [loadingRequests, setLoadingRequests] = useState(false);
+  const [selectedDocModal, setSelectedDocModal] = useState<{ nomorDokumen: string; namaDokumen: string } | null>(null);
 
   // State untuk Modal Detail Dokumen Perlu Revisi
-  const [isRevisiModalOpen,  setIsRevisiModalOpen]  = useState(false);
-  const [isExportingAudit,   setIsExportingAudit]   = useState(false);
+  const [isRevisiModalOpen, setIsRevisiModalOpen] = useState(false);
+  const [isExportingAudit, setIsExportingAudit] = useState(false);
 
   const handleDownloadAuditExcel = async () => {
     try {
@@ -358,9 +363,9 @@ export default function HomePage() {
         throw new Error(err.error || `Server error: ${response.status}`);
       }
       const blob = await response.blob();
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href     = url;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
       a.download = `Rekap-Matriks-Audit-Prosedur-${new Date().toISOString().slice(0, 10)}.xlsx`;
       document.body.appendChild(a);
       a.click();
@@ -386,7 +391,7 @@ export default function HomePage() {
         schedules.forEach((s: any) => { map[s.nomorDokumen] = s; });
         setEmailSchedules(map);
       }
-    } catch {}
+    } catch { }
   }, []);
 
   const loadPicRequests = useCallback(async () => {
@@ -453,16 +458,16 @@ export default function HomePage() {
         }
         return p;
       }),
-  [procedures, selectedMonth, isPastYear]);
+    [procedures, selectedMonth, isPastYear]);
 
   const stats = useMemo(() => ({
-    total:    filteredDocs.length,
-    relevan:  filteredDocs.filter(p => p.status === 'Relevan').length,
-    revisi:   filteredDocs.filter(p => p.status === 'Revisi').length,
+    total: filteredDocs.length,
+    relevan: filteredDocs.filter(p => p.status === 'Relevan').length,
+    revisi: filteredDocs.filter(p => p.status === 'Revisi').length,
     obsolete: filteredDocs.filter(p => p.status === 'Obsolete').length,
     menunggu: filteredDocs.filter(p => ['Menunggu', 'Belum dikirim', '-'].includes(p.status)).length,
     terkirim: filteredDocs.filter(p => p.status === 'Telah terkirim').length,
-    terbaca:  filteredDocs.filter(p => p.status === 'Telah dibaca').length,
+    terbaca: filteredDocs.filter(p => p.status === 'Telah dibaca').length,
   }), [filteredDocs]);
 
   // Daftar dokumen yang membutuhkan revisi (periode aktif & seluruh periode)
@@ -544,22 +549,22 @@ export default function HomePage() {
     });
   }, [recentActivities, activityUserFilter, activityTypeFilter, activitySearchQuery]);
 
-  const totalActivityPages  = Math.max(1, Math.ceil(filteredActivities.length / ACTIVITIES_PER_PAGE));
-  const safeActivityPage    = Math.min(activityPage, totalActivityPages);
-  const activityStart       = (safeActivityPage - 1) * ACTIVITIES_PER_PAGE;
-  const activityEnd         = Math.min(activityStart + ACTIVITIES_PER_PAGE, filteredActivities.length);
+  const totalActivityPages = Math.max(1, Math.ceil(filteredActivities.length / ACTIVITIES_PER_PAGE));
+  const safeActivityPage = Math.min(activityPage, totalActivityPages);
+  const activityStart = (safeActivityPage - 1) * ACTIVITIES_PER_PAGE;
+  const activityEnd = Math.min(activityStart + ACTIVITIES_PER_PAGE, filteredActivities.length);
   const paginatedActivities = filteredActivities.slice(activityStart, activityEnd);
 
   const handleUserFilterChange = (v: string) => { setActivityUserFilter(v); setActivityPage(1); };
   const handleTypeFilterChange = (v: string) => { setActivityTypeFilter(v); setActivityPage(1); };
-  const hasActiveFilter  = activityUserFilter !== '' || activityTypeFilter !== '' || activitySearchQuery.trim() !== '';
-  const isCurrentMonth   = selectedMonth === today.getMonth() && selectedYear === currentYear;
+  const hasActiveFilter = activityUserFilter !== '' || activityTypeFilter !== '' || activitySearchQuery.trim() !== '';
+  const isCurrentMonth = selectedMonth === today.getMonth() && selectedYear === currentYear;
   const selectedMonthName = selectedMonth === 'all' ? 'Semua Bulan' : MONTH_NAMES_ID[selectedMonth];
 
   // Save new procedure
   const handleSaveNewProcedure = async () => {
     if (!newProcedure.namaDokumen || !newProcedure.nomorDokumen || !newProcedure.levelDokumen ||
-        !newProcedure.tanggalSelesaiApproval || !newProcedure.owner || !newProcedure.pic || !newProcedure.email) {
+      !newProcedure.tanggalSelesaiApproval || !newProcedure.owner || !newProcedure.pic || !newProcedure.email) {
       alert('Semua kolom wajib diisi.');
       return;
     }
@@ -637,12 +642,12 @@ export default function HomePage() {
     if (!tanggalApproval) return false;
     const d = new Date(tanggalApproval);
     if (isNaN(d.getTime())) return false;
-    const now      = new Date();
-    const expiry   = new Date(d.getFullYear(), d.getMonth() + 2, d.getDate());
+    const now = new Date();
+    const expiry = new Date(d.getFullYear(), d.getMonth() + 2, d.getDate());
     if (now >= expiry) return false;
     const schedDate = new Date(d.getFullYear(), d.getMonth() - 2, 1);
-    const schedYM   = schedDate.getFullYear() * 12 + schedDate.getMonth();
-    const nowYM     = now.getFullYear() * 12 + now.getMonth();
+    const schedYM = schedDate.getFullYear() * 12 + schedDate.getMonth();
+    const nowYM = now.getFullYear() * 12 + now.getMonth();
     return nowYM >= schedYM;
   }
 
@@ -1165,11 +1170,10 @@ export default function HomePage() {
                   <button
                     type="button"
                     onClick={() => setActivityViewMode('timeline')}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all ${
-                      activityViewMode === 'timeline'
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all ${activityViewMode === 'timeline'
                         ? 'bg-white text-blue-600 shadow-2xs'
                         : 'text-slate-600 hover:text-slate-900'
-                    }`}
+                      }`}
                     title="Tampilan Timeline Feed Modern"
                   >
                     <Activity size={13} />
@@ -1178,11 +1182,10 @@ export default function HomePage() {
                   <button
                     type="button"
                     onClick={() => setActivityViewMode('table')}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all ${
-                      activityViewMode === 'table'
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all ${activityViewMode === 'table'
                         ? 'bg-white text-blue-600 shadow-2xs'
                         : 'text-slate-600 hover:text-slate-900'
-                    }`}
+                      }`}
                     title="Tampilan Tabel Rapi"
                   >
                     <LayoutList size={13} />
@@ -1496,13 +1499,12 @@ export default function HomePage() {
                       }
                       setNewProcedureFile(f);
                     }}
-                    className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all ${
-                      newProcedureFile
+                    className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all ${newProcedureFile
                         ? 'border-emerald-400 bg-emerald-50/40 hover:bg-emerald-50/60'
                         : isFileDragging
-                        ? 'border-blue-500 bg-blue-50/60 scale-[0.99]'
-                        : 'border-slate-300 hover:border-blue-400 hover:bg-slate-50/70 bg-slate-50/30'
-                    }`}
+                          ? 'border-blue-500 bg-blue-50/60 scale-[0.99]'
+                          : 'border-slate-300 hover:border-blue-400 hover:bg-slate-50/70 bg-slate-50/30'
+                      }`}
                   >
                     <input
                       ref={newProcedureFileInputRef}

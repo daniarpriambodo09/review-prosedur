@@ -36,16 +36,16 @@ export default function EmailScheduleModal({
 }: EmailScheduleModalProps) {
   const { showConfirm, showSuccess, showError, showWarning } = useDialog();
   const [selectedMonth, setSelectedMonth] = useState('');
-  const [selectedDocs,  setSelectedDocs]  = useState<Set<string>>(new Set());
-  const [searchQuery,   setSearchQuery]   = useState('');
-  const [sendDate,      setSendDate]      = useState('');
-  const [sendTime,      setSendTime]      = useState('');
-  const [isSaving,      setIsSaving]      = useState(false);
+  const [selectedDocs, setSelectedDocs] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sendDate, setSendDate] = useState('');
+  const [sendTime, setSendTime] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   // State lokal agar UI langsung update saat jadwal dibatalkan
   const [localProcedures, setLocalProcedures] = useState<ProcedureDocument[]>(procedures);
-  const [localSchedules,  setLocalSchedules]  = useState<Record<string, EmailSchedule>>(emailSchedules);
-  const [cancellingDoc,   setCancellingDoc]   = useState<string | null>(null);
+  const [localSchedules, setLocalSchedules] = useState<Record<string, EmailSchedule>>(emailSchedules);
+  const [cancellingDoc, setCancellingDoc] = useState<string | null>(null);
   const [isCancellingBatch, setIsCancellingBatch] = useState(false);
 
   useEffect(() => {
@@ -215,17 +215,62 @@ export default function EmailScheduleModal({
     }
   };
 
+  const getTodayDateStr = () => {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date());
+  };
+
+  const getWibCurrentTimeStr = () => {
+    const d = new Date();
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Jakarta',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    }).format(d);
+    return parts;
+  };
+
+  const isTimePassedToday = (date: string, time: string) => {
+    if (!date || !time) return false;
+    const today = getTodayDateStr();
+    if (date !== today) return false;
+    const nowTime = getWibCurrentTimeStr();
+    return time <= nowTime;
+  };
+
+  const getTimePreview = (t: string) => {
+    if (!t || !t.includes(':')) return null;
+    const [hStr, mStr] = t.split(':');
+    const h = parseInt(hStr, 10);
+    const m = parseInt(mStr, 10);
+    if (isNaN(h) || isNaN(m)) return null;
+    const period = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    const h12Str = String(h12).padStart(2, '0');
+    const mStrPad = String(m).padStart(2, '0');
+    const time12 = `${h12Str}:${mStrPad} ${period}`;
+    const desc = h >= 0 && h < 5 ? 'Dini Hari' : (h < 11 ? 'Pagi' : (h < 15 ? 'Siang' : (h < 18 ? 'Sore' : 'Malam')));
+    const isEarlyMorning = h >= 0 && h < 6;
+    return { time12, desc, isEarlyMorning, h };
+  };
+
   const isValid = () => {
     if (!selectedMonth) return false;
     if (selectedDocs.size === 0) return false;
     if (!sendDate || !sendTime) return false;
-    const todayDateOnly = new Date().toISOString().split('T')[0];
-    return sendDate >= todayDateOnly;
+    const todayDateOnly = getTodayDateStr();
+    if (sendDate < todayDateOnly) return false;
+    if (isTimePassedToday(sendDate, sendTime)) return false;
+    return true;
   };
 
   const handleSave = async () => {
     if (!isValid()) {
-      showWarning('Mohon lengkapi semua data dengan benar.');
+      if (isTimePassedToday(sendDate, sendTime)) {
+        showWarning('Waktu pengiriman untuk hari ini sudah terlewat. Harap gunakan format 24 jam (misal 14:50 untuk 2:50 PM).');
+      } else {
+        showWarning('Mohon lengkapi semua data dengan benar.');
+      }
       return;
     }
 
@@ -257,8 +302,8 @@ export default function EmailScheduleModal({
   };
 
   const monthOptions = [
-    'Januari','Februari','Maret','April','Mei','Juni',
-    'Juli','Agustus','September','Oktober','November','Desember'
+    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
   ];
 
   const minDate = new Date().toISOString().split('T')[0];
@@ -380,35 +425,33 @@ export default function EmailScheduleModal({
               ) : (
                 <div className="space-y-2 max-h-64 overflow-auto">
                   {filteredDocs.map((doc) => {
-                    const schedule  = localSchedules[doc.nomorDokumen];
+                    const schedule = localSchedules[doc.nomorDokumen];
                     const isSelected = selectedDocs.has(doc.nomorDokumen);
 
                     // Badge jadwal email
                     const scheduleBadge = schedule ? (
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold border ${
-                        schedule.emailStatus === 'pending'   ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                        schedule.emailStatus === 'sent'      ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                        schedule.emailStatus === 'cancelled' ? 'bg-slate-50 text-slate-500 border-slate-200' :
-                                                               'bg-red-50 text-red-700 border-red-200'
-                      }`}>
-                        {schedule.emailStatus === 'pending'   ? '⏳' :
-                         schedule.emailStatus === 'sent'      ? '✓'  :
-                         schedule.emailStatus === 'cancelled' ? '⊘'  : '✗'}
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold border ${schedule.emailStatus === 'pending' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                          schedule.emailStatus === 'sent' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                            schedule.emailStatus === 'cancelled' ? 'bg-slate-50 text-slate-500 border-slate-200' :
+                              'bg-red-50 text-red-700 border-red-200'
+                        }`}>
+                        {schedule.emailStatus === 'pending' ? '⏳' :
+                          schedule.emailStatus === 'sent' ? '✓' :
+                            schedule.emailStatus === 'cancelled' ? '⊘' : '✗'}
                         {' '}{schedule.emailStatus.toUpperCase()}
                       </span>
                     ) : null;
 
                     // Badge status dokumen
                     const statusBadge = (
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold border ${
-                        doc.status === 'Relevan'         ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                        doc.status === 'Revisi'          ? 'bg-amber-50 text-amber-700 border-amber-200'       :
-                        doc.status === 'Obsolete'        ? 'bg-red-50 text-red-700 border-red-200'             :
-                        doc.status === 'Telah dibaca'    ? 'bg-purple-50 text-purple-700 border-purple-200'    :
-                        doc.status === 'Telah terkirim'  ? 'bg-cyan-50 text-cyan-700 border-cyan-200'          :
-                        doc.status === 'Belum dikirim'   ? 'bg-orange-50 text-orange-700 border-orange-200'    :
-                                                           'bg-slate-50 text-slate-600 border-slate-200'
-                      }`}>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold border ${doc.status === 'Relevan' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                          doc.status === 'Revisi' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                            doc.status === 'Obsolete' ? 'bg-red-50 text-red-700 border-red-200' :
+                              doc.status === 'Telah dibaca' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                                doc.status === 'Telah terkirim' ? 'bg-cyan-50 text-cyan-700 border-cyan-200' :
+                                  doc.status === 'Belum dikirim' ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                                    'bg-slate-50 text-slate-600 border-slate-200'
+                        }`}>
                         {doc.status}
                       </span>
                     );
@@ -417,11 +460,10 @@ export default function EmailScheduleModal({
                       <div
                         key={doc.nomorDokumen}
                         onClick={() => toggleDocSelection(doc.nomorDokumen)}
-                        className={`p-4 border rounded-lg cursor-pointer transition-all ${
-                          isSelected
+                        className={`p-4 border rounded-lg cursor-pointer transition-all ${isSelected
                             ? 'border-blue-500 bg-blue-50'
                             : 'border-slate-200 hover:border-blue-300 hover:bg-slate-50'
-                        }`}
+                          }`}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-start gap-3 flex-1 min-w-0">
@@ -480,18 +522,46 @@ export default function EmailScheduleModal({
           {selectedDocs.size > 0 && (
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">Tanggal Kirim</label>
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Tanggal Kirim</label>
                 <input type="date" value={sendDate} min={minDate}
                   onChange={(e) => setSendDate(e.target.value)}
                   className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">Waktu Kirim</label>
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center justify-between">
+                  <span>Waktu Kirim</span>
+                  <span className="text-[11px] font-normal text-slate-500">Format 24 Jam (WIB)</span>
+                </label>
                 <input type="time" value={sendTime}
                   onChange={(e) => setSendTime(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  className={`w-full px-4 py-2.5 border rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 transition-all ${isTimePassedToday(sendDate, sendTime)
+                      ? 'border-red-400 focus:ring-red-400 bg-red-50/30'
+                      : 'border-slate-300 focus:ring-blue-500 focus:border-transparent'
+                    }`}
                 />
+                {sendTime && (() => {
+                  const preview = getTimePreview(sendTime);
+                  const isPast = isTimePassedToday(sendDate, sendTime);
+                  if (!preview) return null;
+                  return (
+                    <div className="mt-1.5 flex flex-col gap-0.5">
+                      <div className={`text-xs flex items-center gap-1 font-medium ${isPast ? 'text-red-600' : 'text-blue-700'}`}>
+                        <span>🕒 Jadwal: <strong>{sendTime} WIB</strong> ({preview.time12} - {preview.desc})</span>
+                      </div>
+                      {isPast && (
+                        <span className="text-[11px] text-red-600 font-semibold">
+                          ⚠️ Jam {sendTime} sudah lewat untuk hari ini! Silakan pilih jam beberapa menit ke depan.
+                        </span>
+                      )}
+                      {!isPast && preview.isEarlyMorning && (
+                        <span className="text-[11px] text-amber-600">
+                          💡 Catatan: Jam {sendTime} adalah jam {preview.h} subuh. Jika maksud Anda jam 2 siang, gunakan <strong>14:50</strong>.
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           )}

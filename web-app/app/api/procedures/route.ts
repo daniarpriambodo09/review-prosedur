@@ -58,7 +58,7 @@
 // ============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import pool from '@/lib/db';
+import pool, { formatTimestampLocal } from '@/lib/db';
 import { logActivity } from '@/lib/activityLogger';
 
 // Status yang TIDAK PERNAH disentuh chain auto-status di bawah ini.
@@ -163,7 +163,7 @@ async function getEmailScheduleConfig(client: any) {
       ORDER BY id ASC LIMIT 1;
     `);
     if (res.rows.length > 0) return res.rows[0];
-  } catch {}
+  } catch { }
   return {
     pic_reminder_months_before: 2,
     pic_send_day_of_month: 1,
@@ -187,20 +187,20 @@ async function createOrResetSchedule(
   tanggalApproval: string,
   needsReview: boolean | null
 ): Promise<Date> {
-  const now      = new Date();
+  const now = new Date();
   const deadline = currentCycleDeadline(tanggalApproval, now) as Date; // sudah divalidasi non-null sebelum dipanggil
 
   // Baca konfigurasi tanggal dan jam default yang diatur admin di menu Pengaturan Jadwal
   const cfg = await getEmailScheduleConfig(client);
   const picMonths = cfg.pic_reminder_months_before ?? 2;
-  const picDay    = Math.max(1, Math.min(28, cfg.pic_send_day_of_month ?? 1));
-  const picHour   = cfg.pic_send_hour ?? 8;
-  const picMin    = cfg.pic_send_minute ?? 0;
+  const picDay = Math.max(1, Math.min(28, cfg.pic_send_day_of_month ?? 1));
+  const picHour = cfg.pic_send_hour ?? 8;
+  const picMin = cfg.pic_send_minute ?? 0;
 
   const mgrMonths = cfg.manager_reminder_months_before ?? 1;
-  const mgrDay    = Math.max(1, Math.min(28, cfg.manager_send_day_of_month ?? 1));
-  const mgrHour   = cfg.manager_send_hour ?? 8;
-  const mgrMin    = cfg.manager_send_minute ?? 0;
+  const mgrDay = Math.max(1, Math.min(28, cfg.manager_send_day_of_month ?? 1));
+  const mgrHour = cfg.manager_send_hour ?? 8;
+  const mgrMin = cfg.manager_send_minute ?? 0;
 
   const picScheduledAt = needsReview === true
     ? now
@@ -219,6 +219,10 @@ async function createOrResetSchedule(
   // autoExpireAtDeadline() untuk menentukan T-0, BUKAN dihitung ulang dari
   // tanggalApproval setiap kali endpoint ini diakses.
   const cycleDeadline = deadline;
+
+  const picScheduledAtStr = formatTimestampLocal(picScheduledAt);
+  const managerScheduledAtStr = formatTimestampLocal(managerScheduledAt);
+  const cycleDeadlineStr = formatTimestampLocal(cycleDeadline);
 
   const existing = await client.query(
     `SELECT id FROM email_schedules WHERE nomor_dokumen = $1 LIMIT 1`,
@@ -241,7 +245,7 @@ async function createOrResetSchedule(
            error_message               = NULL,
            updated_at                  = CURRENT_TIMESTAMP
        WHERE nomor_dokumen = $1`,
-      [nomorDokumen, picScheduledAt, managerScheduledAt, cycleDeadline]
+      [nomorDokumen, picScheduledAtStr, managerScheduledAtStr, cycleDeadlineStr]
     );
   } else {
     await client.query(
@@ -249,7 +253,7 @@ async function createOrResetSchedule(
          (nomor_dokumen, scheduled_email_at, email_status,
           manager_email_scheduled_at, manager_email_status, cycle_deadline_at, is_manual)
        VALUES ($1, $2, 'pending', $3, 'not_applicable', $4, FALSE)`,
-      [nomorDokumen, picScheduledAt, managerScheduledAt, cycleDeadline]
+      [nomorDokumen, picScheduledAtStr, managerScheduledAtStr, cycleDeadlineStr]
     );
   }
 
@@ -456,13 +460,13 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const picParam = searchParams.get('pic');
 
-    let query:  string;
+    let query: string;
     let values: any[] = [];
 
     if (picParam) {
       if (picParam.includes('@')) {
         const emailLocalPart = picParam.split('@')[0].trim().toUpperCase();
-        const picCodes       = emailLocalPart
+        const picCodes = emailLocalPart
           .split(',')
           .map((c: string) => c.trim())
           .filter((c: string) => c.length > 0);
@@ -572,7 +576,7 @@ export async function GET(request: NextRequest) {
         if (row.active_approval_status === 'in_progress' && row.active_approval_stage) {
           const stageMap: Record<string, string> = {
             prepared: 'Menunggu ACC Prepared',
-            checked:  'Menunggu ACC Checked',
+            checked: 'Menunggu ACC Checked',
             approved: 'Menunggu ACC Approved',
           };
           if (stageMap[row.active_approval_stage]) {
@@ -588,27 +592,27 @@ export async function GET(request: NextRequest) {
         );
 
         return {
-          id:                     row.id,
-          namaDokumen:            row.nama_dokumen,
-          nomorDokumen:           row.nomor_dokumen,
-          levelDokumen:           row.level_dokumen,
+          id: row.id,
+          namaDokumen: row.nama_dokumen,
+          nomorDokumen: row.nomor_dokumen,
+          levelDokumen: row.level_dokumen,
           tanggalSelesaiApproval: row.tanggal_selesai_approval,
-          revisi:                 row.revisi,
-          owner:                  row.owner,
-          pic:                    row.pic,
-          email:                  row.email,
-          blockActivity:          row.block_activity              ?? null,
-          status:                 resolvedStatus,
-          isCustom:               row.is_custom,
-          createdAt:              row.created_at,
-          updatedAt:              row.updated_at,
-          lastSentAt:             row.last_sent_at              ?? null,
-          scheduledEmailAt:       row.scheduled_email_at        ?? null,
+          revisi: row.revisi,
+          owner: row.owner,
+          pic: row.pic,
+          email: row.email,
+          blockActivity: row.block_activity ?? null,
+          status: resolvedStatus,
+          isCustom: row.is_custom,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          lastSentAt: row.last_sent_at ?? null,
+          scheduledEmailAt: row.scheduled_email_at ?? null,
           managerEmailScheduledAt: row.manager_email_scheduled_at ?? null,
-          managerEmailStatus:     row.manager_email_status      ?? 'not_applicable',
-          lastReviewedAt:         row.last_reviewed_at          ?? null,
-          reviewSeenAt:           row.review_seen_at            ?? null,
-          revisionRequestedAt:    row.latest_revision_requested_at ?? (row.status === 'Revisi' ? row.last_reviewed_at : null),
+          managerEmailStatus: row.manager_email_status ?? 'not_applicable',
+          lastReviewedAt: row.last_reviewed_at ?? null,
+          reviewSeenAt: row.review_seen_at ?? null,
+          revisionRequestedAt: row.latest_revision_requested_at ?? (row.status === 'Revisi' ? row.last_reviewed_at : null),
         };
       })
     );
@@ -626,8 +630,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const client = await pool.connect();
   try {
-    const body                      = await request.json();
-    const needsReview: boolean|null = body.needsReview ?? null;
+    const body = await request.json();
+    const needsReview: boolean | null = body.needsReview ?? null;
 
     await client.query('BEGIN');
 
@@ -687,29 +691,29 @@ export async function POST(request: NextRequest) {
     const row = result.rows[0];
 
     await logActivity({
-      username:            'admin',
-      activityType:        'create',
+      username: 'admin',
+      activityType: 'create',
       activityDescription: `Tambah prosedur baru ${body.namaDokumen}`,
-      targetType:          'procedure',
-      targetId:            body.nomorDokumen,
+      targetType: 'procedure',
+      targetId: body.nomorDokumen,
     });
 
     return NextResponse.json(
       {
-        id:                     row.id,
-        namaDokumen:            row.nama_dokumen,
-        nomorDokumen:           row.nomor_dokumen,
-        levelDokumen:           row.level_dokumen,
+        id: row.id,
+        namaDokumen: row.nama_dokumen,
+        nomorDokumen: row.nomor_dokumen,
+        levelDokumen: row.level_dokumen,
         tanggalSelesaiApproval: row.tanggal_selesai_approval,
-        revisi:                 row.revisi,
-        owner:                  row.owner,
-        pic:                    row.pic,
-        email:                  row.email,
-        blockActivity:          row.block_activity,
-        status:                 row.status,
-        isCustom:               row.is_custom,
-        lastReviewedAt:         null,
-        reviewSeenAt:           null,
+        revisi: row.revisi,
+        owner: row.owner,
+        pic: row.pic,
+        email: row.email,
+        blockActivity: row.block_activity,
+        status: row.status,
+        isCustom: row.is_custom,
+        lastReviewedAt: null,
+        reviewSeenAt: null,
       },
       { status: 201 }
     );
