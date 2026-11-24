@@ -60,6 +60,10 @@ interface EmailSchedule {
   scheduledEmailAt: string;
   emailStatus: 'pending' | 'sent' | 'failed' | 'cancelled';
   lastSentAt?: string;
+  managerEmailScheduledAt?: string;
+  managerEmailStatus?: string;
+  managerEmailSentAt?: string;
+  managerName?: string;
   retryCount: number;
   errorMessage?: string;
   namaDokumen?: string;
@@ -89,8 +93,20 @@ function resolveDisplayStatus(
   if (doc.status === 'Telah dibaca') return 'Telah dibaca';
   const schedule = emailSchedules[doc.nomorDokumen];
   if (schedule && schedule.emailStatus !== 'cancelled' && !isScheduleExpired(schedule)) {
-    if (schedule.emailStatus === 'sent') return 'Telah terkirim';
-    if (schedule.emailStatus === 'pending') return 'Belum dikirim';
+    const now = new Date();
+    const mgrSchedAt = schedule.managerEmailScheduledAt ? new Date(schedule.managerEmailScheduledAt) : null;
+    const isMgrStage = mgrSchedAt && now >= mgrSchedAt;
+    const mgrName = (schedule.managerName || doc.managerName || '').trim();
+
+    if (isMgrStage) {
+      if (schedule.managerEmailStatus === 'sent' || schedule.managerEmailSentAt) {
+        return (mgrName ? `Telah terkirim ke MGR (${mgrName})` : 'Telah terkirim ke MGR') as StatusType;
+      }
+      return (mgrName ? `Belum dikirim ke MGR (${mgrName})` : 'Belum dikirim ke MGR') as StatusType;
+    } else {
+      if (schedule.emailStatus === 'sent') return 'Telah terkirim ke PIC';
+      if (schedule.emailStatus === 'pending') return 'Belum dikirim ke PIC';
+    }
   }
   return doc.status;
 }
@@ -134,6 +150,9 @@ function getStatusTimeInfo(
     lastReviewedAt?: string | null;
     revisionRequestedAt?: string | null;
     scheduledEmailAt?: string | null;
+    managerEmailScheduledAt?: string | null;
+    managerEmailSentAt?: string | null;
+    managerName?: string | null;
     updatedAt?: string | null;
     createdAt?: string | null;
   } | null,
@@ -144,58 +163,62 @@ function getStatusTimeInfo(
   let targetDateStr: string | null | undefined = null;
   let labelPrefix = 'Diperbarui pada';
 
-  switch (status) {
-    case 'Telah terkirim':
-      targetDateStr = overrideLastSentAt || doc?.lastSentAt || doc?.updatedAt;
-      labelPrefix = 'Email terkirim pada';
-      break;
+  if (status.startsWith('Telah terkirim ke MGR')) {
+    targetDateStr = doc?.managerEmailSentAt || doc?.updatedAt;
+    labelPrefix = 'Email ke Manager terkirim pada';
+  } else if (status.startsWith('Belum dikirim ke MGR')) {
+    targetDateStr = doc?.managerEmailScheduledAt || doc?.updatedAt || doc?.createdAt;
+    labelPrefix = doc?.managerEmailScheduledAt ? 'Jadwal kirim email ke Manager' : 'Status belum dikirim ke MGR sejak';
+  } else if (status === 'Telah terkirim ke PIC' || status === 'Telah terkirim') {
+    targetDateStr = overrideLastSentAt || doc?.lastSentAt || doc?.updatedAt;
+    labelPrefix = 'Email ke PIC terkirim pada';
+  } else if (status === 'Belum dikirim ke PIC' || status === 'Belum dikirim') {
+    targetDateStr = doc?.scheduledEmailAt || doc?.updatedAt || doc?.createdAt;
+    labelPrefix = doc?.scheduledEmailAt ? 'Jadwal kirim email ke PIC' : 'Status belum dikirim ke PIC sejak';
+  } else {
+    switch (status) {
+      case 'Relevan':
+        targetDateStr = doc?.lastReviewedAt || doc?.updatedAt || doc?.createdAt;
+        labelPrefix = doc?.lastReviewedAt ? 'Direview relevan pada' : 'Status relevan sejak';
+        break;
 
-    case 'Relevan':
-      targetDateStr = doc?.lastReviewedAt || doc?.updatedAt || doc?.createdAt;
-      labelPrefix = doc?.lastReviewedAt ? 'Direview relevan pada' : 'Status relevan sejak';
-      break;
+      case 'Revisi':
+        targetDateStr = doc?.revisionRequestedAt || doc?.lastReviewedAt || doc?.updatedAt;
+        labelPrefix = 'Permintaan revisi pada';
+        break;
 
-    case 'Revisi':
-      targetDateStr = doc?.revisionRequestedAt || doc?.lastReviewedAt || doc?.updatedAt;
-      labelPrefix = 'Permintaan revisi pada';
-      break;
+      case 'Obsolete':
+        targetDateStr = doc?.lastReviewedAt || doc?.updatedAt;
+        labelPrefix = 'Ditandai obsolete pada';
+        break;
 
-    case 'Obsolete':
-      targetDateStr = doc?.lastReviewedAt || doc?.updatedAt;
-      labelPrefix = 'Ditandai obsolete pada';
-      break;
+      case 'Telah dibaca':
+        targetDateStr = doc?.updatedAt;
+        labelPrefix = 'Dibaca PIC pada';
+        break;
 
-    case 'Telah dibaca':
-      targetDateStr = doc?.updatedAt;
-      labelPrefix = 'Dibaca PIC pada';
-      break;
+      case 'Menunggu':
+        targetDateStr = doc?.scheduledEmailAt || doc?.updatedAt || doc?.createdAt;
+        labelPrefix = 'Menunggu review sejak';
+        break;
 
-    case 'Menunggu':
-      targetDateStr = doc?.scheduledEmailAt || doc?.updatedAt || doc?.createdAt;
-      labelPrefix = 'Menunggu review sejak';
-      break;
+      case 'Menunggu ACC Prepared':
+      case 'Menunggu ACC Checked':
+      case 'Menunggu ACC Approved':
+        targetDateStr = doc?.updatedAt || doc?.createdAt;
+        labelPrefix = 'Masuk alur approval pada';
+        break;
 
-    case 'Belum dikirim':
-      targetDateStr = doc?.scheduledEmailAt || doc?.updatedAt || doc?.createdAt;
-      labelPrefix = doc?.scheduledEmailAt ? 'Jadwal kirim email' : 'Status belum dikirim sejak';
-      break;
+      case 'Ditolak':
+        targetDateStr = doc?.updatedAt;
+        labelPrefix = 'Ditolak pada';
+        break;
 
-    case 'Menunggu ACC Prepared':
-    case 'Menunggu ACC Checked':
-    case 'Menunggu ACC Approved':
-      targetDateStr = doc?.updatedAt || doc?.createdAt;
-      labelPrefix = 'Masuk alur approval pada';
-      break;
-
-    case 'Ditolak':
-      targetDateStr = doc?.updatedAt;
-      labelPrefix = 'Ditolak pada';
-      break;
-
-    default:
-      targetDateStr = doc?.updatedAt || doc?.createdAt;
-      labelPrefix = 'Diperbarui pada';
-      break;
+      default:
+        targetDateStr = doc?.updatedAt || doc?.createdAt;
+        labelPrefix = 'Diperbarui pada';
+        break;
+    }
   }
 
   const formatted = formatSentDateTime(targetDateStr);
@@ -222,7 +245,11 @@ function StatusBadge({
     Obsolete: { bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-500', clock: 'text-red-600' },
     Menunggu: { bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-500', clock: 'text-blue-600' },
     'Belum dikirim': { bg: 'bg-orange-50', text: 'text-orange-700', dot: 'bg-orange-500', clock: 'text-orange-600' },
+    'Belum dikirim ke PIC': { bg: 'bg-orange-50', text: 'text-orange-700', dot: 'bg-orange-500', clock: 'text-orange-600' },
     'Telah terkirim': { bg: 'bg-cyan-50', text: 'text-cyan-700', dot: 'bg-cyan-500', clock: 'text-cyan-600' },
+    'Telah terkirim ke PIC': { bg: 'bg-cyan-50', text: 'text-cyan-700', dot: 'bg-cyan-500', clock: 'text-cyan-600' },
+    'Belum dikirim ke MGR': { bg: 'bg-amber-50', text: 'text-amber-700', dot: 'bg-amber-500', clock: 'text-amber-600' },
+    'Telah terkirim ke MGR': { bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-500', clock: 'text-blue-600' },
     'Telah dibaca': { bg: 'bg-purple-50', text: 'text-purple-700', dot: 'bg-purple-500', clock: 'text-purple-600' },
     'Menunggu ACC Prepared': { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500', clock: 'text-violet-600' },
     'Menunggu ACC Checked': { bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-500', clock: 'text-violet-600' },
@@ -230,7 +257,16 @@ function StatusBadge({
     'Ditolak': { bg: 'bg-rose-50', text: 'text-rose-700', dot: 'bg-rose-500', clock: 'text-rose-600' },
     '-': { bg: 'bg-slate-50', text: 'text-slate-500', dot: 'bg-slate-400', clock: 'text-slate-400' },
   };
-  const s = styles[status] ?? styles['-'];
+  let s = styles[status];
+  if (!s) {
+    if (status.startsWith('Belum dikirim ke MGR')) {
+      s = styles['Belum dikirim ke MGR'];
+    } else if (status.startsWith('Telah terkirim ke MGR')) {
+      s = styles['Telah terkirim ke MGR'];
+    } else {
+      s = styles['-'];
+    }
+  }
   const timeInfo = getStatusTimeInfo(status, doc, lastSentAt);
 
   return (
@@ -1018,7 +1054,9 @@ export default function StatusReviewPage() {
       // yang sebenarnya sudah maju ke 'Menunggu ACC ...' malah tampil balik
       // jadi 'Revisi' di tabel sampai admin upload ulang sekali lagi.
       const workflowStatuses: StatusType[] = [
-        'Belum dikirim', 'Telah terkirim', 'Telah dibaca', 'Menunggu',
+        'Belum dikirim', 'Belum dikirim ke PIC',
+        'Telah terkirim', 'Telah terkirim ke PIC',
+        'Telah dibaca', 'Menunggu',
         'Menunggu ACC Prepared', 'Menunggu ACC Checked', 'Menunggu ACC Approved',
         // 🆕 status ditolak saat proses ACC — sama seperti status ACC lainnya,
         // ini bukan hasil dari document_reviews, jadi harus dikecualikan dari
@@ -1027,7 +1065,11 @@ export default function StatusReviewPage() {
       ];
       const withReviews = await Promise.all(
         procedures.map(async (doc) => {
-          if (workflowStatuses.includes(doc.status)) return doc;
+          if (
+            workflowStatuses.includes(doc.status) ||
+            doc.status.startsWith('Belum dikirim') ||
+            doc.status.startsWith('Telah terkirim')
+          ) return doc;
           const docDate = new Date(doc.tanggalSelesaiApproval);
           const approvalMonth = isNaN(docDate.getTime()) ? new Date().getMonth() : docDate.getMonth();
           const review = await getDocumentReview(doc.nomorDokumen, approvalMonth);
@@ -1346,7 +1388,19 @@ export default function StatusReviewPage() {
         );
       });
     }
-    if (filterValue) result = result.filter(row => row.status === filterValue);
+    if (filterValue) {
+      if (filterValue === 'Belum dikirim ke PIC') {
+        result = result.filter(row => row.status === 'Belum dikirim ke PIC' || row.status === 'Belum dikirim');
+      } else if (filterValue === 'Telah terkirim ke PIC') {
+        result = result.filter(row => row.status === 'Telah terkirim ke PIC' || row.status === 'Telah terkirim');
+      } else if (filterValue === 'Belum dikirim ke MGR') {
+        result = result.filter(row => row.status.startsWith('Belum dikirim ke MGR'));
+      } else if (filterValue === 'Telah terkirim ke MGR') {
+        result = result.filter(row => row.status.startsWith('Telah terkirim ke MGR'));
+      } else {
+        result = result.filter(row => row.status === filterValue);
+      }
+    }
     if (monthFilter !== '') {
       const sel = parseInt(monthFilter);
       result = result.filter(row => new Date(row.tanggalSelesaiApproval).getMonth() === sel);
@@ -1376,7 +1430,15 @@ export default function StatusReviewPage() {
     total: dataResolved.length,
     relevan: dataResolved.filter(p => p.status === 'Relevan').length,
     revisi: dataResolved.filter(p => p.status === 'Revisi').length,
-    belumReview: dataResolved.filter(p => ['Menunggu', 'Belum dikirim', '-'].includes(p.status)).length,
+    belumReview: dataResolved.filter(p => [
+      'Menunggu',
+      'Belum dikirim',
+      'Belum dikirim ke PIC',
+      'Telah terkirim',
+      'Telah terkirim ke PIC',
+      'Telah dibaca',
+      '-'
+    ].includes(p.status) || p.status.startsWith('Belum dikirim ke MGR') || p.status.startsWith('Telah terkirim ke MGR')).length,
   }), [dataResolved]);
 
   // ── Dropdown style ──────────────────────────────────────────────────────────
@@ -1502,8 +1564,10 @@ export default function StatusReviewPage() {
                   <option value="Relevan">Relevan</option>
                   <option value="Obsolete">Obsolete</option>
                   <option value="Menunggu">Menunggu</option>
-                  <option value="Belum dikirim">Belum dikirim</option>
-                  <option value="Telah terkirim">Telah terkirim</option>
+                  <option value="Belum dikirim ke PIC">Belum dikirim ke PIC</option>
+                  <option value="Telah terkirim ke PIC">Telah terkirim ke PIC</option>
+                  <option value="Belum dikirim ke MGR">Belum dikirim ke MGR</option>
+                  <option value="Telah terkirim ke MGR">Telah terkirim ke MGR</option>
                   <option value="Telah dibaca">Telah dibaca</option>
                   <option value="-">Belum Ditentukan</option>
                 </select>

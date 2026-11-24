@@ -71,21 +71,35 @@ function StatusBadge({
   status: StatusType;
   lastSentAt?: string | null;
 }) {
-  const styles: Partial<Record<StatusType, { bg: string; dot: string }>> = {
+  const styles: Record<string, { bg: string; dot: string }> = {
     Relevan: { bg: 'bg-emerald-50 text-emerald-700 border-emerald-200/80', dot: 'bg-emerald-500' },
     Revisi: { bg: 'bg-amber-50 text-amber-700 border-amber-200/80', dot: 'bg-amber-500' },
     Obsolete: { bg: 'bg-red-50 text-red-700 border-red-200/80', dot: 'bg-red-500' },
     Menunggu: { bg: 'bg-blue-50 text-blue-700 border-blue-200/80', dot: 'bg-blue-500' },
     'Belum dikirim': { bg: 'bg-orange-50 text-orange-700 border-orange-200/80', dot: 'bg-orange-500' },
+    'Belum dikirim ke PIC': { bg: 'bg-orange-50 text-orange-700 border-orange-200/80', dot: 'bg-orange-500' },
     'Telah terkirim': { bg: 'bg-cyan-50 text-cyan-700 border-cyan-200/80', dot: 'bg-cyan-500' },
+    'Telah terkirim ke PIC': { bg: 'bg-cyan-50 text-cyan-700 border-cyan-200/80', dot: 'bg-cyan-500' },
+    'Belum dikirim ke MGR': { bg: 'bg-amber-50 text-amber-700 border-amber-200/80', dot: 'bg-amber-500' },
+    'Telah terkirim ke MGR': { bg: 'bg-blue-50 text-blue-700 border-blue-200/80', dot: 'bg-blue-500' },
     'Telah dibaca': { bg: 'bg-purple-50 text-purple-700 border-purple-200/80', dot: 'bg-purple-500' },
     'Menunggu ACC Prepared': { bg: 'bg-violet-50 text-violet-700 border-violet-200/80', dot: 'bg-violet-500' },
     'Menunggu ACC Checked': { bg: 'bg-violet-50 text-violet-700 border-violet-200/80', dot: 'bg-violet-500' },
     'Menunggu ACC Approved': { bg: 'bg-violet-50 text-violet-700 border-violet-200/80', dot: 'bg-violet-500' },
     '-': { bg: 'bg-slate-50 text-slate-600 border-slate-200/80', dot: 'bg-slate-400' },
   };
-  const s = styles[status] ?? styles['-']!;
-  const sentFormatted = status === 'Telah terkirim' ? formatSentDateTime(lastSentAt) : null;
+  let s = styles[status];
+  if (!s) {
+    if (status.startsWith('Belum dikirim ke MGR')) {
+      s = styles['Belum dikirim ke MGR'];
+    } else if (status.startsWith('Telah terkirim ke MGR')) {
+      s = styles['Telah terkirim ke MGR'];
+    } else {
+      s = styles['-'];
+    }
+  }
+  const isSent = status.startsWith('Telah terkirim');
+  const sentFormatted = isSent ? formatSentDateTime(lastSentAt) : null;
 
   return (
     <div className="inline-flex flex-col items-start gap-0.5">
@@ -465,8 +479,8 @@ export default function HomePage() {
     relevan: filteredDocs.filter(p => p.status === 'Relevan').length,
     revisi: filteredDocs.filter(p => p.status === 'Revisi').length,
     obsolete: filteredDocs.filter(p => p.status === 'Obsolete').length,
-    menunggu: filteredDocs.filter(p => ['Menunggu', 'Belum dikirim', '-'].includes(p.status)).length,
-    terkirim: filteredDocs.filter(p => p.status === 'Telah terkirim').length,
+    menunggu: filteredDocs.filter(p => ['Menunggu', 'Belum dikirim', 'Belum dikirim ke PIC', '-'].includes(p.status) || p.status.startsWith('Belum dikirim ke MGR')).length,
+    terkirim: filteredDocs.filter(p => ['Telah terkirim', 'Telah terkirim ke PIC'].includes(p.status) || p.status.startsWith('Telah terkirim ke MGR')).length,
     terbaca: filteredDocs.filter(p => p.status === 'Telah dibaca').length,
   }), [filteredDocs]);
 

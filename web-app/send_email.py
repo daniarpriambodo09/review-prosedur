@@ -185,7 +185,7 @@ def mark_emails_sent(conn, nomor_list: list) -> None:
         """, (nomor_list,))
         cur.execute("""
             UPDATE procedure_documents
-            SET status = 'Telah terkirim', updated_at = NOW()
+            SET status = 'Telah terkirim ke PIC', updated_at = NOW()
             WHERE nomor_dokumen = ANY(%s)
               AND status NOT IN ('Relevan', 'Revisi', 'Obsolete', 'Telah dibaca')
         """, (nomor_list,))
@@ -219,46 +219,78 @@ def mark_emails_failed(conn, nomor_list: list, error_msg: str) -> None:
 # app/api/procedures/route.ts (Node) saat dokumen masuk siklus review;
 # di sini kita cuma polling & mengeksekusi pengirimannya.
 
-def resolve_managers(cur, pic_field: str) -> list[dict]:
+def resolve_managers(cur, pic_field: str, owner: str = None) -> list[dict]:
     """
-    Cari SEMUA manager yang di-assign ke departemen PIC (kode pertama di
-    kolom procedure_documents.pic), lewat department_managers.
-    Mendukung PIC yang unit-nya section (di-resolve ke department induknya
-    dulu) maupun department langsung. Satu departemen bisa punya >1 manager
-    (mis. SMGR + JMGR) -> keduanya dikirimi email.
+    Cari SEMUA manager yang membawahi PIC atau departemen dokumen ini.
+    Mendukung:
+      1. Via department_managers (jika ada assignment langsung)
+      2. Manager departemen yang sama dengan PIC (sp.unit_id = sm.unit_id)
+      3. Manager section yang sama dengan PIC
+      4. Match via owner dokumen (misal owner = 'QA', dicari manager di QA)
     """
-    if not pic_field:
+    if not pic_field and not owner:
         return []
-    first_code = pic_field.replace(" ", "").split(",")[0].strip().upper()
-    if not first_code:
-        return []
+    first_code = pic_field.replace(" ", "").split(",")[0].strip().upper() if pic_field else ""
 
     cur.execute("""
-        SELECT DISTINCT sm.email, sm.nama
-        FROM staff_directory sp
-        LEFT JOIN staff_sections ss ON ss.staff_kode = sp.kode
-        LEFT JOIN sections sec ON sec.id = COALESCE(ss.section_id, CASE WHEN sp.unit_type = 'section' THEN sp.unit_id END)
-        JOIN department_managers dm
-          ON dm.department_id = CASE
-               WHEN sp.unit_type = 'department' THEN sp.unit_id
-               ELSE sec.department_id
-             END
-        JOIN staff_directory sm ON sm.kode = dm.manager_kode
-        WHERE sp.kode = %s
-    """, (first_code,))
+        WITH pic_info AS (
+            SELECT 
+                s.kode,
+                s.unit_type,
+                s.unit_id,
+                CASE 
+                    WHEN s.unit_type = 'department' THEN s.unit_id
+                    WHEN s.unit_type = 'section' THEN sec.department_id
+                END AS dept_id
+            FROM staff_directory s
+            LEFT JOIN sections sec ON s.unit_type = 'section' AND sec.id = s.unit_id
+            WHERE s.kode = %s
+        )
+        SELECT DISTINCT m.email, m.nama
+        FROM staff_directory m
+        LEFT JOIN sections msec ON m.unit_type = 'section' AND msec.id = m.unit_id
+        LEFT JOIN department_managers dm ON dm.manager_kode = m.kode
+        LEFT JOIN pic_info pinfo ON true
+        WHERE m.is_manager = true
+          AND (
+            (pinfo.dept_id IS NOT NULL AND dm.department_id = pinfo.dept_id)
+            OR (pinfo.dept_id IS NOT NULL AND (
+                (m.unit_type = 'department' AND m.unit_id = pinfo.dept_id)
+                OR (m.unit_type = 'section' AND msec.department_id = pinfo.dept_id)
+            ))
+            OR (pinfo.unit_type = 'section' AND m.unit_type = 'section' AND m.unit_id = pinfo.unit_id)
+            OR (%s IS NOT NULL AND (
+                (m.unit_type = 'department' AND EXISTS (
+                    SELECT 1 FROM departments d WHERE d.id = m.unit_id AND UPPER(d.nama) = UPPER(%s)
+                ))
+                OR (m.unit_type = 'section' AND EXISTS (
+                    SELECT 1 FROM sections s2 WHERE s2.id = m.unit_id AND UPPER(s2.nama) = UPPER(%s)
+                ))
+            ))
+          )
+    """, (first_code, owner, owner, owner))
     rows = cur.fetchall()
-    return [{"email": r[0], "nama": r[1]} for r in rows]
+    return [{"email": r[0], "nama": r[1]} for r in rows if r[0]]
 
 
-def mark_manager_emails_sent(conn, nomor_list: list) -> None:
+def mark_manager_emails_sent(conn, nomor_mgr_map: dict) -> None:
     cur = conn.cursor()
     try:
-        cur.execute("""
-            UPDATE email_schedules
-            SET manager_email_status = 'sent', manager_email_sent_at = NOW(),
-                updated_at = NOW()
-            WHERE nomor_dokumen = ANY(%s)
-        """, (nomor_list,))
+        for nomor, mgr_name in nomor_mgr_map.items():
+            cur.execute("""
+                UPDATE email_schedules
+                SET manager_email_status = 'sent', manager_email_sent_at = NOW(),
+                    manager_name = COALESCE(%s, manager_name),
+                    updated_at = NOW()
+                WHERE nomor_dokumen = %s
+            """, (mgr_name, nomor))
+            target_status = f"Telah terkirim ke MGR ({mgr_name})" if mgr_name else "Telah terkirim ke MGR"
+            cur.execute("""
+                UPDATE procedure_documents
+                SET status = %s, updated_at = NOW()
+                WHERE nomor_dokumen = %s
+                  AND status NOT IN ('Relevan', 'Revisi', 'Obsolete')
+            """, (target_status, nomor))
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -710,11 +742,13 @@ def check_and_send_manager_emails(conn, smtp_cfg: dict) -> None:
                 es.nomor_dokumen,
                 pd.nama_dokumen,
                 pd.pic,
-                pd.status
+                pd.status,
+                pd.owner,
+                es.manager_name
             FROM email_schedules es
             JOIN procedure_documents pd
               ON es.nomor_dokumen = pd.nomor_dokumen
-            WHERE es.manager_email_status = 'not_applicable'
+            WHERE es.manager_email_status IN ('not_applicable', 'pending')
               AND es.manager_email_scheduled_at IS NOT NULL
               AND es.manager_email_scheduled_at <= NOW()
               AND es.manager_email_scheduled_at::date >= (CURRENT_DATE - %s)
@@ -736,14 +770,14 @@ def check_and_send_manager_emails(conn, smtp_cfg: dict) -> None:
     already_reviewed = ["Relevan", "Revisi", "Obsolete"]
 
     skip_list: list = []
-    to_send:  list = []  # (nomor, nama_dokumen, pic)
+    to_send:  list = []  # (nomor, nama_dokumen, pic, owner, existing_mgr_name)
 
-    for nomor, nama_dokumen, pic, status in rows:
+    for nomor, nama_dokumen, pic, status, owner, existing_mgr_name in rows:
         if status in already_reviewed:
             # PIC sudah kasih status sebelum T-1bulan tercapai -> skip, tidak perlu eskalasi.
             skip_list.append(nomor)
             continue
-        to_send.append((nomor, nama_dokumen, pic))
+        to_send.append((nomor, nama_dokumen, pic, owner, existing_mgr_name))
 
     if skip_list:
         try:
@@ -755,21 +789,22 @@ def check_and_send_manager_emails(conn, smtp_cfg: dict) -> None:
     if not to_send:
         return
 
-    # Resolve manager per PIC (bisa >1 manager per dokumen), lalu kelompokkan
-    # dokumen per manager email (supaya manager yang membawahi >1 PIC cukup
-    # dapat 1 email berisi semua dokumen).
+    # Resolve manager per PIC / owner, lalu kelompokkan dokumen per manager email
     grouped: dict = defaultdict(list)      # (manager_email, manager_nama) -> [ {nama, nomor, pic} ]
     doc_managers: dict = defaultdict(list) # nomor_dokumen -> [manager_email, ...] (utk agregasi status)
+    doc_mgr_names: dict = {}               # nomor_dokumen -> manager_name string
     unresolved: list = []                  # dokumen yang manager-nya tidak ketemu sama sekali
 
     cur = conn.cursor()
     try:
-        for nomor, nama_dokumen, pic in to_send:
-            managers = resolve_managers(cur, pic)
+        for nomor, nama_dokumen, pic, owner, existing_mgr_name in to_send:
+            managers = resolve_managers(cur, pic, owner)
             if not managers:
-                log_warn(f"Manager tidak ditemukan untuk PIC='{pic}' (dokumen {nomor}) — dilewati, coba lagi siklus berikutnya.")
+                log_warn(f"Manager tidak ditemukan untuk PIC='{pic}' Owner='{owner}' (dokumen {nomor}) — dilewati, coba lagi siklus berikutnya.")
                 unresolved.append(nomor)
                 continue
+            resolved_mgr_name = ", ".join(m["nama"] for m in managers) or existing_mgr_name or ""
+            doc_mgr_names[nomor] = resolved_mgr_name
             for manager in managers:
                 key = (manager["email"], manager["nama"])
                 grouped[key].append({"nama": nama_dokumen, "nomor": nomor, "pic": pic})
@@ -777,9 +812,7 @@ def check_and_send_manager_emails(conn, smtp_cfg: dict) -> None:
     finally:
         cur.close()
 
-    # Kirim per grup manager, catat sukses/gagal PER EMAIL MANAGER dulu —
-    # baru diagregasi jadi status per dokumen di bawah (satu dokumen bisa
-    # punya >1 manager; status 'sent' hanya kalau SEMUA manager-nya berhasil).
+    # Kirim per grup manager, catat sukses/gagal PER EMAIL MANAGER dulu
     send_success: dict = {}  # manager_email -> True/False
 
     for (manager_email, manager_nama), dokumen_list in grouped.items():
@@ -799,7 +832,8 @@ def check_and_send_manager_emails(conn, smtp_cfg: dict) -> None:
 
     if sent_docs:
         try:
-            mark_manager_emails_sent(conn, sent_docs)
+            nomor_mgr_map = {n: doc_mgr_names.get(n, "") for n in sent_docs}
+            mark_manager_emails_sent(conn, nomor_mgr_map)
         except Exception as e:
             log_error(f"Failed to mark manager emails as sent: {e}")
 

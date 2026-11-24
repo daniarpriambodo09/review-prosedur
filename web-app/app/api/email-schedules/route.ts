@@ -19,6 +19,10 @@ export async function GET(request: NextRequest) {
         es.retry_count,
         es.error_message,
         es.cycle_deadline_at,
+        es.manager_email_scheduled_at,
+        es.manager_email_status,
+        es.manager_email_sent_at,
+        es.manager_name,
         es.is_manual,
         es.previous_status,
         es.created_at,
@@ -49,6 +53,10 @@ export async function GET(request: NextRequest) {
       retryCount: row.retry_count,
       errorMessage: row.error_message,
       cycleDeadlineAt: row.cycle_deadline_at,
+      managerEmailScheduledAt: row.manager_email_scheduled_at,
+      managerEmailStatus: row.manager_email_status,
+      managerEmailSentAt: row.manager_email_sent_at,
+      managerName: row.manager_name,
       isManual: row.is_manual,
       previousStatus: row.previous_status,
       createdAt: row.created_at,
@@ -130,7 +138,7 @@ export async function PUT(request: NextRequest) {
 
     await client.query('BEGIN');
 
-    // Cek status saat ini dari procedure_documents sebelum diubah ke 'Belum dikirim'
+    // Cek status saat ini dari procedure_documents sebelum diubah ke 'Belum dikirim ke PIC'
     const docCheck = await client.query(
       `SELECT status FROM procedure_documents WHERE nomor_dokumen = $1`,
       [nomorDokumen]
@@ -139,9 +147,47 @@ export async function PUT(request: NextRequest) {
 
     // Simpan status sebelumnya jika valid (misal: Relevan, Revisi, Obsolete)
     let prevStatusToSave: string | null = null;
-    if (existingDocStatus && !['Belum dikirim', 'Telah terkirim', 'Telah dibaca'].includes(existingDocStatus)) {
+    const isWorkflowStatus = (s?: string) => !s || s.startsWith('Belum dikirim') || s.startsWith('Telah terkirim') || s === 'Telah dibaca' || s === 'Menunggu' || s === '-';
+    if (existingDocStatus && !isWorkflowStatus(existingDocStatus)) {
       prevStatusToSave = existingDocStatus;
     }
+
+    // Resolusi nama manager dari staff_directory
+    const mgrCheck = await client.query(`
+      SELECT string_agg(DISTINCT m.nama, ', ') as mgr_name
+      FROM procedure_documents pd
+      LEFT JOIN (
+        SELECT 
+          s.kode,
+          s.unit_type,
+          s.unit_id,
+          CASE 
+            WHEN s.unit_type = 'department' THEN s.unit_id
+            WHEN s.unit_type = 'section' THEN sec.department_id
+          END AS dept_id
+        FROM staff_directory s
+        LEFT JOIN sections sec ON s.unit_type = 'section' AND sec.id = s.unit_id
+      ) pinfo ON pinfo.kode = UPPER(SPLIT_PART(REPLACE(pd.pic, ' ', ''), ',', 1))
+      LEFT JOIN staff_directory m ON m.is_manager = true
+      LEFT JOIN sections msec ON m.unit_type = 'section' AND msec.id = m.unit_id
+      LEFT JOIN department_managers dm ON dm.manager_kode = m.kode
+      WHERE pd.nomor_dokumen = $1
+        AND (
+          (pinfo.dept_id IS NOT NULL AND dm.department_id = pinfo.dept_id)
+          OR (pinfo.dept_id IS NOT NULL AND (
+              (m.unit_type = 'department' AND m.unit_id = pinfo.dept_id)
+              OR (m.unit_type = 'section' AND msec.department_id = pinfo.dept_id)
+          ))
+          OR (pinfo.unit_type = 'section' AND m.unit_type = 'section' AND m.unit_id = pinfo.unit_id)
+          OR (m.unit_type = 'department' AND EXISTS (
+              SELECT 1 FROM departments d WHERE d.id = m.unit_id AND UPPER(d.nama) = UPPER(pd.owner)
+          ))
+          OR (m.unit_type = 'section' AND EXISTS (
+              SELECT 1 FROM sections s2 WHERE s2.id = m.unit_id AND UPPER(s2.nama) = UPPER(pd.owner)
+          ))
+        )
+    `, [nomorDokumen]);
+    const resolvedManagerName = mgrCheck.rows[0]?.mgr_name || null;
 
     // Upsert email schedule
     const checkResult = await client.query(
@@ -161,37 +207,38 @@ export async function PUT(request: NextRequest) {
            cycle_deadline_at           = COALESCE($3, cycle_deadline_at),
            manager_email_scheduled_at  = COALESCE($4, manager_email_scheduled_at),
            manager_email_status        = CASE WHEN $2::varchar = 'pending' THEN 'not_applicable' ELSE manager_email_status END,
+           manager_name                = COALESCE($5, manager_name),
            is_manual                   = CASE WHEN $2::varchar = 'pending' THEN TRUE ELSE is_manual END,
-           previous_status             = COALESCE($5, previous_status),
+           previous_status             = COALESCE($6, previous_status),
            updated_at                  = CURRENT_TIMESTAMP
-         WHERE nomor_dokumen = $6
+         WHERE nomor_dokumen = $7
          RETURNING *`,
-        [scheduledEmailAtFormatted, currentScheduleStatus, cycleDeadlineAtStr, managerScheduledAtStr, prevStatusToSave, nomorDokumen]
+        [scheduledEmailAtFormatted, currentScheduleStatus, cycleDeadlineAtStr, managerScheduledAtStr, resolvedManagerName, prevStatusToSave, nomorDokumen]
       );
     } else {
       result = await client.query(
         `INSERT INTO email_schedules
-           (nomor_dokumen, scheduled_email_at, email_status, cycle_deadline_at, manager_email_scheduled_at, manager_email_status, is_manual, previous_status)
-         VALUES ($1, $2, $3, $4, $5, 'not_applicable', TRUE, $6)
+           (nomor_dokumen, scheduled_email_at, email_status, cycle_deadline_at, manager_email_scheduled_at, manager_email_status, manager_name, is_manual, previous_status)
+         VALUES ($1, $2, $3, $4, $5, 'not_applicable', $6, TRUE, $7)
          RETURNING *`,
-        [nomorDokumen, scheduledEmailAtFormatted, currentScheduleStatus, cycleDeadlineAtStr, managerScheduledAtStr, prevStatusToSave]
+        [nomorDokumen, scheduledEmailAtFormatted, currentScheduleStatus, cycleDeadlineAtStr, managerScheduledAtStr, resolvedManagerName, prevStatusToSave]
       );
     }
 
     if (currentScheduleStatus === 'pending') {
       // Admin secara eksplisit membuat/mengupdate jadwal baru →
-      // reset status dokumen ke "Belum dikirim" tanpa pengecualian apapun.
+      // reset status dokumen ke "Belum dikirim ke PIC"
       await client.query(
         `UPDATE procedure_documents
-         SET status = 'Belum dikirim', updated_at = CURRENT_TIMESTAMP
+         SET status = 'Belum dikirim ke PIC', updated_at = CURRENT_TIMESTAMP
          WHERE nomor_dokumen = $1`,
         [nomorDokumen]
       );
     } else if (currentScheduleStatus === 'sent') {
-      // Dipanggil sistem pengirim email saat email berhasil terkirim
+      // Dipanggil sistem pengirim email saat email PIC berhasil terkirim
       await client.query(
         `UPDATE procedure_documents
-         SET status = 'Telah terkirim', updated_at = CURRENT_TIMESTAMP
+         SET status = 'Telah terkirim ke PIC', updated_at = CURRENT_TIMESTAMP
          WHERE nomor_dokumen = $1
            AND status NOT IN ('Relevan', 'Revisi', 'Obsolete', 'Telah dibaca')`,
         [nomorDokumen]
@@ -254,8 +301,10 @@ export async function DELETE(request: NextRequest) {
       const row = schedCheck.rows[0];
       let targetStatus = row?.previous_status;
 
+      const isWorkflow = (s?: string) => !s || s.startsWith('Belum dikirim') || s.startsWith('Telah terkirim') || s === 'Telah dibaca' || s === 'Menunggu' || s === '-';
+
       // Jika previous_status kosong atau tidak valid, cari status dari riwayat review terakhir
-      if (!targetStatus || ['Belum dikirim', 'Telah terkirim', 'Telah dibaca'].includes(targetStatus)) {
+      if (isWorkflow(targetStatus)) {
         const revCheck = await client.query(
           `SELECT status FROM document_reviews
            WHERE nomor_dokumen = $1
@@ -267,7 +316,7 @@ export async function DELETE(request: NextRequest) {
       }
 
       // Default jika belum ada riwayat adalah 'Relevan'
-      if (!targetStatus || ['Belum dikirim', 'Telah terkirim', 'Telah dibaca'].includes(targetStatus)) {
+      if (isWorkflow(targetStatus)) {
         targetStatus = 'Relevan';
       }
 
@@ -279,9 +328,9 @@ export async function DELETE(request: NextRequest) {
         [docNo]
       );
 
-      // 3. Kembalikan status dokumen ke status terakhir HANYA jika saat ini dokumen dalam mode jadwal ('Belum dikirim')
+      // 3. Kembalikan status dokumen ke status terakhir HANYA jika saat ini dokumen dalam mode jadwal
       // Jika dokumen sudah direview (misal Relevan/Revisi/Obsolete oleh PIC), status tersebut tidak di-overwrite.
-      if (!row || row.current_doc_status === 'Belum dikirim' || row.current_doc_status === 'Telah terkirim') {
+      if (!row || isWorkflow(row.current_doc_status)) {
         await client.query(
           `UPDATE procedure_documents
            SET status = $1, updated_at = CURRENT_TIMESTAMP

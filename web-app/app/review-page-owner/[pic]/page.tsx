@@ -113,7 +113,9 @@ function formatDate(iso: string): string {
 }
 
 function toReviewStatus(status: StatusType): ReviewStatus {
-  if (status === 'Relevan' || status === 'Revisi' || status === 'Obsolete') return status;
+  if (status === 'Relevan') return 'Relevan';
+  if (status === 'Revisi') return 'Revisi';
+  if (status === 'Obsolete') return 'Obsolete';
   return '-';
 }
 

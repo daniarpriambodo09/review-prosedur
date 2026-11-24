@@ -224,6 +224,46 @@ async function createOrResetSchedule(
   const managerScheduledAtStr = formatTimestampLocal(managerScheduledAt);
   const cycleDeadlineStr = formatTimestampLocal(cycleDeadline);
 
+  // Resolusi nama manager untuk disimpan di email_schedules
+  let managerName: string | null = null;
+  try {
+    const mgrRes = await client.query(`
+      SELECT string_agg(DISTINCT m.nama, ', ') as mgr_name
+      FROM procedure_documents pd
+      LEFT JOIN (
+        SELECT 
+          s.kode,
+          s.unit_type,
+          s.unit_id,
+          CASE 
+            WHEN s.unit_type = 'department' THEN s.unit_id
+            WHEN s.unit_type = 'section' THEN sec.department_id
+          END AS dept_id
+        FROM staff_directory s
+        LEFT JOIN sections sec ON s.unit_type = 'section' AND sec.id = s.unit_id
+      ) pinfo ON pinfo.kode = UPPER(SPLIT_PART(REPLACE(pd.pic, ' ', ''), ',', 1))
+      LEFT JOIN staff_directory m ON m.is_manager = true
+      LEFT JOIN sections msec ON m.unit_type = 'section' AND msec.id = m.unit_id
+      LEFT JOIN department_managers dm ON dm.manager_kode = m.kode
+      WHERE pd.nomor_dokumen = $1
+        AND (
+          (pinfo.dept_id IS NOT NULL AND dm.department_id = pinfo.dept_id)
+          OR (pinfo.dept_id IS NOT NULL AND (
+              (m.unit_type = 'department' AND m.unit_id = pinfo.dept_id)
+              OR (m.unit_type = 'section' AND msec.department_id = pinfo.dept_id)
+          ))
+          OR (pinfo.unit_type = 'section' AND m.unit_type = 'section' AND m.unit_id = pinfo.unit_id)
+          OR (m.unit_type = 'department' AND EXISTS (
+              SELECT 1 FROM departments d WHERE d.id = m.unit_id AND UPPER(d.nama) = UPPER(pd.owner)
+          ))
+          OR (m.unit_type = 'section' AND EXISTS (
+              SELECT 1 FROM sections s2 WHERE s2.id = m.unit_id AND UPPER(s2.nama) = UPPER(pd.owner)
+          ))
+        )
+    `, [nomorDokumen]);
+    managerName = mgrRes.rows[0]?.mgr_name || null;
+  } catch {}
+
   const existing = await client.query(
     `SELECT id FROM email_schedules WHERE nomor_dokumen = $1 LIMIT 1`,
     [nomorDokumen]
@@ -239,21 +279,22 @@ async function createOrResetSchedule(
            manager_email_status        = 'not_applicable',
            manager_email_sent_at       = NULL,
            manager_email_error         = NULL,
+           manager_name                = COALESCE($5, manager_name),
            cycle_deadline_at           = $4,
            is_manual                   = FALSE,
            retry_count                 = 0,
            error_message               = NULL,
            updated_at                  = CURRENT_TIMESTAMP
        WHERE nomor_dokumen = $1`,
-      [nomorDokumen, picScheduledAtStr, managerScheduledAtStr, cycleDeadlineStr]
+      [nomorDokumen, picScheduledAtStr, managerScheduledAtStr, cycleDeadlineStr, managerName]
     );
   } else {
     await client.query(
       `INSERT INTO email_schedules
          (nomor_dokumen, scheduled_email_at, email_status,
-          manager_email_scheduled_at, manager_email_status, cycle_deadline_at, is_manual)
-       VALUES ($1, $2, 'pending', $3, 'not_applicable', $4, FALSE)`,
-      [nomorDokumen, picScheduledAtStr, managerScheduledAtStr, cycleDeadlineStr]
+          manager_email_scheduled_at, manager_email_status, cycle_deadline_at, manager_name, is_manual)
+       VALUES ($1, $2, 'pending', $3, 'not_applicable', $4, $5, FALSE)`,
+      [nomorDokumen, picScheduledAtStr, managerScheduledAtStr, cycleDeadlineStr, managerName]
     );
   }
 
@@ -275,7 +316,13 @@ async function autoExpireAtDeadline(
   tanggal: string,
   status: string
 ): Promise<string> {
-  if (status !== '-' && status !== 'Belum dikirim' && status !== 'Telah terkirim' && status !== 'Telah dibaca') {
+  const isWorkflowStatus =
+    status === '-' ||
+    status === 'Telah dibaca' ||
+    status.startsWith('Belum dikirim') ||
+    status.startsWith('Telah terkirim');
+
+  if (!isWorkflowStatus) {
     return status;
   }
 
@@ -368,7 +415,7 @@ async function autoReactivate(
   return 'Menunggu';
 }
 
-// ─── Langkah 3: dari 'Menunggu' → 'Belum dikirim' (siap dikirim scheduler) ──
+// ─── Langkah 3: dari 'Menunggu' → 'Belum dikirim ke PIC' (siap dikirim scheduler) ──
 async function autoScheduleAndActivate(
   client: any,
   nomorDokumen: string,
@@ -387,11 +434,11 @@ async function autoScheduleAndActivate(
 
   await client.query(
     `UPDATE procedure_documents
-     SET status = 'Belum dikirim', updated_at = CURRENT_TIMESTAMP
+     SET status = 'Belum dikirim ke PIC', updated_at = CURRENT_TIMESTAMP
      WHERE nomor_dokumen = $1 AND status = 'Menunggu'`,
     [nomorDokumen]
   );
-  return 'Belum dikirim';
+  return 'Belum dikirim ke PIC';
 }
 
 // ─── Master chain ────────────────────────────────────────────────────────────
@@ -399,7 +446,8 @@ async function runAutoStatusChain(
   client: any,
   nomorDokumen: string,
   tanggal: string,
-  dbStatus: string
+  dbStatus: string,
+  scheduleRow?: any
 ): Promise<string> {
   // 'Relevan' -> satu-satunya jalur yang perlu dicek reaktivasi tahunan.
   if (dbStatus === 'Relevan') {
@@ -410,13 +458,64 @@ async function runAutoStatusChain(
     return afterReactivate;
   }
 
-  // Revisi/Obsolete/status alur ACC -> diamkan sepenuhnya, menunggu admin.
+  // Revisi/Obsolete/status alur ACC -> diamkan sepenuhnya, menunggu admin / proses ACC.
   if (PROTECTED_STATUSES.includes(dbStatus)) return dbStatus;
 
-  // Sisanya: '-', 'Belum dikirim', 'Telah terkirim', 'Telah dibaca'
-  // -> cek apakah sudah menyentuh deadline (T-0) tanpa PIC memberi status.
+  // Cek apakah sudah menyentuh deadline (T-0) tanpa PIC memberi status.
   const afterDeadline = await autoExpireAtDeadline(client, nomorDokumen, tanggal, dbStatus);
-  return afterDeadline; // sama dengan dbStatus kalau belum lewat deadline
+  if (afterDeadline === 'Relevan') return 'Relevan';
+
+  // Jika dokumen masih dalam alur review workflow (Belum dikirim*, Telah terkirim*, Telah dibaca, '-', dsb)
+  let sched = scheduleRow;
+  if (!sched) {
+    const sRes = await client.query(
+      `SELECT scheduled_email_at, email_status, last_sent_at, manager_email_scheduled_at, manager_email_status, manager_email_sent_at, manager_name
+       FROM email_schedules WHERE nomor_dokumen = $1 LIMIT 1`,
+      [nomorDokumen]
+    );
+    sched = sRes.rows[0];
+  }
+
+  if (sched) {
+    const now = new Date();
+    const mgrSchedAt = sched.manager_email_scheduled_at ? new Date(sched.manager_email_scheduled_at) : null;
+    const mgrSent = sched.manager_email_status === 'sent' || !!sched.manager_email_sent_at;
+    const picSent = sched.email_status === 'sent' || !!sched.last_sent_at;
+    const mgrName = sched.manager_name ? String(sched.manager_name).trim() : '';
+
+    // Cek apakah sudah masuk tahap 2 (Eskalasi Manager di Bulan ke-2)
+    const isManagerStage = mgrSchedAt && now >= mgrSchedAt;
+
+    let targetStatus = dbStatus;
+    if (isManagerStage) {
+      if (mgrSent || dbStatus.startsWith('Telah terkirim ke MGR')) {
+        targetStatus = mgrName ? `Telah terkirim ke MGR (${mgrName})` : 'Telah terkirim ke MGR';
+      } else {
+        targetStatus = mgrName ? `Belum dikirim ke MGR (${mgrName})` : 'Belum dikirim ke MGR';
+      }
+    } else {
+      // Tahap 1: PIC di Bulan ke-1
+      if (dbStatus === 'Telah dibaca') {
+        targetStatus = 'Telah dibaca'; // pertahankan jika PIC sudah membuka dokumen
+      } else if (picSent || dbStatus === 'Telah terkirim' || dbStatus === 'Telah terkirim ke PIC') {
+        targetStatus = 'Telah terkirim ke PIC';
+      } else {
+        targetStatus = 'Belum dikirim ke PIC';
+      }
+    }
+
+    if (targetStatus !== dbStatus) {
+      await client.query(
+        `UPDATE procedure_documents
+         SET status = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE nomor_dokumen = $2 AND status = $3`,
+        [targetStatus, nomorDokumen, dbStatus]
+      );
+      return targetStatus;
+    }
+  }
+
+  return dbStatus;
 }
 
 // ─── Resolve status awal saat dokumen baru ditambahkan ───────────────────────
@@ -437,7 +536,7 @@ async function resolveInitialStatus(
 
   if (needsReview === true) {
     await createOrResetSchedule(client, nomorDokumen, tanggal, true);
-    return 'Belum dikirim';
+    return 'Belum dikirim ke PIC';
   }
 
   if (now < picScheduleStart) return 'Relevan'; // belum masuk window, tunggu siklus berjalan alami
@@ -450,7 +549,7 @@ async function resolveInitialStatus(
   }
 
   await createOrResetSchedule(client, nomorDokumen, tanggal, null);
-  return 'Belum dikirim';
+  return 'Belum dikirim ke PIC';
 }
 
 // ── GET ───────────────────────────────────────────────────────────────────────
@@ -491,8 +590,12 @@ export async function GET(request: NextRequest) {
           SELECT pd.*,
                  es.last_sent_at,
                  es.scheduled_email_at,
+                 es.email_status,
+                 es.cycle_deadline_at,
                  es.manager_email_scheduled_at,
                  es.manager_email_status,
+                 es.manager_email_sent_at,
+                 es.manager_name,
                  prr.latest_revision_requested_at,
                  pac.current_stage AS active_approval_stage,
                  pac.status AS active_approval_status
@@ -517,8 +620,12 @@ export async function GET(request: NextRequest) {
           SELECT pd.*,
                  es.last_sent_at,
                  es.scheduled_email_at,
+                 es.email_status,
+                 es.cycle_deadline_at,
                  es.manager_email_scheduled_at,
                  es.manager_email_status,
+                 es.manager_email_sent_at,
+                 es.manager_name,
                  prr.latest_revision_requested_at,
                  pac.current_stage AS active_approval_stage,
                  pac.status AS active_approval_status
@@ -545,8 +652,12 @@ export async function GET(request: NextRequest) {
         SELECT pd.*,
                es.last_sent_at,
                es.scheduled_email_at,
+               es.email_status,
+               es.cycle_deadline_at,
                es.manager_email_scheduled_at,
                es.manager_email_status,
+               es.manager_email_sent_at,
+               es.manager_name,
                prr.latest_revision_requested_at,
                pac.current_stage AS active_approval_stage,
                pac.status AS active_approval_status
@@ -588,7 +699,8 @@ export async function GET(request: NextRequest) {
           client,
           row.nomor_dokumen,
           row.tanggal_selesai_approval,
-          effectiveStatus
+          effectiveStatus,
+          row
         );
 
         return {
@@ -610,6 +722,8 @@ export async function GET(request: NextRequest) {
           scheduledEmailAt: row.scheduled_email_at ?? null,
           managerEmailScheduledAt: row.manager_email_scheduled_at ?? null,
           managerEmailStatus: row.manager_email_status ?? 'not_applicable',
+          managerEmailSentAt: row.manager_email_sent_at ?? null,
+          managerName: row.manager_name ?? null,
           lastReviewedAt: row.last_reviewed_at ?? null,
           reviewSeenAt: row.review_seen_at ?? null,
           revisionRequestedAt: row.latest_revision_requested_at ?? (row.status === 'Revisi' ? row.last_reviewed_at : null),

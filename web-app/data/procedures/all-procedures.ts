@@ -6,7 +6,13 @@ export type StatusType =
   | 'Obsolete'
   | 'Menunggu'
   | 'Belum dikirim'
+  | 'Belum dikirim ke PIC'
   | 'Telah terkirim'
+  | 'Telah terkirim ke PIC'
+  | 'Belum dikirim ke MGR'
+  | 'Telah terkirim ke MGR'
+  | `Belum dikirim ke MGR (${string})`
+  | `Telah terkirim ke MGR (${string})`
   | 'Telah dibaca'
   | 'Menunggu Setting Approver'
   | 'Menunggu Approval'
@@ -58,6 +64,12 @@ export interface ProcedureDocument {
 
   /** Timestamp jadwal kirim email */
   scheduledEmailAt?: string | null;
+
+  /** Timestamp jadwal kirim email eskalasi manager */
+  managerEmailScheduledAt?: string | null;
+  managerEmailStatus?: string | null;
+  managerEmailSentAt?: string | null;
+  managerName?: string | null;
 
   /** Timestamp tanggal dokumen dibuat di database */
   createdAt?: string | null;

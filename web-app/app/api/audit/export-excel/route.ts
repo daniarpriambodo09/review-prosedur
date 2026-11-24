@@ -78,37 +78,43 @@ function getStatusDateTime(status: string, doc: any): string | null {
   const effectiveLastReviewedAt = doc.last_reviewed_at || doc.dr_updated_at || doc.dr_created_at;
   const effectiveUpdatedAt = doc.dr_updated_at || doc.updated_at;
 
-  switch (status) {
-    case 'Telah terkirim':
-      targetDate = doc.last_sent_at || effectiveUpdatedAt;
-      break;
-    case 'Relevan':
-      targetDate = effectiveLastReviewedAt || effectiveUpdatedAt || doc.created_at;
-      break;
-    case 'Revisi':
-      targetDate = doc.request_revisi_at || effectiveLastReviewedAt || effectiveUpdatedAt;
-      break;
-    case 'Obsolete':
-      targetDate = effectiveLastReviewedAt || effectiveUpdatedAt;
-      break;
-    case 'Telah dibaca':
-      targetDate = effectiveUpdatedAt;
-      break;
-    case 'Menunggu':
-    case 'Belum dikirim':
-      targetDate = doc.scheduled_email_at || effectiveUpdatedAt || doc.created_at;
-      break;
-    case 'Menunggu ACC Prepared':
-    case 'Menunggu ACC Checked':
-    case 'Menunggu ACC Approved':
-      targetDate = doc.mulai_approval_at || effectiveUpdatedAt || doc.created_at;
-      break;
-    case 'Ditolak':
-      targetDate = effectiveUpdatedAt;
-      break;
-    default:
-      targetDate = effectiveUpdatedAt || doc.created_at;
-      break;
+  if (status.startsWith('Telah terkirim ke MGR')) {
+    targetDate = doc.manager_email_sent_at || effectiveUpdatedAt;
+  } else if (status.startsWith('Belum dikirim ke MGR')) {
+    targetDate = doc.manager_email_scheduled_at || effectiveUpdatedAt || doc.created_at;
+  } else if (status === 'Telah terkirim ke PIC' || status === 'Telah terkirim') {
+    targetDate = doc.last_sent_at || effectiveUpdatedAt;
+  } else if (status === 'Belum dikirim ke PIC' || status === 'Belum dikirim') {
+    targetDate = doc.scheduled_email_at || effectiveUpdatedAt || doc.created_at;
+  } else {
+    switch (status) {
+      case 'Relevan':
+        targetDate = effectiveLastReviewedAt || effectiveUpdatedAt || doc.created_at;
+        break;
+      case 'Revisi':
+        targetDate = doc.request_revisi_at || effectiveLastReviewedAt || effectiveUpdatedAt;
+        break;
+      case 'Obsolete':
+        targetDate = effectiveLastReviewedAt || effectiveUpdatedAt;
+        break;
+      case 'Telah dibaca':
+        targetDate = effectiveUpdatedAt;
+        break;
+      case 'Menunggu':
+        targetDate = doc.scheduled_email_at || effectiveUpdatedAt || doc.created_at;
+        break;
+      case 'Menunggu ACC Prepared':
+      case 'Menunggu ACC Checked':
+      case 'Menunggu ACC Approved':
+        targetDate = doc.mulai_approval_at || effectiveUpdatedAt || doc.created_at;
+        break;
+      case 'Ditolak':
+        targetDate = effectiveUpdatedAt;
+        break;
+      default:
+        targetDate = effectiveUpdatedAt || doc.created_at;
+        break;
+    }
   }
   return formatStatusDateTime(targetDate);
 }
@@ -146,9 +152,17 @@ export async function GET(request: NextRequest) {
             WHEN c_latest.cycle_status = 'in_progress' AND c_latest.current_stage = 'checked'  THEN 'Menunggu ACC Checked'
             WHEN c_latest.cycle_status = 'in_progress' AND c_latest.current_stage = 'approved' THEN 'Menunggu ACC Approved'
             WHEN pd.status IN ('Relevan', 'Revisi', 'Obsolete', 'Menunggu ACC Prepared', 'Menunggu ACC Checked', 'Menunggu ACC Approved', 'Ditolak') THEN pd.status
+            WHEN pd.status LIKE 'Belum dikirim%' OR pd.status LIKE 'Telah terkirim%' THEN pd.status
             WHEN dr.status IN ('Relevan', 'Revisi', 'Obsolete') THEN dr.status
-            WHEN es.email_status = 'pending' THEN 'Belum dikirim'
-            WHEN es.email_status = 'sent' AND (es.last_sent_at IS NOT NULL AND es.last_sent_at >= NOW() - INTERVAL '2 months') THEN 'Telah terkirim'
+            WHEN es.manager_email_scheduled_at IS NOT NULL AND NOW() >= es.manager_email_scheduled_at THEN
+              CASE 
+                WHEN es.manager_email_status = 'sent' OR es.manager_email_sent_at IS NOT NULL THEN
+                  CASE WHEN es.manager_name IS NOT NULL AND es.manager_name != '' THEN 'Telah terkirim ke MGR (' || es.manager_name || ')' ELSE 'Telah terkirim ke MGR' END
+                ELSE
+                  CASE WHEN es.manager_name IS NOT NULL AND es.manager_name != '' THEN 'Belum dikirim ke MGR (' || es.manager_name || ')' ELSE 'Belum dikirim ke MGR' END
+              END
+            WHEN es.email_status = 'pending' THEN 'Belum dikirim ke PIC'
+            WHEN es.email_status = 'sent' AND (es.last_sent_at IS NOT NULL AND es.last_sent_at >= NOW() - INTERVAL '2 months') THEN 'Telah terkirim ke PIC'
             WHEN pd.status IS NOT NULL AND pd.status != '' THEN pd.status
             ELSE 'Menunggu'
           END AS status_review,
@@ -156,6 +170,9 @@ export async function GET(request: NextRequest) {
           es.last_sent_at,
           es.email_status,
           es.scheduled_email_at,
+          es.manager_email_scheduled_at,
+          es.manager_email_sent_at,
+          es.manager_name,
           COALESCE(prr.created_at, dr_rev.updated_at, (CASE WHEN pd.status = 'Revisi' THEN pd.last_reviewed_at ELSE NULL END)) as request_revisi_at,
           COALESCE(
             pf_trig.uploaded_at,
@@ -282,6 +299,18 @@ export async function GET(request: NextRequest) {
       procedures = procedures.filter(p => {
         if (statusParam === '-') {
           return p.status_review === '-' || p.status_review === 'Menunggu';
+        }
+        if (statusParam === 'Belum dikirim ke PIC') {
+          return p.status_review === 'Belum dikirim ke PIC' || p.status_review === 'Belum dikirim';
+        }
+        if (statusParam === 'Telah terkirim ke PIC') {
+          return p.status_review === 'Telah terkirim ke PIC' || p.status_review === 'Telah terkirim';
+        }
+        if (statusParam === 'Belum dikirim ke MGR') {
+          return String(p.status_review || '').startsWith('Belum dikirim ke MGR');
+        }
+        if (statusParam === 'Telah terkirim ke MGR') {
+          return String(p.status_review || '').startsWith('Telah terkirim ke MGR');
         }
         return p.status_review === statusParam;
       });
@@ -644,15 +673,21 @@ export async function GET(request: NextRequest) {
           } else if (val === 'ditolak') {
             bgColor = { argb: 'FFFFE4E6' };
             fontColor = { argb: 'FF9F1239' };
-          } else if (val === 'telah terkirim') {
+          } else if (val === 'telah terkirim ke pic' || val === 'telah terkirim') {
             bgColor = { argb: 'FFE0F2FE' };
             fontColor = { argb: 'FF0369A1' };
-          } else if (val === 'belum dikirim') {
-            bgColor = { argb: 'FFF1F5F9' };
-            fontColor = { argb: 'FF475569' };
+          } else if (val === 'belum dikirim ke pic' || val === 'belum dikirim') {
+            bgColor = { argb: 'FFFFEDD5' }; // orange-100
+            fontColor = { argb: 'FFC2410C' }; // orange-700
+          } else if (val.startsWith('telah terkirim ke mgr')) {
+            bgColor = { argb: 'FFDBEAFE' }; // blue-100
+            fontColor = { argb: 'FF1D4ED8' }; // blue-700
+          } else if (val.startsWith('belum dikirim ke mgr')) {
+            bgColor = { argb: 'FFFEF3C7' }; // amber-100
+            fontColor = { argb: 'FFB45309' }; // amber-700
           } else if (val === 'telah dibaca') {
-            bgColor = { argb: 'FFDBEAFE' };
-            fontColor = { argb: 'FF1E40AF' };
+            bgColor = { argb: 'FFF3E8FF' };
+            fontColor = { argb: 'FF6B21A8' };
           } else if (val === 'menunggu') {
             bgColor = { argb: 'FFE0F2FE' };
             fontColor = { argb: 'FF0369A1' };
