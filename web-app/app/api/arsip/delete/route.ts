@@ -31,7 +31,9 @@ export async function DELETE(request: NextRequest) {
       namaDokumen = selectResult.rows[0].nama_dokumen;
     }
 
-    // Delete permanen dari arsip_prosedur
+    await client.query('BEGIN');
+
+    // Delete permanen dari arsip_prosedur dan residu data jika ada
     const deleteQuery = `
       DELETE FROM arsip_prosedur
       WHERE nomor_dokumen = $1
@@ -40,11 +42,18 @@ export async function DELETE(request: NextRequest) {
     const result = await client.query(deleteQuery, [nomorDokumen]);
 
     if (result.rowCount === 0) {
+      await client.query('ROLLBACK');
       return NextResponse.json(
         { error: 'Archived procedure not found' },
         { status: 404 }
       );
     }
+
+    // Bersihkan residu di tabel lain
+    await client.query(`DELETE FROM procedure_documents WHERE nomor_dokumen = $1`, [nomorDokumen]);
+    await client.query(`DELETE FROM email_schedules WHERE nomor_dokumen = $1`, [nomorDokumen]);
+
+    await client.query('COMMIT');
 
     // ✅ Tambahkan logging setelah delete berhasil - GUNAKAN NAMA DOKUMEN
     await logActivity({

@@ -39,12 +39,22 @@ export async function POST(request: NextRequest) {
     const row = selectResult.rows[0];
     const namaDokumen = row.nama_dokumen; // ✅ SIMPAN NAMA DOKUMEN
 
-    // 2. Insert kembali ke procedure_documents
+    // 2. Insert kembali ke procedure_documents dengan status 'Relevan'
     const insertQuery = `
       INSERT INTO procedure_documents 
       (nama_dokumen, nomor_dokumen, level_dokumen, tanggal_selesai_approval, 
        revisi, owner, pic, email, status, is_custom, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Relevan', $9, $10, CURRENT_TIMESTAMP)
+      ON CONFLICT (nomor_dokumen) DO UPDATE SET
+        status = 'Relevan',
+        nama_dokumen = EXCLUDED.nama_dokumen,
+        level_dokumen = EXCLUDED.level_dokumen,
+        tanggal_selesai_approval = EXCLUDED.tanggal_selesai_approval,
+        revisi = EXCLUDED.revisi,
+        owner = EXCLUDED.owner,
+        pic = EXCLUDED.pic,
+        email = EXCLUDED.email,
+        updated_at = CURRENT_TIMESTAMP
       RETURNING *
     `;
 
@@ -59,7 +69,6 @@ export async function POST(request: NextRequest) {
       row.owner,
       row.pic,
       row.email,
-      row.status,
       row.is_custom,
       row.created_at
     ];
@@ -79,7 +88,7 @@ export async function POST(request: NextRequest) {
     await logActivity({
       username: 'admin',
       activityType: 'restore',
-      activityDescription: `Restore prosedur ${namaDokumen}`,
+      activityDescription: `Restore prosedur ${namaDokumen} kembali ke status RELEVAN`,
       targetType: 'procedure',
       targetId: nomorDokumen,
     });

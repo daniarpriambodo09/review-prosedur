@@ -138,32 +138,70 @@ export async function POST(request: NextRequest) {
       [nomorDokumen, status, finalRevisi, lastReviewedMonth]
     );
 
-    // Update procedure_documents:
-    // • last_reviewed_at = NOW()  → catat waktu review terbaru
-    // • review_seen_at   = NULL   → reset agar badge muncul kembali di halaman admin
-    await client.query(
-      `UPDATE procedure_documents
-       SET status           = $1,
-           revisi           = $2,
-           last_reviewed_at = NOW(),
-           review_seen_at   = NULL,
-           updated_at       = CURRENT_TIMESTAMP
-       WHERE nomor_dokumen  = $3`,
-      [status, finalRevisi, nomorDokumen]
-    );
-
-    // 🆕 Reset tanggal_selesai_approval kalau dokumen ini direview di bawah
-    // jadwal manual (Atur Jadwal).
-    await maybeResetApprovalDateForManualSchedule(client, nomorDokumen);
-
-    // 🆕 Jika status menjadi 'Relevan', selesaikan request revisi aktif milik dokumen ini
-    if (status === 'Relevan') {
-      await client.query(
-        `UPDATE pic_review_requests
-         SET status = 'completed', updated_at = CURRENT_TIMESTAMP
-         WHERE nomor_dokumen = $1 AND status = 'pending'`,
+    if (status === 'Obsolete') {
+      // 🚀 Jika status adalah 'Obsolete', pindahkan dokumen otomatis ke arsip_prosedur
+      const fullDoc = await client.query(
+        `SELECT * FROM procedure_documents WHERE nomor_dokumen = $1`,
         [nomorDokumen]
       );
+      if (fullDoc.rows.length > 0) {
+        const d = fullDoc.rows[0];
+        await client.query(`DELETE FROM arsip_prosedur WHERE nomor_dokumen = $1`, [nomorDokumen]);
+        await client.query(
+          `INSERT INTO arsip_prosedur 
+           (nama_dokumen, nomor_dokumen, level_dokumen, tanggal_selesai_approval, 
+            revisi, owner, pic, email, status, is_custom, created_at, updated_at, deleted_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Obsolete', $9, $10, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+          [
+            d.nama_dokumen,
+            d.nomor_dokumen,
+            d.level_dokumen,
+            d.tanggal_selesai_approval,
+            finalRevisi,
+            d.owner,
+            d.pic,
+            d.email,
+            d.is_custom,
+            d.created_at,
+          ]
+        );
+        await client.query(
+          `DELETE FROM procedure_documents WHERE nomor_dokumen = $1`,
+          [nomorDokumen]
+        );
+        await client.query(
+          `DELETE FROM email_schedules WHERE nomor_dokumen = $1`,
+          [nomorDokumen]
+        );
+      }
+    } else {
+      // Update procedure_documents untuk status Relevan / Revisi:
+      // • last_reviewed_at = NOW()  → catat waktu review terbaru
+      // • review_seen_at   = NULL   → reset agar badge muncul kembali di halaman admin
+      await client.query(
+        `UPDATE procedure_documents
+         SET status           = $1,
+             revisi           = $2,
+             last_reviewed_at = NOW(),
+             review_seen_at   = NULL,
+             updated_at       = CURRENT_TIMESTAMP
+         WHERE nomor_dokumen  = $3`,
+        [status, finalRevisi, nomorDokumen]
+      );
+
+      // 🆕 Reset tanggal_selesai_approval kalau dokumen ini direview di bawah
+      // jadwal manual (Atur Jadwal).
+      await maybeResetApprovalDateForManualSchedule(client, nomorDokumen);
+
+      // 🆕 Jika status menjadi 'Relevan', selesaikan request revisi aktif milik dokumen ini
+      if (status === 'Relevan') {
+        await client.query(
+          `UPDATE pic_review_requests
+           SET status = 'completed', updated_at = CURRENT_TIMESTAMP
+           WHERE nomor_dokumen = $1 AND status = 'pending'`,
+          [nomorDokumen]
+        );
+      }
     }
 
     await client.query('COMMIT');
@@ -231,32 +269,70 @@ export async function PATCH(request: NextRequest) {
         [review.nomorDokumen, review.status, finalRevisi, review.lastReviewedMonth]
       );
 
-      // Update procedure_documents:
-      // • last_reviewed_at = NOW()  → catat waktu review terbaru
-      // • review_seen_at   = NULL   → reset agar badge muncul kembali di halaman admin
-      await client.query(
-        `UPDATE procedure_documents
-         SET status           = $1,
-             revisi           = $2,
-             last_reviewed_at = NOW(),
-             review_seen_at   = NULL,
-             updated_at       = CURRENT_TIMESTAMP
-         WHERE nomor_dokumen  = $3`,
-        [review.status, finalRevisi, review.nomorDokumen]
-      );
-
-      // 🆕 Sama seperti di POST — reset tanggal_selesai_approval kalau
-      // dokumen ini direview di bawah jadwal manual (Atur Jadwal).
-      await maybeResetApprovalDateForManualSchedule(client, review.nomorDokumen);
-
-      // 🆕 Jika status menjadi 'Relevan', selesaikan request revisi aktif milik dokumen ini
-      if (review.status === 'Relevan') {
-        await client.query(
-          `UPDATE pic_review_requests
-           SET status = 'completed', updated_at = CURRENT_TIMESTAMP
-           WHERE nomor_dokumen = $1 AND status = 'pending'`,
+      if (review.status === 'Obsolete') {
+        // 🚀 Jika status adalah 'Obsolete', pindahkan dokumen otomatis ke arsip_prosedur
+        const fullDoc = await client.query(
+          `SELECT * FROM procedure_documents WHERE nomor_dokumen = $1`,
           [review.nomorDokumen]
         );
+        if (fullDoc.rows.length > 0) {
+          const d = fullDoc.rows[0];
+          await client.query(`DELETE FROM arsip_prosedur WHERE nomor_dokumen = $1`, [review.nomorDokumen]);
+          await client.query(
+            `INSERT INTO arsip_prosedur 
+             (nama_dokumen, nomor_dokumen, level_dokumen, tanggal_selesai_approval, 
+              revisi, owner, pic, email, status, is_custom, created_at, updated_at, deleted_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Obsolete', $9, $10, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            [
+              d.nama_dokumen,
+              d.nomor_dokumen,
+              d.level_dokumen,
+              d.tanggal_selesai_approval,
+              finalRevisi,
+              d.owner,
+              d.pic,
+              d.email,
+              d.is_custom,
+              d.created_at,
+            ]
+          );
+          await client.query(
+            `DELETE FROM procedure_documents WHERE nomor_dokumen = $1`,
+            [review.nomorDokumen]
+          );
+          await client.query(
+            `DELETE FROM email_schedules WHERE nomor_dokumen = $1`,
+            [review.nomorDokumen]
+          );
+        }
+      } else {
+        // Update procedure_documents:
+        // • last_reviewed_at = NOW()  → catat waktu review terbaru
+        // • review_seen_at   = NULL   → reset agar badge muncul kembali di halaman admin
+        await client.query(
+          `UPDATE procedure_documents
+           SET status           = $1,
+               revisi           = $2,
+               last_reviewed_at = NOW(),
+               review_seen_at   = NULL,
+               updated_at       = CURRENT_TIMESTAMP
+           WHERE nomor_dokumen  = $3`,
+          [review.status, finalRevisi, review.nomorDokumen]
+        );
+
+        // 🆕 Sama seperti di POST — reset tanggal_selesai_approval kalau
+        // dokumen ini direview di bawah jadwal manual (Atur Jadwal).
+        await maybeResetApprovalDateForManualSchedule(client, review.nomorDokumen);
+
+        // 🆕 Jika status menjadi 'Relevan', selesaikan request revisi aktif milik dokumen ini
+        if (review.status === 'Relevan') {
+          await client.query(
+            `UPDATE pic_review_requests
+             SET status = 'completed', updated_at = CURRENT_TIMESTAMP
+             WHERE nomor_dokumen = $1 AND status = 'pending'`,
+            [review.nomorDokumen]
+          );
+        }
       }
 
       await logActivity({

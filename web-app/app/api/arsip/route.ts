@@ -8,7 +8,22 @@ export async function GET(request: NextRequest) {
   const client = await pool.connect();
   
   try {
-    const query = 'SELECT * FROM arsip_prosedur ORDER BY deleted_at DESC';
+    // 🚀 Pindahkan dokumen dengan status Obsolete dari procedure_documents ke arsip_prosedur jika ada
+    await client.query(`
+      INSERT INTO arsip_prosedur 
+      (nama_dokumen, nomor_dokumen, level_dokumen, tanggal_selesai_approval, 
+       revisi, owner, pic, email, status, is_custom, created_at, updated_at, deleted_at)
+      SELECT nama_dokumen, nomor_dokumen, level_dokumen, tanggal_selesai_approval, 
+             revisi, owner, pic, email, 'Obsolete', is_custom, created_at, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      FROM procedure_documents
+      WHERE status = 'Obsolete'
+      ON CONFLICT DO NOTHING
+    `);
+    await client.query(`
+      DELETE FROM procedure_documents WHERE status = 'Obsolete'
+    `);
+
+    const query = 'SELECT * FROM arsip_prosedur ORDER BY COALESCE(deleted_at, updated_at) DESC';
     const result = await client.query(query);
 
     // Convert snake_case to camelCase (TAMBAHKAN email)

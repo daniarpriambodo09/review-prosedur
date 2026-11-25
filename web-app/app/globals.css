@@ -126,8 +126,26 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    zoom: 90%;
+  }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@supports not (zoom: 90%) {
+  body {
+    transform: scale(0.9);
+    transform-origin: top left;
+    width: 111.1111%;
+    min-height: 111.1111vh;
+  }
+}
+
+@media print {
+  html {
+    zoom: 100% !important;
   }
 }
 
