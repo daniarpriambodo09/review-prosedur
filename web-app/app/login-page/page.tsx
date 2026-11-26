@@ -14,7 +14,8 @@ import {
   EyeOff,
   ArrowRight,
   Shield,
-  AlertCircle
+  AlertCircle,
+  Clock
 } from 'lucide-react';
 
 export default function LoginPage() {
@@ -22,16 +23,32 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
-  const { login, isAuthenticated } = useAuth();
+  const { login, isAuthenticated, user } = useAuth();
 
-  // Redirect if already authenticated
+  // Ambil notifikasi jika logout otomatis terjadi dari sesi sebelumnya
+  useEffect(() => {
+    try {
+      const reason = sessionStorage.getItem('logoutReason');
+      if (reason) {
+        setSessionNotice(reason);
+        sessionStorage.removeItem('logoutReason');
+      }
+    } catch {}
+  }, []);
+
+  // Redirect if already authenticated (ke dashboard sesuai role masing-masing)
   useEffect(() => {
     if (isAuthenticated) {
-      router.push('/home');
+      if (user?.role === 'pic') {
+        router.push('/pic-dashboard');
+      } else {
+        router.push('/home');
+      }
     }
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, user, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -124,6 +141,14 @@ export default function LoginPage() {
                   Masukkan username dan password admin untuk mengelola prosedur.
                 </p>
               </div>
+
+              {/* Session / Inactivity Timeout Notice */}
+              {sessionNotice && (
+                <div className="mb-5 p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-start gap-2.5 animate-fadeIn">
+                  <Clock className="w-4 h-4 flex-shrink-0 mt-0.5 text-amber-600" />
+                  <div className="leading-relaxed font-medium">{sessionNotice}</div>
+                </div>
+              )}
 
               {/* Error Message */}
               {error && (

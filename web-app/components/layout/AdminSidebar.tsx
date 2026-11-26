@@ -51,7 +51,7 @@ export function AdminSidebar() {
   return (
     <aside
       className={`
-        hidden md:flex flex-col fixed left-0 top-0 h-screen z-40
+        hidden md:flex flex-col fixed left-0 top-0 bottom-0 z-40
         bg-white border-r border-slate-200 shadow-sm
         transition-all duration-300 ease-in-out
         ${sidebarWidth}
@@ -145,7 +145,7 @@ export function AdminSidebar() {
       </nav>
 
       {/* ── Profile + Logout ──────────────────────────────────────────────── */}
-      <div className="border-t border-slate-100 px-3 py-4">
+      <div className="border-t border-slate-100 px-3 py-4 mt-auto flex-shrink-0">
         {!collapsed ? (
           <div className="mb-2 px-3 py-2.5 rounded-lg bg-slate-50">
             <div className="flex items-center gap-2.5 min-w-0">
@@ -221,7 +221,7 @@ export function MobileSidebarDrawer({
       {/* Drawer */}
       <aside
         className={`
-          fixed left-0 top-0 h-screen w-72 z-50 flex flex-col
+          fixed left-0 top-0 bottom-0 w-72 z-50 flex flex-col
           bg-white border-r border-slate-200 shadow-xl
           transition-transform duration-300 ease-in-out md:hidden
           ${open ? 'translate-x-0' : '-translate-x-full'}
@@ -274,7 +274,7 @@ export function MobileSidebarDrawer({
         </nav>
 
         {/* Footer */}
-        <div className="border-t border-slate-100 px-3 py-4">
+        <div className="border-t border-slate-100 px-3 py-4 mt-auto flex-shrink-0">
           <div className="mb-2 px-3 py-2.5 rounded-lg bg-slate-50">
             <div className="flex items-center gap-2.5">
               <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">

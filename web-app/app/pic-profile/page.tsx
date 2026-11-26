@@ -1,8 +1,9 @@
 // app/pic-profile/page.tsx
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import Image from 'next/image';
 
@@ -54,7 +55,14 @@ const INPUT = `
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function PICProfilePage() {
-  const { user, updateUser } = useAuth();
+  const { user, updateUser, isAuthenticated, isLoading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!isLoading && (!isAuthenticated || user?.role !== 'pic')) {
+      router.push('/pic-login');
+    }
+  }, [isAuthenticated, isLoading, user, router]);
 
   const initials = (user?.fullName ?? 'PIC')
     .split(' ').slice(0, 2)

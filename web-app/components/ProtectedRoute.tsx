@@ -6,15 +6,24 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
-    if (!isLoading && !isAuthenticated && pathname !== '/login-page') {
+    if (isLoading) return;
+
+    if (!isAuthenticated && pathname !== '/login-page') {
       router.push('/login-page');
+      return;
     }
-  }, [isAuthenticated, isLoading, pathname, router]);
+
+    // Role check: PIC tidak boleh mengakses halaman administrator
+    if (isAuthenticated && user?.role === 'pic') {
+      router.replace('/pic-dashboard');
+      return;
+    }
+  }, [isAuthenticated, isLoading, user, pathname, router]);
 
   if (isLoading) {
     return (
@@ -28,6 +37,11 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!isAuthenticated && pathname !== '/login-page') {
+    return null;
+  }
+
+  // Jika user adalah PIC di halaman admin, jangan render konten admin sebelum redirect
+  if (isAuthenticated && user?.role === 'pic') {
     return null;
   }
 

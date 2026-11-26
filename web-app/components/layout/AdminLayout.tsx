@@ -35,14 +35,14 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
   return (
     <SidebarContext.Provider value={{ collapsed, setCollapsed }}>
-      <div className="min-h-screen bg-slate-50">
+      <div className="min-h-screen min-h-[calc(100vh/0.9)] bg-slate-50">
         {/* Sidebar — desktop fixed, menerima collapsed dari context */}
         <AdminSidebar />
 
         {/* Main content — padding-left berubah reaktif saat sidebar collapse/expand.
             transition-all + duration-300 memastikan pergeseran smooth selaras
             dengan animasi sidebar (juga 300ms). */}
-        <div className={`${contentPaddingLeft} transition-all duration-300 ease-in-out flex flex-col min-h-screen`}>
+        <div className={`${contentPaddingLeft} transition-all duration-300 ease-in-out flex flex-col min-h-screen min-h-[calc(100vh/0.9)]`}>
           <AdminHeader />
           <main className="flex-1 p-4 md:p-6 lg:p-8">
             {children}

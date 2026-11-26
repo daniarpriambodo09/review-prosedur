@@ -14,7 +14,8 @@ import {
   Eye,
   EyeOff,
   ArrowRight,
-  AlertCircle
+  AlertCircle,
+  Clock
 } from 'lucide-react';
 
 export default function PICLoginPage() {
@@ -22,14 +23,30 @@ export default function PICLoginPage() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
   const { picLogin, isAuthenticated, user } = useAuth();
 
-  // Redirect if already authenticated as PIC
+  // Ambil notifikasi jika logout otomatis terjadi dari sesi sebelumnya
   useEffect(() => {
-    if (isAuthenticated && user?.role === 'pic') {
-      router.push('/pic-dashboard');
+    try {
+      const reason = sessionStorage.getItem('logoutReason');
+      if (reason) {
+        setSessionNotice(reason);
+        sessionStorage.removeItem('logoutReason');
+      }
+    } catch {}
+  }, []);
+
+  // Redirect if already authenticated (ke dashboard sesuai role masing-masing)
+  useEffect(() => {
+    if (isAuthenticated) {
+      if (user?.role === 'pic') {
+        router.push('/pic-dashboard');
+      } else {
+        router.push('/home');
+      }
     }
   }, [isAuthenticated, user, router]);
 
@@ -124,6 +141,14 @@ export default function PICLoginPage() {
                   Gunakan email PIC terdaftar untuk mengunggah dan memantau status prosedur.
                 </p>
               </div>
+
+              {/* Session / Inactivity Timeout Notice */}
+              {sessionNotice && (
+                <div className="mb-5 p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-start gap-2.5 animate-fadeIn">
+                  <Clock className="w-4 h-4 flex-shrink-0 mt-0.5 text-amber-600" />
+                  <div className="leading-relaxed font-medium">{sessionNotice}</div>
+                </div>
+              )}
 
               {/* Error Message */}
               {error && (
