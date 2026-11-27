@@ -22,16 +22,55 @@ export async function GET(request: NextRequest) {
         es.manager_email_scheduled_at,
         es.manager_email_status,
         es.manager_email_sent_at,
-        es.manager_name,
+        COALESCE(es.manager_name, mgr.mgr_names) AS manager_name,
+        mgr.mgr_emails AS manager_email,
+        pdept.dept_nama AS pic_department_nama,
         es.is_manual,
         es.previous_status,
         es.created_at,
         es.updated_at,
         pd.nama_dokumen,
         pd.pic,
-        pd.email
+        pd.email,
+        pd.owner,
+        pd.status AS document_status
       FROM email_schedules es
       LEFT JOIN procedure_documents pd ON es.nomor_dokumen = pd.nomor_dokumen
+      LEFT JOIN LATERAL (
+        SELECT 
+          COALESCE(d1.nama, d2.nama) AS dept_nama,
+          COALESCE(d1.id, d2.id) AS dept_id
+        FROM staff_directory s
+        LEFT JOIN departments d1 ON s.unit_type = 'department' AND d1.id = s.unit_id
+        LEFT JOIN sections sec ON s.unit_type = 'section' AND sec.id = s.unit_id
+        LEFT JOIN departments d2 ON sec.department_id = d2.id
+        WHERE s.kode = UPPER(SPLIT_PART(REPLACE(pd.pic, ' ', ''), ',', 1))
+        LIMIT 1
+      ) pdept ON true
+      LEFT JOIN LATERAL (
+        SELECT 
+          string_agg(DISTINCT m.nama, ', ') AS mgr_names,
+          string_agg(DISTINCT m.email, ', ') AS mgr_emails
+        FROM staff_directory m
+        LEFT JOIN sections msec ON m.unit_type = 'section' AND msec.id = m.unit_id
+        LEFT JOIN department_managers dm ON dm.manager_kode = m.kode
+        WHERE m.is_manager = true
+          AND (
+            (pdept.dept_id IS NOT NULL AND dm.department_id = pdept.dept_id)
+            OR (pdept.dept_id IS NOT NULL AND (
+                (m.unit_type = 'department' AND m.unit_id = pdept.dept_id)
+                OR (m.unit_type = 'section' AND msec.department_id = pdept.dept_id)
+            ))
+            OR (pdept.dept_id IS NULL AND (
+                (m.unit_type = 'department' AND EXISTS (
+                    SELECT 1 FROM departments d WHERE d.id = m.unit_id AND UPPER(d.nama) = UPPER(pd.owner)
+                ))
+                OR (m.unit_type = 'section' AND EXISTS (
+                    SELECT 1 FROM sections s2 WHERE s2.id = m.unit_id AND UPPER(s2.nama) = UPPER(pd.owner)
+                ))
+            ))
+          )
+      ) mgr ON true
     `;
     let values: any[] = [];
 
@@ -57,6 +96,8 @@ export async function GET(request: NextRequest) {
       managerEmailStatus: row.manager_email_status,
       managerEmailSentAt: row.manager_email_sent_at,
       managerName: row.manager_name,
+      managerEmail: row.manager_email,
+      picDepartmentNama: row.pic_department_nama,
       isManual: row.is_manual,
       previousStatus: row.previous_status,
       createdAt: row.created_at,
@@ -64,6 +105,8 @@ export async function GET(request: NextRequest) {
       namaDokumen: row.nama_dokumen,
       pic: row.pic,
       email: row.email,
+      owner: row.owner,
+      documentStatus: row.document_status,
     })));
   } catch (error) {
     console.error('Error fetching email schedules:', error);
@@ -94,7 +137,7 @@ export async function PUT(request: NextRequest) {
   const client = await pool.connect();
   try {
     const body = await request.json();
-    const { nomorDokumen, scheduledEmailAt, emailStatus } = body;
+    const { nomorDokumen, scheduledEmailAt, emailStatus, targetRole = 'pic' } = body;
 
     if (!nomorDokumen || !scheduledEmailAt) {
       return NextResponse.json(
@@ -122,12 +165,12 @@ export async function PUT(request: NextRequest) {
       ? scheduledEmailAt.replace('T', ' ')
       : scheduledEmailAt;
 
-    // Saat admin bikin/reset jadwal MANUAL (emailStatus 'pending'), hitung
+    // Saat admin bikin/reset jadwal MANUAL (emailStatus 'pending') untuk PIC, hitung
     // cycle_deadline_at (T-0, 2 bulan dari tanggal ini) dan
     // manager_email_scheduled_at (T+1 bulan).
     let cycleDeadlineAtStr: string | null = null;
     let managerScheduledAtStr: string | null = null;
-    if (currentScheduleStatus === 'pending') {
+    if (targetRole === 'pic' && currentScheduleStatus === 'pending') {
       const isoStr = scheduledEmailAt.includes('T') ? scheduledEmailAt : scheduledEmailAt.replace(' ', 'T');
       const base = new Date(isoStr);
       const cycleDeadlineAt = new Date(base.getFullYear(), base.getMonth() + 2, base.getDate(), base.getHours(), base.getMinutes(), 0);
@@ -138,7 +181,7 @@ export async function PUT(request: NextRequest) {
 
     await client.query('BEGIN');
 
-    // Cek status saat ini dari procedure_documents sebelum diubah ke 'Belum dikirim ke PIC'
+    // Cek status saat ini dari procedure_documents sebelum diubah
     const docCheck = await client.query(
       `SELECT status FROM procedure_documents WHERE nomor_dokumen = $1`,
       [nomorDokumen]
@@ -196,6 +239,59 @@ export async function PUT(request: NextRequest) {
     );
     let result;
 
+    if (targetRole === 'manager') {
+      // ── ALUR ATUR JADWAL MGR (MANAGER) ──
+      if (checkResult.rows.length > 0) {
+        result = await client.query(
+          `UPDATE email_schedules
+           SET
+             manager_email_scheduled_at  = $1,
+             manager_email_status        = $2::varchar,
+             manager_name                = COALESCE($3, manager_name),
+             is_manual                   = TRUE,
+             previous_status             = COALESCE($4, previous_status),
+             updated_at                  = CURRENT_TIMESTAMP
+           WHERE nomor_dokumen = $5
+           RETURNING *`,
+          [scheduledEmailAtFormatted, currentScheduleStatus, resolvedManagerName, prevStatusToSave, nomorDokumen]
+        );
+      } else {
+        result = await client.query(
+          `INSERT INTO email_schedules
+             (nomor_dokumen, scheduled_email_at, email_status, manager_email_scheduled_at, manager_email_status, manager_name, is_manual, previous_status)
+           VALUES ($1, CURRENT_TIMESTAMP, 'sent', $2, $3, $4, TRUE, $5)
+           RETURNING *`,
+          [nomorDokumen, scheduledEmailAtFormatted, currentScheduleStatus, resolvedManagerName, prevStatusToSave]
+        );
+      }
+
+      if (currentScheduleStatus === 'pending') {
+        const targetDocStatus = resolvedManagerName
+          ? `Belum dikirim ke MGR (${resolvedManagerName})`
+          : 'Belum dikirim ke MGR';
+        await client.query(
+          `UPDATE procedure_documents
+           SET status = $1, updated_at = CURRENT_TIMESTAMP
+           WHERE nomor_dokumen = $2`,
+          [targetDocStatus, nomorDokumen]
+        );
+      } else if (currentScheduleStatus === 'sent') {
+        const targetDocStatus = resolvedManagerName
+          ? `Telah terkirim ke MGR (${resolvedManagerName})`
+          : 'Telah terkirim ke MGR';
+        await client.query(
+          `UPDATE procedure_documents
+           SET status = $1, updated_at = CURRENT_TIMESTAMP
+           WHERE nomor_dokumen = $2`,
+          [targetDocStatus, nomorDokumen]
+        );
+      }
+
+      await client.query('COMMIT');
+      return NextResponse.json({ success: true, targetRole: 'manager', schedule: result.rows[0] });
+    }
+
+    // ── ALUR ATUR JADWAL PIC ──
     if (checkResult.rows.length > 0) {
       result = await client.query(
         `UPDATE email_schedules
@@ -247,7 +343,7 @@ export async function PUT(request: NextRequest) {
 
     await client.query('COMMIT');
 
-    return NextResponse.json({ success: true, schedule: result.rows[0] });
+    return NextResponse.json({ success: true, targetRole: 'pic', schedule: result.rows[0] });
   } catch (error: any) {
     await client.query('ROLLBACK');
     console.error('Error updating email schedule:', error);
@@ -269,6 +365,8 @@ export async function DELETE(request: NextRequest) {
       bodyData = await request.json();
     } catch { }
 
+    const targetRole = bodyData.targetRole || searchParams.get('targetRole') || 'pic';
+
     const docsToCancel: string[] = Array.isArray(bodyData.nomorDokumenList)
       ? bodyData.nomorDokumenList
       : bodyData.nomorDokumen
@@ -288,6 +386,64 @@ export async function DELETE(request: NextRequest) {
 
     const results: Array<{ nomorDokumen: string; restoredStatus: string }> = [];
 
+    if (targetRole === 'manager') {
+      // ── BATALKAN JADWAL MGR ──
+      for (const docNo of docsToCancel) {
+        const schedCheck = await client.query(
+          `SELECT es.previous_status, es.email_status, es.last_sent_at, pd.status AS current_doc_status
+           FROM email_schedules es
+           LEFT JOIN procedure_documents pd ON pd.nomor_dokumen = es.nomor_dokumen
+           WHERE es.nomor_dokumen = $1`,
+          [docNo]
+        );
+        const row = schedCheck.rows[0];
+
+        // 1. Batalkan jadwal email manager
+        await client.query(
+          `UPDATE email_schedules
+           SET manager_email_status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+           WHERE nomor_dokumen = $1`,
+          [docNo]
+        );
+
+        // 2. Tentukan status pemulihan
+        let restoredStatus = 'Relevan';
+        if (row?.email_status === 'sent' || row?.last_sent_at) {
+          restoredStatus = 'Telah terkirim ke PIC';
+        } else if (row?.email_status === 'pending') {
+          restoredStatus = 'Belum dikirim ke PIC';
+        } else if (row?.previous_status) {
+          restoredStatus = row.previous_status;
+        }
+
+        // Kembalikan status dokumen jika dokumen saat ini sedang berada di status MGR
+        const currentDocStatus = row?.current_doc_status || '';
+        if (currentDocStatus.startsWith('Belum dikirim ke MGR') || currentDocStatus.startsWith('Telah terkirim ke MGR')) {
+          await client.query(
+            `UPDATE procedure_documents
+             SET status = $1, updated_at = CURRENT_TIMESTAMP
+             WHERE nomor_dokumen = $2`,
+            [restoredStatus, docNo]
+          );
+        } else {
+          restoredStatus = currentDocStatus;
+        }
+
+        results.push({ nomorDokumen: docNo, restoredStatus });
+      }
+
+      await client.query('COMMIT');
+
+      return NextResponse.json({
+        success: true,
+        targetRole: 'manager',
+        cancelled: results.length,
+        restoredStatus: results[0]?.restoredStatus,
+        results,
+      });
+    }
+
+    // ── BATALKAN JADWAL PIC ──
     for (const docNo of docsToCancel) {
       // 1. Ambil previous_status dan email_status saat ini
       const schedCheck = await client.query(
@@ -348,6 +504,7 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      targetRole: 'pic',
       cancelled: results.length,
       restoredStatus: results[0]?.restoredStatus,
       results,

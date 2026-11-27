@@ -2,7 +2,7 @@
 'use client';
 import { useState, useEffect, useMemo } from 'react';
 import { ProcedureDocument, StatusType } from '@/data/procedures/all-procedures';
-import { XCircle } from 'lucide-react';
+import { XCircle, User, ShieldCheck, Mail, Building2, Calendar, Clock, AlertCircle } from 'lucide-react';
 import { useDialog } from '@/contexts/DialogContext';
 
 interface EmailSchedule {
@@ -35,6 +35,7 @@ export default function EmailScheduleModal({
   onScheduleChange,
 }: EmailScheduleModalProps) {
   const { showConfirm, showSuccess, showError, showWarning } = useDialog();
+  const [activeRoleTab, setActiveRoleTab] = useState<'pic' | 'manager'>('pic');
   const [selectedMonth, setSelectedMonth] = useState('');
   const [selectedDocs, setSelectedDocs] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
@@ -66,6 +67,13 @@ export default function EmailScheduleModal({
     }
   }, [isOpen]);
 
+  const switchRoleTab = (tab: 'pic' | 'manager') => {
+    if (tab === activeRoleTab) return;
+    setActiveRoleTab(tab);
+    setSelectedDocs(new Set());
+    setSearchQuery('');
+  };
+
   // Filter dokumen berdasarkan bulan yang dipilih.
   const monthDocs = useMemo(() => {
     if (selectedMonth === '') return [];
@@ -86,7 +94,10 @@ export default function EmailScheduleModal({
       (doc.pic && doc.pic.toLowerCase().includes(q)) ||
       (doc.email && doc.email.toLowerCase().includes(q)) ||
       (doc.owner && doc.owner.toLowerCase().includes(q)) ||
-      (doc.status && doc.status.toLowerCase().includes(q))
+      (doc.status && doc.status.toLowerCase().includes(q)) ||
+      (doc.managerName && doc.managerName.toLowerCase().includes(q)) ||
+      (doc.managerEmail && doc.managerEmail.toLowerCase().includes(q)) ||
+      (doc.picDepartmentNama && doc.picDepartmentNama.toLowerCase().includes(q))
     );
   }, [monthDocs, searchQuery]);
 
@@ -112,42 +123,76 @@ export default function EmailScheduleModal({
     setSelectedDocs(newSelected);
   };
 
-  // Dokumen terpilih yang sedang dalam status pending schedule
+  // Dokumen terpilih yang sedang dalam status pending schedule sesuai tab aktif
   const selectedPendingDocs = useMemo(() => {
     return Array.from(selectedDocs).filter(no => {
-      const s = localSchedules[no];
-      return s && s.emailStatus === 'pending';
+      if (activeRoleTab === 'pic') {
+        const s = localSchedules[no];
+        return s && s.emailStatus === 'pending';
+      } else {
+        const doc = localProcedures.find(d => d.nomorDokumen === no);
+        return doc && doc.managerEmailStatus === 'pending';
+      }
     });
-  }, [selectedDocs, localSchedules]);
+  }, [selectedDocs, localSchedules, localProcedures, activeRoleTab]);
 
   // Handler batalkan jadwal satu dokumen
   const handleCancelSingle = async (doc: ProcedureDocument, e: React.MouseEvent) => {
     e.stopPropagation();
+    const roleLabel = activeRoleTab === 'manager' ? 'Manager (MGR)' : 'PIC';
     const confirmed = await showConfirm(
-      `Apakah Anda yakin ingin membatalkan jadwal email untuk dokumen:\n"${doc.namaDokumen}" (${doc.nomorDokumen})?\n\nStatus dokumen akan dikembalikan ke status sebelumnya (Relevan/Revisi).`,
-      'Batalkan Jadwal Email'
+      `Apakah Anda yakin ingin membatalkan jadwal email ke ${roleLabel} untuk dokumen:\n"${doc.namaDokumen}" (${doc.nomorDokumen})?\n\nStatus dokumen akan disesuaikan kembali.`,
+      `Batalkan Jadwal Email ${roleLabel}`
     );
     if (!confirmed) return;
 
     try {
       setCancellingDoc(doc.nomorDokumen);
-      const res = await fetch(`/review-prosedur/api/email-schedules?nomorDokumen=${encodeURIComponent(doc.nomorDokumen)}`, {
-        method: 'DELETE',
-      });
+      const res = await fetch(
+        `/review-prosedur/api/email-schedules?nomorDokumen=${encodeURIComponent(doc.nomorDokumen)}&targetRole=${activeRoleTab}`,
+        {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            nomorDokumen: doc.nomorDokumen,
+            targetRole: activeRoleTab,
+          }),
+        }
+      );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Gagal membatalkan jadwal');
 
       const restored = data.restoredStatus || 'Relevan';
 
-      setLocalSchedules(prev => ({
-        ...prev,
-        [doc.nomorDokumen]: {
-          ...prev[doc.nomorDokumen],
-          emailStatus: 'cancelled',
-        },
-      }));
-
-      setLocalProcedures(prev => prev.map(d => d.nomorDokumen === doc.nomorDokumen ? { ...d, status: restored as StatusType } : d));
+      if (activeRoleTab === 'manager') {
+        setLocalProcedures(prev => prev.map(d => {
+          if (d.nomorDokumen === doc.nomorDokumen) {
+            return {
+              ...d,
+              managerEmailStatus: 'cancelled',
+              status: restored as StatusType,
+            };
+          }
+          return d;
+        }));
+      } else {
+        setLocalSchedules(prev => ({
+          ...prev,
+          [doc.nomorDokumen]: {
+            ...prev[doc.nomorDokumen],
+            emailStatus: 'cancelled',
+          },
+        }));
+        setLocalProcedures(prev => prev.map(d => {
+          if (d.nomorDokumen === doc.nomorDokumen) {
+            return {
+              ...d,
+              status: restored as StatusType,
+            };
+          }
+          return d;
+        }));
+      }
 
       setSelectedDocs(prev => {
         const next = new Set(prev);
@@ -155,7 +200,7 @@ export default function EmailScheduleModal({
         return next;
       });
 
-      showSuccess(`Jadwal pengiriman email untuk "${doc.namaDokumen}" berhasil dibatalkan.\nStatus dokumen dikembalikan ke: ${restored}`);
+      showSuccess(`Jadwal pengiriman email ke ${roleLabel} untuk "${doc.namaDokumen}" berhasil dibatalkan.\nStatus dokumen dikembalikan ke: ${restored}`);
       onScheduleChange?.();
     } catch (err: any) {
       console.error('Error cancelling schedule:', err);
@@ -168,9 +213,10 @@ export default function EmailScheduleModal({
   // Handler batalkan jadwal batch (dokumen terpilih)
   const handleCancelBatch = async () => {
     if (selectedPendingDocs.length === 0) return;
+    const roleLabel = activeRoleTab === 'manager' ? 'Manager (MGR)' : 'PIC';
     const confirmed = await showConfirm(
-      `Apakah Anda yakin ingin membatalkan jadwal email untuk ${selectedPendingDocs.length} dokumen terpilih?\n\nStatus dokumen akan dikembalikan ke status sebelumnya (Relevan/Revisi).`,
-      'Batalkan Jadwal Batch'
+      `Apakah Anda yakin ingin membatalkan jadwal email ke ${roleLabel} untuk ${selectedPendingDocs.length} dokumen terpilih?\n\nStatus dokumen akan disesuaikan kembali.`,
+      `Batalkan Jadwal ${roleLabel} Batch`
     );
     if (!confirmed) return;
 
@@ -179,7 +225,10 @@ export default function EmailScheduleModal({
       const res = await fetch('/review-prosedur/api/email-schedules', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nomorDokumenList: selectedPendingDocs }),
+        body: JSON.stringify({
+          nomorDokumenList: selectedPendingDocs,
+          targetRole: activeRoleTab,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Gagal membatalkan jadwal');
@@ -189,23 +238,37 @@ export default function EmailScheduleModal({
         data.results.forEach((r: any) => resultsMap.set(r.nomorDokumen, r.restoredStatus));
       }
 
-      setLocalSchedules(prev => {
-        const next = { ...prev };
-        selectedPendingDocs.forEach(no => {
-          if (next[no]) next[no] = { ...next[no], emailStatus: 'cancelled' };
+      if (activeRoleTab === 'manager') {
+        setLocalProcedures(prev => prev.map(d => {
+          if (selectedPendingDocs.includes(d.nomorDokumen)) {
+            const restored = resultsMap.get(d.nomorDokumen) || d.status;
+            return {
+              ...d,
+              managerEmailStatus: 'cancelled',
+              status: restored as StatusType,
+            };
+          }
+          return d;
+        }));
+      } else {
+        setLocalSchedules(prev => {
+          const next = { ...prev };
+          selectedPendingDocs.forEach(no => {
+            if (next[no]) next[no] = { ...next[no], emailStatus: 'cancelled' };
+          });
+          return next;
         });
-        return next;
-      });
 
-      setLocalProcedures(prev => prev.map(d => {
-        if (resultsMap.has(d.nomorDokumen)) {
-          return { ...d, status: resultsMap.get(d.nomorDokumen)! as StatusType };
-        }
-        return d;
-      }));
+        setLocalProcedures(prev => prev.map(d => {
+          if (resultsMap.has(d.nomorDokumen)) {
+            return { ...d, status: resultsMap.get(d.nomorDokumen)! as StatusType };
+          }
+          return d;
+        }));
+      }
 
       setSelectedDocs(new Set());
-      showSuccess(`Jadwal email berhasil dibatalkan untuk ${selectedPendingDocs.length} dokumen.`);
+      showSuccess(`Jadwal email ke ${roleLabel} berhasil dibatalkan untuk ${selectedPendingDocs.length} dokumen.`);
       onScheduleChange?.();
     } catch (err: any) {
       console.error('Error cancelling batch schedules:', err);
@@ -283,12 +346,17 @@ export default function EmailScheduleModal({
           fetch('/review-prosedur/api/email-schedules', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nomorDokumen, scheduledEmailAt: scheduledDateTime }),
+            body: JSON.stringify({
+              nomorDokumen,
+              scheduledEmailAt: scheduledDateTime,
+              targetRole: activeRoleTab,
+            }),
           })
         )
       );
 
-      showSuccess(`Jadwal email berhasil disimpan untuk ${selectedDocs.size} dokumen`);
+      const targetLabel = activeRoleTab === 'manager' ? 'Manager (MGR)' : 'PIC';
+      showSuccess(`Jadwal email ke ${targetLabel} berhasil disimpan untuk ${selectedDocs.size} dokumen`);
       setSelectedDocs(new Set());
       setSelectedMonth('');
       onScheduleChange?.();
@@ -312,32 +380,90 @@ export default function EmailScheduleModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-hidden flex flex-col border border-slate-100">
 
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-gradient-to-r from-blue-50 to-blue-100">
+        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-gradient-to-r from-blue-50 via-indigo-50/50 to-blue-100">
           <div className="flex items-center gap-3">
-            <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-            <h3 className="text-xl font-bold text-slate-900">Atur Jadwal Pengiriman Email</h3>
+            <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
+              <Calendar size={20} />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-slate-900 leading-tight">Atur Jadwal Pengiriman Email</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {activeRoleTab === 'pic'
+                  ? 'Pengingat Tahap 1: Pengiriman email review ke PIC (Bulan Ke-1)'
+                  : 'Pengingat Tahap 2: Eskalasi email review ke Manager Departemen PIC (Bulan Ke-2)'}
+              </p>
+            </div>
           </div>
           <button onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 transition-colors p-1 hover:bg-slate-100 rounded-lg">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            className="text-slate-400 hover:text-slate-600 transition-colors p-1.5 hover:bg-slate-200/60 rounded-xl cursor-pointer">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
+        {/* ── Tab Switcher PIC vs MGR ── */}
+        <div className="px-6 pt-3 border-b border-slate-200 bg-slate-50/70 flex gap-2">
+          <button
+            type="button"
+            onClick={() => switchRoleTab('pic')}
+            className={`inline-flex items-center gap-2 px-4 py-2.5 font-bold text-xs border-b-2 transition-all -mb-px cursor-pointer ${
+              activeRoleTab === 'pic'
+                ? 'border-blue-600 text-blue-700 bg-white rounded-t-xl shadow-2xs'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <User size={15} className={activeRoleTab === 'pic' ? 'text-blue-600' : 'text-slate-400'} />
+            <span>Kirim ke PIC (Bulan Ke-1)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => switchRoleTab('manager')}
+            className={`inline-flex items-center gap-2 px-4 py-2.5 font-bold text-xs border-b-2 transition-all -mb-px cursor-pointer ${
+              activeRoleTab === 'manager'
+                ? 'border-amber-600 text-amber-700 bg-white rounded-t-xl shadow-2xs'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <ShieldCheck size={15} className={activeRoleTab === 'manager' ? 'text-amber-600' : 'text-slate-400'} />
+            <span>Kirim ke MGR / Manager (Bulan Ke-2)</span>
+          </button>
+        </div>
+
         {/* Content */}
-        <div className="flex-1 overflow-auto p-6 space-y-6">
+        <div className="flex-1 overflow-auto p-6 space-y-5">
+
+          {/* Banner Penjelasan Sesuai Tab */}
+          {activeRoleTab === 'pic' ? (
+            <div className="p-3.5 rounded-xl bg-blue-50/80 border border-blue-200/80 text-xs text-blue-900 flex items-start gap-2.5">
+              <User size={16} className="text-blue-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold text-blue-950">Mode: Pengingat Email ke PIC</p>
+                <p className="text-blue-800/90 mt-0.5 leading-relaxed">
+                  Jadwal ini akan mengirim email notifikasi review ke PIC dokumen terkait. Dokumen yang dijadwalkan akan berubah status menjadi <span className="font-semibold">Belum dikirim ke PIC</span> sampai waktu pengiriman tiba.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="p-3.5 rounded-xl bg-amber-50/80 border border-amber-200/80 text-xs text-amber-900 flex items-start gap-2.5">
+              <ShieldCheck size={16} className="text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold text-amber-950">Mode: Pengingat Eskalasi ke Manager (MGR)</p>
+                <p className="text-amber-800/90 mt-0.5 leading-relaxed">
+                  Fitur ini digunakan saat PIC belum memberikan respon/review di bulan ke-2, atau ketika admin ingin mengirim ulang email reminder kepada Manager dari departemen PIC. Dokumen akan berstatus <span className="font-semibold">Belum dikirim ke MGR (Nama Manager)</span> sampai waktu tiba.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Pilih Bulan */}
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">
-              Pilih Bulan
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+              Pilih Bulan Dokumen
             </label>
             <select
               value={selectedMonth}
@@ -346,16 +472,15 @@ export default function EmailScheduleModal({
                 setSelectedDocs(new Set());
                 setSearchQuery('');
               }}
-              className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+              className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-white"
             >
-              <option value="">-- Pilih Bulan --</option>
+              <option value="">-- Pilih Bulan Target Approval --</option>
               {monthOptions.map((name, index) => (
                 <option key={index} value={String(index)}>{name}</option>
               ))}
             </select>
-            <p className="text-xs text-slate-500 mt-1.5">
-              Pilih bulan sesuai <span className="font-medium">Tanggal Selesai Approval</span> dokumen.
-              Untuk kirim ulang dokumen lama, pilih bulan approval dokumen tersebut.
+            <p className="text-[11px] text-slate-500 mt-1">
+              Berdasarkan <span className="font-medium">Tanggal Selesai Approval</span> dokumen. Pilih bulan approval dokumen yang ingin dijadwalkan.
             </p>
           </div>
 
@@ -363,17 +488,17 @@ export default function EmailScheduleModal({
           {selectedMonth !== '' && (
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="block text-sm font-semibold text-slate-700">
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
                   Pilih Dokumen
                   {monthDocs.length > 0 && (
-                    <span className="ml-2 text-xs font-normal text-slate-500">
+                    <span className="ml-2 text-xs font-normal text-slate-500 lowercase tracking-normal">
                       ({searchQuery ? `${filteredDocs.length} dari ${monthDocs.length}` : `${monthDocs.length}`} dokumen)
                     </span>
                   )}
                 </label>
                 {filteredDocs.length > 0 && (
                   <button onClick={handleSelectAll}
-                    className="text-xs text-blue-600 hover:text-blue-700 font-semibold">
+                    className="text-xs text-blue-600 hover:text-blue-700 font-semibold cursor-pointer">
                     {isAllFilteredSelected ? 'Batal Pilih Semua' : (searchQuery ? `Pilih Semua (${filteredDocs.length})` : 'Pilih Semua')}
                   </button>
                 )}
@@ -392,13 +517,13 @@ export default function EmailScheduleModal({
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Cari nomor dokumen, nama, PIC, status, owner..."
-                    className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
+                    placeholder="Cari nomor dokumen, nama, PIC, Manager, departemen..."
+                    className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
                   />
                   {searchQuery && (
                     <button
                       onClick={() => setSearchQuery('')}
-                      className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600"
+                      className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -409,42 +534,60 @@ export default function EmailScheduleModal({
               )}
 
               {monthDocs.length === 0 ? (
-                <div className="text-center py-8 text-slate-500 text-sm bg-slate-50 rounded-lg">
+                <div className="text-center py-8 text-slate-500 text-sm bg-slate-50 rounded-xl border border-dashed border-slate-200">
                   Tidak ada dokumen untuk bulan yang dipilih
                 </div>
               ) : filteredDocs.length === 0 ? (
-                <div className="text-center py-8 text-slate-500 text-sm bg-slate-50 rounded-lg border border-dashed border-slate-200">
+                <div className="text-center py-8 text-slate-500 text-sm bg-slate-50 rounded-xl border border-dashed border-slate-200">
                   <p className="font-medium text-slate-600">Tidak ada dokumen yang cocok dengan pencarian &quot;{searchQuery}&quot;</p>
                   <button
                     onClick={() => setSearchQuery('')}
-                    className="mt-2 text-xs text-blue-600 hover:text-blue-700 font-semibold underline"
+                    className="mt-2 text-xs text-blue-600 hover:text-blue-700 font-semibold underline cursor-pointer"
                   >
                     Reset pencarian
                   </button>
                 </div>
               ) : (
-                <div className="space-y-2 max-h-64 overflow-auto">
+                <div className="space-y-2.5 max-h-64 overflow-auto pr-1">
                   {filteredDocs.map((doc) => {
                     const schedule = localSchedules[doc.nomorDokumen];
                     const isSelected = selectedDocs.has(doc.nomorDokumen);
 
-                    // Badge jadwal email
-                    const scheduleBadge = schedule ? (
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold border ${schedule.emailStatus === 'pending' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                          schedule.emailStatus === 'sent' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                            schedule.emailStatus === 'cancelled' ? 'bg-slate-50 text-slate-500 border-slate-200' :
-                              'bg-red-50 text-red-700 border-red-200'
-                        }`}>
-                        {schedule.emailStatus === 'pending' ? '⏳' :
-                          schedule.emailStatus === 'sent' ? '✓' :
-                            schedule.emailStatus === 'cancelled' ? '⊘' : '✗'}
-                        {' '}{schedule.emailStatus.toUpperCase()}
+                    // Badge status jadwal PIC
+                    const picScheduleBadge = schedule ? (
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border ${
+                        schedule.emailStatus === 'pending' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                        schedule.emailStatus === 'sent' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                        schedule.emailStatus === 'cancelled' ? 'bg-slate-50 text-slate-500 border-slate-200' :
+                        'bg-red-50 text-red-700 border-red-200'
+                      }`}>
+                        {schedule.emailStatus === 'pending' ? '⏳ PENDING PIC' :
+                         schedule.emailStatus === 'sent' ? '✓ TERKIRIM PIC' :
+                         schedule.emailStatus === 'cancelled' ? '⊘ PIC DIBATALKAN' : '✗ GAGAL PIC'}
                       </span>
                     ) : null;
 
+                    // Badge status jadwal Manager
+                    const isMgrPending = doc.managerEmailStatus === 'pending';
+                    const isMgrSent = doc.managerEmailStatus === 'sent' || !!doc.managerEmailSentAt;
+                    const mgrScheduleBadge = (
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border ${
+                        isMgrPending ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                        isMgrSent ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                        doc.managerEmailStatus === 'cancelled' ? 'bg-slate-50 text-slate-500 border-slate-200' :
+                        doc.managerEmailScheduledAt ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                        'bg-slate-50 text-slate-500 border-slate-200'
+                      }`}>
+                        {isMgrPending ? '⏳ PENDING MGR' :
+                         isMgrSent ? '✓ TERKIRIM MGR' :
+                         doc.managerEmailStatus === 'cancelled' ? '⊘ MGR DIBATALKAN' :
+                         doc.managerEmailScheduledAt ? '📅 TERJADWAL MGR' : 'BELUM DIJADWALKAN'}
+                      </span>
+                    );
+
                     // Badge status dokumen
                     const statusBadge = (
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold border ${
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border ${
                         doc.status === 'Relevan' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
                         doc.status === 'Revisi' ? 'bg-amber-50 text-amber-700 border-amber-200' :
                         doc.status === 'Obsolete' ? 'bg-red-50 text-red-700 border-red-200' :
@@ -460,13 +603,19 @@ export default function EmailScheduleModal({
                       </span>
                     );
 
+                    const canCancelThisDoc = activeRoleTab === 'pic'
+                      ? schedule && schedule.emailStatus === 'pending'
+                      : doc.managerEmailStatus === 'pending';
+
                     return (
                       <div
                         key={doc.nomorDokumen}
                         onClick={() => toggleDocSelection(doc.nomorDokumen)}
-                        className={`p-4 border rounded-lg cursor-pointer transition-all ${isSelected
-                            ? 'border-blue-500 bg-blue-50'
-                            : 'border-slate-200 hover:border-blue-300 hover:bg-slate-50'
+                        className={`p-3.5 border rounded-xl cursor-pointer transition-all ${isSelected
+                            ? activeRoleTab === 'manager'
+                              ? 'border-amber-500 bg-amber-50/60 shadow-2xs'
+                              : 'border-blue-500 bg-blue-50/60 shadow-2xs'
+                            : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50/70'
                           }`}
                       >
                         <div className="flex items-start justify-between gap-3">
@@ -474,25 +623,67 @@ export default function EmailScheduleModal({
                             <input type="checkbox" checked={isSelected}
                               onChange={() => toggleDocSelection(doc.nomorDokumen)}
                               onClick={(e) => e.stopPropagation()}
-                              className="mt-1 w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
+                              className={`mt-1 w-4 h-4 rounded ${
+                                activeRoleTab === 'manager'
+                                  ? 'text-amber-600 border-slate-300 focus:ring-amber-500'
+                                  : 'text-blue-600 border-slate-300 focus:ring-blue-500'
+                              }`}
                             />
                             <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1 flex-wrap">
-                                <p className="font-semibold text-slate-900 truncate">{doc.namaDokumen}</p>
+                              <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                                <p className="font-bold text-xs text-slate-900 truncate">{doc.namaDokumen}</p>
                                 {statusBadge}
-                                {scheduleBadge}
+                                {activeRoleTab === 'pic' ? picScheduleBadge : mgrScheduleBadge}
                               </div>
-                              <div className="flex items-center gap-4 text-xs text-slate-600">
-                                <span className="font-mono">{doc.nomorDokumen}</span>
-                                <span>PIC: {doc.pic}</span>
-                                {doc.email && <span>{doc.email}</span>}
+
+                              <div className="flex items-center gap-2 text-[11px] text-slate-500 flex-wrap">
+                                <span className="font-mono font-semibold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">
+                                  {doc.nomorDokumen}
+                                </span>
+                                <span>•</span>
+                                <span>PIC: <strong className="text-slate-700">{doc.pic}</strong></span>
+                                {doc.email && <span className="text-slate-400">({doc.email})</span>}
                               </div>
-                              {schedule?.scheduledEmailAt && (
-                                <div className="mt-1.5 text-xs text-slate-500">
-                                  Terjadwal: {new Date(schedule.scheduledEmailAt).toLocaleString('id-ID')}
+
+                              {/* Info Manager & Departemen */}
+                              <div className="mt-1.5 pt-1.5 border-t border-slate-100/80 flex items-center gap-2 text-[11px] flex-wrap">
+                                <div className="inline-flex items-center gap-1 text-slate-600">
+                                  <ShieldCheck size={12} className={activeRoleTab === 'manager' ? 'text-amber-600' : 'text-slate-400'} />
+                                  <span className="text-slate-400">Manager:</span>
+                                  <span className="font-semibold text-slate-800">
+                                    {doc.managerName || 'Belum Terdaftar'}
+                                  </span>
+                                </div>
+                                {doc.picDepartmentNama && (
+                                  <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">
+                                    Dept: {doc.picDepartmentNama}
+                                  </span>
+                                )}
+                                {doc.managerEmail && (
+                                  <span className="text-[10px] text-slate-400 font-mono">
+                                    {doc.managerEmail}
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Tanggal Terjadwal Sesuai Tab */}
+                              {activeRoleTab === 'pic' && schedule?.scheduledEmailAt && (
+                                <div className="mt-1 text-[11px] text-slate-500">
+                                  Jadwal PIC: {new Date(schedule.scheduledEmailAt).toLocaleString('id-ID')}
                                   {schedule.lastSentAt && (
-                                    <span className="ml-2 text-emerald-600">
+                                    <span className="ml-2 text-emerald-600 font-medium">
                                       · Terkirim: {new Date(schedule.lastSentAt).toLocaleString('id-ID')}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+
+                              {activeRoleTab === 'manager' && doc.managerEmailScheduledAt && (
+                                <div className="mt-1 text-[11px] text-amber-700">
+                                  Jadwal MGR: {new Date(doc.managerEmailScheduledAt).toLocaleString('id-ID')}
+                                  {doc.managerEmailSentAt && (
+                                    <span className="ml-2 text-emerald-600 font-medium">
+                                      · Terkirim: {new Date(doc.managerEmailSentAt).toLocaleString('id-ID')}
                                     </span>
                                   )}
                                 </div>
@@ -501,16 +692,16 @@ export default function EmailScheduleModal({
                           </div>
 
                           {/* Tombol Cancel Jadwal jika status pending */}
-                          {schedule && schedule.emailStatus === 'pending' && (
+                          {canCancelThisDoc && (
                             <button
                               type="button"
                               onClick={(e) => handleCancelSingle(doc, e)}
                               disabled={cancellingDoc === doc.nomorDokumen}
-                              className="px-2.5 py-1.5 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-all active:scale-95 flex items-center gap-1.5 shrink-0 self-center disabled:opacity-50"
-                              title="Batalkan jadwal pengiriman email dan kembalikan status dokumen"
+                              className="px-2.5 py-1.5 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-all active:scale-95 flex items-center gap-1.5 shrink-0 self-center disabled:opacity-50 cursor-pointer"
+                              title={`Batalkan jadwal email ke ${activeRoleTab === 'manager' ? 'MGR' : 'PIC'}`}
                             >
-                              <XCircle size={14} />
-                              {cancellingDoc === doc.nomorDokumen ? 'Membatalkan...' : 'Batalkan Jadwal'}
+                              <XCircle size={13} />
+                              {cancellingDoc === doc.nomorDokumen ? 'Membatalkan...' : 'Batalkan'}
                             </button>
                           )}
                         </div>
@@ -524,22 +715,24 @@ export default function EmailScheduleModal({
 
           {/* Tanggal & Waktu */}
           {selectedDocs.size > 0 && (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-4 pt-2">
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Tanggal Kirim</label>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Tanggal Kirim ({activeRoleTab === 'manager' ? 'MGR' : 'PIC'})
+                </label>
                 <input type="date" value={sendDate} min={minDate}
                   onChange={(e) => setSendDate(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-white"
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center justify-between">
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
                   <span>Waktu Kirim</span>
-                  <span className="text-[11px] font-normal text-slate-500">Format 24 Jam (WIB)</span>
+                  <span className="text-[10px] font-normal text-slate-500 lowercase tracking-normal">Format 24 Jam (WIB)</span>
                 </label>
                 <input type="time" value={sendTime}
                   onChange={(e) => setSendTime(e.target.value)}
-                  className={`w-full px-4 py-2.5 border rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 transition-all ${isTimePassedToday(sendDate, sendTime)
+                  className={`w-full px-4 py-2.5 border rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 transition-all bg-white ${isTimePassedToday(sendDate, sendTime)
                       ? 'border-red-400 focus:ring-red-400 bg-red-50/30'
                       : 'border-slate-300 focus:ring-blue-500 focus:border-transparent'
                     }`}
@@ -571,9 +764,13 @@ export default function EmailScheduleModal({
           )}
 
           {selectedDocs.size > 0 && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
-              <p className="text-sm text-blue-800">
-                <span className="font-semibold">{selectedDocs.size}</span> dokumen dipilih
+            <div className={`border rounded-xl px-4 py-3 flex items-center justify-between ${
+              activeRoleTab === 'manager'
+                ? 'bg-amber-50/80 border-amber-200 text-amber-900'
+                : 'bg-blue-50/80 border-blue-200 text-blue-900'
+            }`}>
+              <p className="text-xs font-medium">
+                <span className="font-bold text-sm">{selectedDocs.size}</span> dokumen dipilih untuk dijadwalkan ke <span className="font-bold uppercase">{activeRoleTab === 'manager' ? 'Manager (MGR)' : 'PIC'}</span>.
               </p>
             </div>
           )}
@@ -587,30 +784,34 @@ export default function EmailScheduleModal({
                 type="button"
                 onClick={handleCancelBatch}
                 disabled={isCancellingBatch || isSaving}
-                className="px-3.5 py-2 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1.5"
-                title="Batalkan jadwal pengiriman untuk semua dokumen terpilih"
+                className="px-3.5 py-2 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                title={`Batalkan jadwal pengiriman email ke ${activeRoleTab === 'manager' ? 'MGR' : 'PIC'} untuk semua dokumen terpilih`}
               >
                 <XCircle size={14} />
                 {isCancellingBatch
                   ? 'Membatalkan...'
-                  : `Batalkan Jadwal Terpilih (${selectedPendingDocs.length})`}
+                  : `Batalkan Jadwal ${activeRoleTab === 'manager' ? 'MGR' : 'PIC'} Terpilih (${selectedPendingDocs.length})`}
               </button>
             )}
           </div>
           <div className="flex items-center gap-3">
             <button onClick={onClose} disabled={isSaving || isCancellingBatch}
-              className="px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-200 rounded-lg transition-all active:scale-95 disabled:opacity-50">
+              className="px-5 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-200 rounded-xl transition-all active:scale-95 disabled:opacity-50 cursor-pointer">
               Tutup
             </button>
             <button onClick={handleSave} disabled={!isValid() || isSaving || isCancellingBatch}
-              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-all hover:shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+              className={`px-5 py-2.5 text-white text-xs font-bold rounded-xl transition-all hover:shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 cursor-pointer ${
+                activeRoleTab === 'manager'
+                  ? 'bg-amber-600 hover:bg-amber-700'
+                  : 'bg-blue-600 hover:bg-blue-700'
+              }`}>
               {isSaving && (
-                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <svg className="animate-spin h-3.5 w-3.5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
               )}
-              {isSaving ? 'Menyimpan...' : 'Simpan Jadwal'}
+              {isSaving ? 'Menyimpan...' : `Simpan Jadwal (${activeRoleTab === 'manager' ? 'MGR' : 'PIC'})`}
             </button>
           </div>
         </div>

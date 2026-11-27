@@ -39,7 +39,7 @@ import DocumentChat from '@/components/chat/DocumentChat';
 import {
   ArrowLeft, Hash, FileText, Calendar, RefreshCw, Building2, User, Mail,
   Eye, Users, Pencil, Trash2, Send, XCircle, Clock,
-  ShieldAlert, Copy, Check, ArrowRight, Layers, FileCheck,
+  ShieldAlert, ShieldCheck, Copy, Check, ArrowRight, Layers, FileCheck,
 } from 'lucide-react';
 
 // =============================================================================
@@ -414,6 +414,49 @@ export default function DocumentDetailPage() {
     }
   };
 
+  const [isCancellingManagerSchedule, setIsCancellingManagerSchedule] = useState(false);
+
+  const handleCancelManagerSchedule = async () => {
+    if (!doc) return;
+    const confirmed = await showConfirm(
+      `Apakah Anda yakin ingin membatalkan jadwal email ke Manager (MGR) untuk dokumen "${doc.namaDokumen}"?\n\nStatus dokumen akan disesuaikan kembali.`,
+      'Batalkan Jadwal Email Manager'
+    );
+    if (!confirmed) return;
+
+    try {
+      setIsCancellingManagerSchedule(true);
+      const res = await fetch(
+        `/review-prosedur/api/email-schedules?nomorDokumen=${encodeURIComponent(doc.nomorDokumen)}&targetRole=manager`,
+        {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            nomorDokumen: doc.nomorDokumen,
+            targetRole: 'manager',
+          }),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Gagal membatalkan jadwal');
+
+      const restored = data.restoredStatus || 'Relevan';
+      setDoc(prev => (prev ? {
+        ...prev,
+        status: restored as StatusType,
+        managerEmailStatus: 'cancelled',
+      } : prev));
+
+      showSuccess(`Jadwal email ke Manager berhasil dibatalkan.\nStatus dokumen sekarang: ${restored}`);
+      await loadData();
+    } catch (err: any) {
+      console.error('Error cancelling manager schedule:', err);
+      showError('Gagal membatalkan jadwal: ' + (err.message || 'Unknown error'));
+    } finally {
+      setIsCancellingManagerSchedule(false);
+    }
+  };
+
   const handleArchive = async () => {
     if (!doc) return;
     const confirmed = await showConfirm(
@@ -656,8 +699,48 @@ export default function DocumentDetailPage() {
                       </p>
                     </div>
                   </div>
+                </div>
 
-
+                {/* Detail Manager Departemen (MGR) Card */}
+                <div className="mt-3 p-4 rounded-2xl bg-gradient-to-r from-amber-50/80 to-orange-50/50 border border-amber-200/70 flex items-center justify-between gap-4 flex-wrap">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-amber-600 text-white font-bold text-sm flex items-center justify-center shadow-xs">
+                      <ShieldCheck size={20} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide">
+                          Manager Departemen (MGR)
+                        </p>
+                        {doc.picDepartmentNama && (
+                          <span className="text-[10px] font-bold text-blue-700 bg-blue-100/80 px-1.5 py-0.5 rounded">
+                            Dept PIC: {doc.picDepartmentNama}
+                          </span>
+                        )}
+                      </div>
+                      <h4 className="text-xs font-bold text-slate-900 mt-0.5">
+                        {doc.managerName || 'Belum Terdaftar / Belum Ditugaskan'}
+                      </h4>
+                      <p className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5 font-mono">
+                        <Mail size={12} className="text-slate-400" />
+                        {doc.managerEmail || '-'}
+                      </p>
+                    </div>
+                  </div>
+                  {doc.managerEmailScheduledAt && (
+                    <div className="text-right text-[11px]">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
+                        doc.managerEmailStatus === 'sent'
+                          ? 'bg-blue-50 text-blue-700 border-blue-200'
+                          : 'bg-amber-100 text-amber-800 border-amber-200'
+                      }`}>
+                        {doc.managerEmailStatus === 'sent' ? '✓ Terkirim ke MGR' : '⏳ Terjadwal ke MGR'}
+                      </span>
+                      <p className="text-slate-500 mt-1">
+                        {formatSentDateTime(doc.managerEmailScheduledAt)}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -805,6 +888,60 @@ export default function DocumentDetailPage() {
                     >
                       <XCircle size={14} className={isCancellingSchedule ? 'animate-spin' : ''} />
                       <span>{isCancellingSchedule ? 'Membatalkan...' : 'Batalkan Jadwal Email'}</span>
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Card Jadwal Email Manager (MGR) */}
+              {doc.managerEmailScheduledAt && doc.managerEmailStatus !== 'not_applicable' && (
+                <div className="bg-white rounded-3xl border border-amber-200/80 shadow-xs p-6 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck size={16} className="text-amber-600" />
+                      <h3 className="text-xs font-bold text-slate-900">Jadwal Email Manager (MGR)</h3>
+                    </div>
+                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+                      doc.managerEmailStatus === 'pending' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                      doc.managerEmailStatus === 'sent' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                      doc.managerEmailStatus === 'cancelled' ? 'bg-slate-50 text-slate-500 border-slate-200' :
+                      'bg-slate-50 text-slate-600 border-slate-200'
+                    }`}>
+                      {doc.managerEmailStatus === 'pending' ? '⏳ PENDING' :
+                       doc.managerEmailStatus === 'sent' ? '✓ TERKIRIM' :
+                       doc.managerEmailStatus === 'cancelled' ? '⊘ DIBATALKAN' : doc.managerEmailStatus}
+                    </span>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-amber-50/50 border border-amber-200/60 space-y-2">
+                    <div className="text-xs text-slate-800 font-semibold">
+                      {doc.managerName || 'Manager Belum Ditugaskan'}
+                    </div>
+                    {doc.managerEmail && (
+                      <p className="text-[11px] text-slate-500 font-mono">
+                        {doc.managerEmail}
+                      </p>
+                    )}
+                    <div className="flex items-center gap-2 text-xs text-slate-700 font-medium pt-1 border-t border-amber-100">
+                      <Clock size={13} className="text-amber-500" />
+                      <span>{formatSentDateTime(doc.managerEmailScheduledAt)}</span>
+                    </div>
+                    {doc.managerEmailSentAt && (
+                      <p className="text-[11px] text-emerald-600 font-medium">
+                        Terkirim pada: {formatSentDateTime(doc.managerEmailSentAt)}
+                      </p>
+                    )}
+                  </div>
+
+                  {doc.managerEmailStatus === 'pending' && (
+                    <button
+                      type="button"
+                      onClick={handleCancelManagerSchedule}
+                      disabled={isCancellingManagerSchedule}
+                      className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-xl border border-rose-200 transition-colors disabled:opacity-50 cursor-pointer"
+                    >
+                      <XCircle size={14} className={isCancellingManagerSchedule ? 'animate-spin' : ''} />
+                      <span>{isCancellingManagerSchedule ? 'Membatalkan...' : 'Batalkan Jadwal MGR'}</span>
                     </button>
                   )}
                 </div>

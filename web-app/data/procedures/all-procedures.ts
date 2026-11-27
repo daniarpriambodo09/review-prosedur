@@ -70,6 +70,8 @@ export interface ProcedureDocument {
   managerEmailStatus?: string | null;
   managerEmailSentAt?: string | null;
   managerName?: string | null;
+  managerEmail?: string | null;
+  picDepartmentNama?: string | null;
 
   /** Timestamp tanggal dokumen dibuat di database */
   createdAt?: string | null;

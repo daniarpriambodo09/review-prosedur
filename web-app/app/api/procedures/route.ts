@@ -595,7 +595,9 @@ export async function GET(request: NextRequest) {
                  es.manager_email_scheduled_at,
                  es.manager_email_status,
                  es.manager_email_sent_at,
-                 es.manager_name,
+                 COALESCE(es.manager_name, mgr.mgr_names) AS manager_name,
+                 mgr.mgr_emails AS manager_email,
+                 pdept.dept_nama AS pic_department_nama,
                  prr.latest_revision_requested_at,
                  pac.current_stage AS active_approval_stage,
                  pac.status AS active_approval_status
@@ -612,6 +614,41 @@ export async function GET(request: NextRequest) {
             FROM procedure_approval_cycles
             ORDER BY nomor_dokumen, id DESC
           ) pac ON pd.nomor_dokumen = pac.nomor_dokumen
+          LEFT JOIN LATERAL (
+            SELECT 
+              COALESCE(d1.nama, d2.nama) AS dept_nama,
+              COALESCE(d1.id, d2.id) AS dept_id
+            FROM staff_directory s
+            LEFT JOIN departments d1 ON s.unit_type = 'department' AND d1.id = s.unit_id
+            LEFT JOIN sections sec ON s.unit_type = 'section' AND sec.id = s.unit_id
+            LEFT JOIN departments d2 ON sec.department_id = d2.id
+            WHERE s.kode = UPPER(SPLIT_PART(REPLACE(pd.pic, ' ', ''), ',', 1))
+            LIMIT 1
+          ) pdept ON true
+          LEFT JOIN LATERAL (
+            SELECT 
+              string_agg(DISTINCT m.nama, ', ') AS mgr_names,
+              string_agg(DISTINCT m.email, ', ') AS mgr_emails
+            FROM staff_directory m
+            LEFT JOIN sections msec ON m.unit_type = 'section' AND msec.id = m.unit_id
+            LEFT JOIN department_managers dm ON dm.manager_kode = m.kode
+            WHERE m.is_manager = true
+              AND (
+                (pdept.dept_id IS NOT NULL AND dm.department_id = pdept.dept_id)
+                OR (pdept.dept_id IS NOT NULL AND (
+                    (m.unit_type = 'department' AND m.unit_id = pdept.dept_id)
+                    OR (m.unit_type = 'section' AND msec.department_id = pdept.dept_id)
+                ))
+                OR (pdept.dept_id IS NULL AND (
+                    (m.unit_type = 'department' AND EXISTS (
+                        SELECT 1 FROM departments d WHERE d.id = m.unit_id AND UPPER(d.nama) = UPPER(pd.owner)
+                    ))
+                    OR (m.unit_type = 'section' AND EXISTS (
+                        SELECT 1 FROM sections s2 WHERE s2.id = m.unit_id AND UPPER(s2.nama) = UPPER(pd.owner)
+                    ))
+                ))
+              )
+          ) mgr ON true
           WHERE ${conditions.join(' OR ')}
           ORDER BY pd.created_at DESC
         `;
@@ -625,7 +662,9 @@ export async function GET(request: NextRequest) {
                  es.manager_email_scheduled_at,
                  es.manager_email_status,
                  es.manager_email_sent_at,
-                 es.manager_name,
+                 COALESCE(es.manager_name, mgr.mgr_names) AS manager_name,
+                 mgr.mgr_emails AS manager_email,
+                 pdept.dept_nama AS pic_department_nama,
                  prr.latest_revision_requested_at,
                  pac.current_stage AS active_approval_stage,
                  pac.status AS active_approval_status
@@ -642,6 +681,41 @@ export async function GET(request: NextRequest) {
             FROM procedure_approval_cycles
             ORDER BY nomor_dokumen, id DESC
           ) pac ON pd.nomor_dokumen = pac.nomor_dokumen
+          LEFT JOIN LATERAL (
+            SELECT 
+              COALESCE(d1.nama, d2.nama) AS dept_nama,
+              COALESCE(d1.id, d2.id) AS dept_id
+            FROM staff_directory s
+            LEFT JOIN departments d1 ON s.unit_type = 'department' AND d1.id = s.unit_id
+            LEFT JOIN sections sec ON s.unit_type = 'section' AND sec.id = s.unit_id
+            LEFT JOIN departments d2 ON sec.department_id = d2.id
+            WHERE s.kode = UPPER(SPLIT_PART(REPLACE(pd.pic, ' ', ''), ',', 1))
+            LIMIT 1
+          ) pdept ON true
+          LEFT JOIN LATERAL (
+            SELECT 
+              string_agg(DISTINCT m.nama, ', ') AS mgr_names,
+              string_agg(DISTINCT m.email, ', ') AS mgr_emails
+            FROM staff_directory m
+            LEFT JOIN sections msec ON m.unit_type = 'section' AND msec.id = m.unit_id
+            LEFT JOIN department_managers dm ON dm.manager_kode = m.kode
+            WHERE m.is_manager = true
+              AND (
+                (pdept.dept_id IS NOT NULL AND dm.department_id = pdept.dept_id)
+                OR (pdept.dept_id IS NOT NULL AND (
+                    (m.unit_type = 'department' AND m.unit_id = pdept.dept_id)
+                    OR (m.unit_type = 'section' AND msec.department_id = pdept.dept_id)
+                ))
+                OR (pdept.dept_id IS NULL AND (
+                    (m.unit_type = 'department' AND EXISTS (
+                        SELECT 1 FROM departments d WHERE d.id = m.unit_id AND UPPER(d.nama) = UPPER(pd.owner)
+                    ))
+                    OR (m.unit_type = 'section' AND EXISTS (
+                        SELECT 1 FROM sections s2 WHERE s2.id = m.unit_id AND UPPER(s2.nama) = UPPER(pd.owner)
+                    ))
+                ))
+              )
+          ) mgr ON true
           WHERE $1 = ANY(string_to_array(REPLACE(pd.pic, ' ', ''), ','))
           ORDER BY pd.created_at DESC
         `;
@@ -657,7 +731,9 @@ export async function GET(request: NextRequest) {
                es.manager_email_scheduled_at,
                es.manager_email_status,
                es.manager_email_sent_at,
-               es.manager_name,
+               COALESCE(es.manager_name, mgr.mgr_names) AS manager_name,
+               mgr.mgr_emails AS manager_email,
+               pdept.dept_nama AS pic_department_nama,
                prr.latest_revision_requested_at,
                pac.current_stage AS active_approval_stage,
                pac.status AS active_approval_status
@@ -674,6 +750,41 @@ export async function GET(request: NextRequest) {
           FROM procedure_approval_cycles
           ORDER BY nomor_dokumen, id DESC
         ) pac ON pd.nomor_dokumen = pac.nomor_dokumen
+        LEFT JOIN LATERAL (
+          SELECT 
+            COALESCE(d1.nama, d2.nama) AS dept_nama,
+            COALESCE(d1.id, d2.id) AS dept_id
+          FROM staff_directory s
+          LEFT JOIN departments d1 ON s.unit_type = 'department' AND d1.id = s.unit_id
+          LEFT JOIN sections sec ON s.unit_type = 'section' AND sec.id = s.unit_id
+          LEFT JOIN departments d2 ON sec.department_id = d2.id
+          WHERE s.kode = UPPER(SPLIT_PART(REPLACE(pd.pic, ' ', ''), ',', 1))
+          LIMIT 1
+        ) pdept ON true
+        LEFT JOIN LATERAL (
+          SELECT 
+            string_agg(DISTINCT m.nama, ', ') AS mgr_names,
+            string_agg(DISTINCT m.email, ', ') AS mgr_emails
+          FROM staff_directory m
+          LEFT JOIN sections msec ON m.unit_type = 'section' AND msec.id = m.unit_id
+          LEFT JOIN department_managers dm ON dm.manager_kode = m.kode
+          WHERE m.is_manager = true
+            AND (
+              (pdept.dept_id IS NOT NULL AND dm.department_id = pdept.dept_id)
+              OR (pdept.dept_id IS NOT NULL AND (
+                  (m.unit_type = 'department' AND m.unit_id = pdept.dept_id)
+                  OR (m.unit_type = 'section' AND msec.department_id = pdept.dept_id)
+              ))
+              OR (pdept.dept_id IS NULL AND (
+                  (m.unit_type = 'department' AND EXISTS (
+                      SELECT 1 FROM departments d WHERE d.id = m.unit_id AND UPPER(d.nama) = UPPER(pd.owner)
+                  ))
+                  OR (m.unit_type = 'section' AND EXISTS (
+                      SELECT 1 FROM sections s2 WHERE s2.id = m.unit_id AND UPPER(s2.nama) = UPPER(pd.owner)
+                  ))
+              ))
+            )
+        ) mgr ON true
         ORDER BY pd.created_at DESC
       `;
       values = [];
@@ -724,6 +835,8 @@ export async function GET(request: NextRequest) {
           managerEmailStatus: row.manager_email_status ?? 'not_applicable',
           managerEmailSentAt: row.manager_email_sent_at ?? null,
           managerName: row.manager_name ?? null,
+          managerEmail: row.manager_email ?? null,
+          picDepartmentNama: row.pic_department_nama ?? null,
           lastReviewedAt: row.last_reviewed_at ?? null,
           reviewSeenAt: row.review_seen_at ?? null,
           revisionRequestedAt: row.latest_revision_requested_at ?? (row.status === 'Revisi' ? row.last_reviewed_at : null),

@@ -1384,6 +1384,9 @@ export default function StatusReviewPage() {
           row.owner.toLowerCase().includes(q) ||
           row.pic.toLowerCase().includes(q) ||
           (row.email ?? '').toLowerCase().includes(q) ||
+          (row.managerName ?? '').toLowerCase().includes(q) ||
+          (row.managerEmail ?? '').toLowerCase().includes(q) ||
+          (row.picDepartmentNama ?? '').toLowerCase().includes(q) ||
           row.status.toLowerCase().includes(q)
         );
       });
